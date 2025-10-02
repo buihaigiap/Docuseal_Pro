@@ -40,7 +40,9 @@ use models::template::Template;
     ),
     tags(
         (name = "auth", description = "Authentication endpoints"),
-        (name = "templates", description = "Template management endpoints")
+        (name = "templates", description = "Template management endpoints"),
+        (name = "submissions", description = "Document submission endpoints"),
+        (name = "submitters", description = "Submitter management endpoints")
     )
 )]
 struct ApiDoc;

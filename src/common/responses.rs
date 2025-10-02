@@ -70,6 +70,20 @@ impl<T> ApiResponse<T> {
         )
     }
 
+    /// 403 Forbidden - Access denied
+    pub fn forbidden(error: String) -> (StatusCode, Json<ApiResponse<T>>) {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ApiResponse {
+                success: false,
+                status_code: 403,
+                message: "Forbidden".to_string(),
+                data: None,
+                error: Some(error),
+            }),
+        )
+    }
+
     /// 404 Not Found - Resource not found
     pub fn not_found(error: String) -> (StatusCode, Json<ApiResponse<T>>) {
         (

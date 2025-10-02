@@ -20,6 +20,8 @@ use crate::common::jwt::generate_jwt;
 pub type AppState = Arc<Mutex<DbPool>>;
 
 use crate::routes::templates;
+use crate::routes::submissions;
+use crate::routes::submitters;
 use crate::common::jwt::auth_middleware;
 
 pub fn create_router() -> Router<AppState> {
@@ -27,12 +29,18 @@ pub fn create_router() -> Router<AppState> {
     let api_routes = Router::new()
         .route("/auth/register", post(register_handler))
         .route("/auth/login", post(login_handler))
-        .merge(templates::create_template_router());
+        .merge(templates::create_template_router())
+        .merge(submissions::create_submission_router())
+        .merge(submitters::create_submitter_router());
 
     // Combine API routes with other routes
     Router::new()
         .nest("/api", api_routes)
         .route("/health", get(health_check))
+        .route("/test", get(|| async { "Test route works" }))
+        .route("/public/submissions/:token", get(submitters::get_public_submission))
+        .route("/public/signatures/positions/:token", post(submitters::submit_public_signature_position))
+        .route("/public/signatures/:token", post(submitters::submit_public_signature))
 }
 
 #[utoipa::path(

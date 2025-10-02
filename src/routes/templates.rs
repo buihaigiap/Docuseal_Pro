@@ -258,7 +258,7 @@ pub async fn create_template_from_html(
         name: payload.name.clone(),
         slug: slug.clone(),
         user_id: user_id,
-        fields: None, // TODO: Extract fields from HTML
+        fields: payload.fields.map(|f| serde_json::to_value(f).unwrap_or(serde_json::Value::Null)),
         submitters: payload.submitters.map(|s| serde_json::to_value(s).unwrap_or(serde_json::Value::Null)),
         documents: Some(serde_json::json!([{
             "filename": filename,
@@ -495,7 +495,7 @@ async fn create_template_without_storage(
         name: payload.name.clone(),
         slug: slug.clone(),
         user_id: user_id,
-        fields: None, // TODO: Extract fields from HTML
+        fields: payload.fields.map(|f| serde_json::to_value(f).unwrap_or(serde_json::Value::Null)),
         submitters: payload.submitters.map(|s| serde_json::to_value(s).unwrap_or(serde_json::Value::Null)),
         documents: Some(serde_json::json!([{
             "filename": format!("{}.html", payload.name.to_lowercase().replace(" ", "_")),
@@ -517,7 +517,7 @@ async fn create_template_without_storage(
 }
 
 // Helper function to convert database template to API template
-fn convert_db_template_to_template(db_template: crate::database::models::DbTemplate) -> Template {
+pub fn convert_db_template_to_template(db_template: crate::database::models::DbTemplate) -> Template {
     Template {
         id: db_template.id,
         name: db_template.name,
