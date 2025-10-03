@@ -42,7 +42,6 @@ pub struct CreateTemplate {
     pub slug: String,
     pub user_id: i64,
     pub fields: Option<serde_json::Value>,
-    pub submitters: Option<serde_json::Value>,
     pub documents: Option<serde_json::Value>,
 }
 
@@ -54,7 +53,6 @@ pub struct DbSubmission {
     pub user_id: i64,
     pub status: String,
     pub documents: Option<serde_json::Value>,
-    pub submitters: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub expires_at: Option<DateTime<Utc>>,
@@ -67,7 +65,6 @@ pub struct CreateSubmission {
     pub user_id: i64,
     pub status: String,
     pub documents: Option<serde_json::Value>,
-    pub submitters: Option<serde_json::Value>,
     pub expires_at: Option<DateTime<Utc>>,
 }
 
@@ -108,6 +105,12 @@ pub struct DbSignaturePosition {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    pub signature_value: Option<String>,
+    pub signed_at: Option<DateTime<Utc>>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub version: i32,
+    pub is_active: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -116,7 +119,7 @@ pub struct DbSignaturePosition {
 pub struct DbSignatureData {
     pub id: i64,
     pub submitter_id: i64,
-    pub signature_image: String,
+    pub signature_value: Option<String>,
     pub signed_at: DateTime<Utc>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,

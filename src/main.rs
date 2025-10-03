@@ -25,6 +25,7 @@ use models::template::Template;
         routes::web::login_handler,
         routes::templates::get_templates,
         routes::templates::get_template,
+        routes::templates::get_template_full_info,
         routes::templates::update_template,
         routes::templates::delete_template,
         routes::templates::clone_template,
@@ -33,10 +34,20 @@ use models::template::Template;
         routes::templates::create_template_from_docx,
         routes::templates::merge_templates,
         routes::templates::download_file,
-        routes::templates::preview_file
+        routes::templates::preview_file,
+        routes::templates::get_template_signature_history,
+        routes::submissions::get_submissions,
+        routes::submissions::create_submission,
+        routes::submissions::get_submission,
+        routes::submissions::update_submission,
+        routes::submissions::delete_submission,
+        routes::submitters::get_public_submission,
+        routes::submitters::update_public_submitter,
+        routes::submitters::submit_public_signature_position,
+        routes::submitters::get_signature_history
     ),
     components(
-        schemas(common::requests::RegisterRequest, common::requests::LoginRequest, common::responses::ApiResponse<User>, common::responses::ApiResponse<common::responses::LoginResponse>, common::responses::ApiResponse<Vec<Template>>, common::responses::ApiResponse<Template>)
+        schemas(common::requests::RegisterRequest, common::requests::LoginRequest, common::responses::ApiResponse<User>, common::responses::ApiResponse<common::responses::LoginResponse>, common::responses::ApiResponse<Vec<Template>>, common::responses::ApiResponse<Template>, common::responses::ApiResponse<models::submission::Submission>, common::responses::ApiResponse<Vec<models::submission::Submission>>, common::responses::ApiResponse<models::submitter::Submitter>, routes::templates::TemplateSignatureHistory)
     ),
     tags(
         (name = "auth", description = "Authentication endpoints"),
@@ -66,8 +77,7 @@ async fn main() {
 
     // Initialize database connection
     let pool = establish_connection().await.expect("Failed to connect to database");
-    // Skip migrations for now - tables will be created manually
-    // run_migrations(&pool).await.expect("Failed to run database migrations");
+    run_migrations(&pool).await.expect("Failed to run database migrations");
 
     // Initialize services
     let app_state: AppState = Arc::new(Mutex::new(pool));
@@ -110,4 +120,9 @@ async fn main() {
     println!("API Base URL: http://{}/api", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn run_migrations(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    sqlx::migrate!().run(pool).await?;
+    Ok(())
 }

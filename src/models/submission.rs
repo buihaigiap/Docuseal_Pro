@@ -27,10 +27,13 @@ pub struct Document {
     pub created_at: DateTime<Utc>,
 }
 
+use crate::models::submitter::CreateSubmitterRequest;
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateSubmissionRequest {
     pub template_id: i64,
-    pub submitters: Vec<Submitter>,
+    pub name: Option<String>,
+    pub submitters: Vec<CreateSubmitterRequest>,
     pub expires_at: Option<DateTime<Utc>>,
 }
 

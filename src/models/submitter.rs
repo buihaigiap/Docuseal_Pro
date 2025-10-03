@@ -21,3 +21,14 @@ pub struct UpdateSubmitterRequest {
     pub status: Option<String>,
     pub fields_data: Option<serde_json::Value>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PublicUpdateSubmitterRequest {
+    pub fields_data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateSubmitterRequest {
+    pub name: String,
+    pub email: String,
+}

@@ -72,7 +72,6 @@ pub struct CreateTemplateRequest {
 pub struct UpdateTemplateRequest {
     pub name: Option<String>,
     pub fields: Option<Vec<Field>>,
-    pub submitters: Option<Vec<Submitter>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

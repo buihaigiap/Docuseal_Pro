@@ -26,13 +26,136 @@ use crate::common::jwt::auth_middleware;
 
 pub type AppState = Arc<Mutex<DbPool>>;
 
+#[utoipa::path(
+    get,
+    path = "/api/templates/{id}/full-info",
+    params(
+        ("id" = i64, Path, description = "Template ID")
+    ),
+    responses(
+        (status = 200, description = "Template full information retrieved successfully", body = ApiResponse<serde_json::Value>),
+        (status = 404, description = "Template not found", body = ApiResponse<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = ApiResponse<serde_json::Value>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "templates"
+)]
+pub async fn get_template_full_info(
+    State(state): State<AppState>,
+    Path(template_id): Path<i64>,
+    Extension(user_id): Extension<i64>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let pool = &*state.lock().await;
+
+    // Verify template belongs to user
+    match TemplateQueries::get_template_by_id(pool, template_id).await {
+        Ok(Some(db_template)) => {
+            if db_template.user_id != user_id {
+                return ApiResponse::forbidden("Access denied".to_string());
+            }
+
+            // Convert template to API model
+            let template = convert_db_template_to_template(db_template.clone());
+
+            // Get all submissions for this template
+            match crate::database::queries::SubmissionQueries::get_submissions_by_template(pool, template_id).await {
+                Ok(db_submissions) => {
+                    let mut submissions = Vec::new();
+
+                    for db_submission in &db_submissions {
+                        // Get all submitters for this submission
+                        let submitters = match crate::database::queries::SubmitterQueries::get_submitters_by_submission(pool, db_submission.id).await {
+                            Ok(submitters) => {
+                                submitters.into_iter().map(|db_sub| crate::models::submitter::Submitter {
+                                    id: Some(db_sub.id),
+                                    submission_id: Some(db_sub.submission_id),
+                                    name: db_sub.name,
+                                    email: db_sub.email,
+                                    status: db_sub.status,
+                                    signed_at: db_sub.signed_at,
+                                    token: db_sub.token,
+                                    fields_data: db_sub.fields_data,
+                                    created_at: db_sub.created_at,
+                                    updated_at: db_sub.updated_at,
+                                }).collect::<Vec<_>>()
+                            }
+                            Err(_) => Vec::new(),
+                        };
+
+                        // Convert submission to API model
+                        let submission = crate::models::submission::Submission {
+                            id: db_submission.id,
+                            template_id: db_submission.template_id,
+                            user_id: db_submission.user_id,
+                            status: db_submission.status.clone(),
+                            documents: None, // TODO: implement documents
+                            submitters: Some(submitters),
+                            created_at: db_submission.created_at,
+                            updated_at: db_submission.updated_at,
+                            expires_at: db_submission.expires_at,
+                        };
+
+                        submissions.push(submission);
+                    }
+
+                    // Get all signature positions for all submitters of this template
+                    let mut all_signature_positions = Vec::new();
+                    for db_submission in &db_submissions {
+                        if let Ok(submitters) = crate::database::queries::SubmitterQueries::get_submitters_by_submission(pool, db_submission.id).await {
+                            for db_submitter in submitters {
+                                if let Ok(positions) = crate::database::queries::SignatureQueries::get_signature_positions_by_submitter(pool, db_submitter.id).await {
+                                    for db_pos in positions {
+                                        let position = crate::models::signature::SignaturePosition {
+                                            id: Some(db_pos.id),
+                                            submitter_id: db_pos.submitter_id,
+                                            field_name: db_pos.field_name,
+                                            page: db_pos.page,
+                                            x: db_pos.x,
+                                            y: db_pos.y,
+                                            width: db_pos.width,
+                                            height: db_pos.height,
+                                            signature_value: db_pos.signature_value,
+                                            signed_at: db_pos.signed_at,
+                                            ip_address: db_pos.ip_address,
+                                            user_agent: db_pos.user_agent,
+                                            version: db_pos.version,
+                                            is_active: db_pos.is_active,
+                                            created_at: db_pos.created_at,
+                                        };
+                                        all_signature_positions.push(position);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    let data = serde_json::json!({
+                        "template": template,
+                        "submissions": submissions,
+                        "signature_positions": all_signature_positions,
+                        "total_submissions": submissions.len(),
+                        "completed_submissions": submissions.iter().filter(|s| s.status == "completed").count()
+                    });
+
+                    ApiResponse::success(data, "Template full information retrieved successfully".to_string())
+                }
+                Err(e) => ApiResponse::internal_error(format!("Failed to get submissions: {}", e)),
+            }
+        }
+        Ok(None) => ApiResponse::not_found("Template not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to retrieve template: {}", e)),
+    }
+}
+
 pub fn create_template_router() -> Router<AppState> {
     Router::new()
         .route("/templates", get(get_templates))
         .route("/templates/:id", get(get_template))
+        .route("/templates/:id/full-info", get(get_template_full_info))
         .route("/templates/:id", put(update_template))
         .route("/templates/:id", delete(delete_template))
         .route("/templates/:id/clone", post(clone_template))
+        .route("/templates/:id/signatures/history", get(get_template_signature_history))
         .route("/templates/html", post(create_template_from_html))
         .route("/templates/pdf", post(create_template_from_pdf))
         .route("/templates/docx", post(create_template_from_docx))
@@ -127,11 +250,10 @@ pub async fn update_template(
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
     let pool = &*state.lock().await;
 
-    // Convert fields and submitters to JSON values
+    // Convert fields to JSON values
     let fields_json = payload.fields.as_ref().map(|f| serde_json::to_value(f).unwrap_or(serde_json::Value::Null));
-    let submitters_json = payload.submitters.as_ref().map(|s| serde_json::to_value(s).unwrap_or(serde_json::Value::Null));
 
-    match TemplateQueries::update_template(pool, id, user_id, payload.name.as_deref(), fields_json.as_ref(), submitters_json.as_ref()).await {
+    match TemplateQueries::update_template(pool, id, user_id, payload.name.as_deref(), fields_json.as_ref()).await {
         Ok(Some(db_template)) => {
             let template = convert_db_template_to_template(db_template);
             ApiResponse::success(template, "Template updated successfully".to_string())
@@ -259,13 +381,7 @@ pub async fn create_template_from_html(
         slug: slug.clone(),
         user_id: user_id,
         fields: payload.fields.map(|f| serde_json::to_value(f).unwrap_or(serde_json::Value::Null)),
-        submitters: payload.submitters.map(|s| serde_json::to_value(s).unwrap_or(serde_json::Value::Null)),
-        documents: Some(serde_json::json!([{
-            "filename": filename,
-            "content_type": "text/html",
-            "size": payload.html.len(),
-            "url": file_key
-        }])),
+        documents: None, // Skip documents for now
     };
 
     match TemplateQueries::create_template(pool, create_template).await {
@@ -349,7 +465,6 @@ pub async fn create_template_from_pdf(
         slug: slug.clone(),
         user_id: user_id,
         fields: None, // TODO: Extract fields from PDF
-        submitters: None,
         documents: Some(serde_json::json!([{
             "filename": filename,
             "content_type": "application/pdf",
@@ -439,7 +554,6 @@ pub async fn create_template_from_docx(
         slug: slug.clone(),
         user_id: user_id,
         fields: None, // TODO: Extract fields from DOCX
-        submitters: None,
         documents: Some(serde_json::json!([{
             "filename": filename,
             "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -496,13 +610,7 @@ async fn create_template_without_storage(
         slug: slug.clone(),
         user_id: user_id,
         fields: payload.fields.map(|f| serde_json::to_value(f).unwrap_or(serde_json::Value::Null)),
-        submitters: payload.submitters.map(|s| serde_json::to_value(s).unwrap_or(serde_json::Value::Null)),
-        documents: Some(serde_json::json!([{
-            "filename": format!("{}.html", payload.name.to_lowercase().replace(" ", "_")),
-            "content_type": "text/html",
-            "size": payload.html.len(),
-            "url": "local-storage" // Placeholder URL
-        }])),
+        documents: None, // Skip documents for now
     };
 
     match TemplateQueries::create_template(pool, create_template).await {
@@ -639,5 +747,103 @@ pub async fn preview_file(
             let (status, json_resp) = ApiResponse::<()>::bad_request("Cannot preview binary file. Use download endpoint instead.".to_string());
             Err((status, json_resp))
         }
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct TemplateSignatureHistory {
+    pub submitter_id: i64,
+    pub submitter_name: String,
+    pub submitter_email: String,
+    pub field_name: String,
+    pub signatures: Vec<crate::models::signature::SignaturePosition>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/templates/{id}/signatures/history",
+    tag = "templates",
+    params(
+        ("id" = i64, Path, description = "Template ID")
+    ),
+    responses(
+        (status = 200, description = "Template signature history retrieved successfully", body = ApiResponse<Vec<TemplateSignatureHistory>>),
+        (status = 404, description = "Template not found", body = ApiResponse<Vec<TemplateSignatureHistory>>)
+    ),
+    security(("bearer_auth" = []))
+)]
+pub async fn get_template_signature_history(
+    State(state): State<AppState>,
+    Extension(user_id): Extension<i64>,
+    Path(template_id): Path<i64>,
+) -> (StatusCode, Json<ApiResponse<Vec<TemplateSignatureHistory>>>) {
+    let pool = &*state.lock().await;
+
+    // Verify template belongs to user
+    match TemplateQueries::get_template_by_id(pool, template_id).await {
+        Ok(Some(db_template)) => {
+            if db_template.user_id != user_id {
+                return ApiResponse::forbidden("Access denied".to_string());
+            }
+
+            // Get all submissions for this template
+            match crate::database::queries::SubmissionQueries::get_submissions_by_template(pool, template_id).await {
+                Ok(db_submissions) => {
+                    let mut history = Vec::new();
+
+                    for db_submission in db_submissions {
+                        // Get submitters for this submission
+                        if let Ok(submitters) = crate::database::queries::SubmitterQueries::get_submitters_by_submission(pool, db_submission.id).await {
+                            for db_submitter in submitters {
+                                // Get all signature positions for this submitter
+                                if let Ok(signature_positions) = crate::database::queries::SignatureQueries::get_signature_positions_by_submitter(pool, db_submitter.id).await {
+                                    // Group by field_name
+                                    let mut field_groups: std::collections::HashMap<String, Vec<crate::models::signature::SignaturePosition>> = std::collections::HashMap::new();
+
+                                    for db_pos in signature_positions {
+                                        let position = crate::models::signature::SignaturePosition {
+                                            id: Some(db_pos.id),
+                                            submitter_id: db_pos.submitter_id,
+                                            field_name: db_pos.field_name.clone(),
+                                            page: db_pos.page,
+                                            x: db_pos.x,
+                                            y: db_pos.y,
+                                            width: db_pos.width,
+                                            height: db_pos.height,
+                                            signature_value: db_pos.signature_value,
+                                            signed_at: db_pos.signed_at,
+                                            ip_address: db_pos.ip_address,
+                                            user_agent: db_pos.user_agent,
+                                            version: db_pos.version,
+                                            is_active: db_pos.is_active,
+                                            created_at: db_pos.created_at,
+                                        };
+
+                                        field_groups.entry(db_pos.field_name.clone())
+                                            .or_insert_with(Vec::new)
+                                            .push(position);
+                                    }
+
+                                    // Create history entries for each field
+                                    for (field_name, signatures) in field_groups {
+                                        history.push(TemplateSignatureHistory {
+                                            submitter_id: db_submitter.id,
+                                            submitter_name: db_submitter.name.clone(),
+                                            submitter_email: db_submitter.email.clone(),
+                                            field_name,
+                                            signatures,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    ApiResponse::success(history, "Template signature history retrieved successfully".to_string())
+                }
+                Err(e) => ApiResponse::internal_error(format!("Failed to get submissions: {}", e)),
+            }
+        }
+        _ => ApiResponse::not_found("Template not found".to_string()),
     }
 }

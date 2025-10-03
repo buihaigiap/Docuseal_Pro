@@ -22,3 +22,4 @@ aws-sdk-s3 = "1.0"
 aws-config = "1.0"
 futures = "0.3"
 axum-extra = { version = "0.9", features = ["multipart"] }
+lettre = { version = "0.11", features = ["tokio1-native-tls"] }

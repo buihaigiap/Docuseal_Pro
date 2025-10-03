@@ -21,12 +21,14 @@ use crate::database::models::{CreateSubmission, CreateSubmitter};
 use crate::database::queries::{SubmissionQueries, SubmitterQueries, TemplateQueries};
 use crate::routes::templates::convert_db_template_to_template;
 use crate::common::jwt::auth_middleware;
+use crate::services::email::EmailService;
 
 pub type AppState = Arc<Mutex<DbPool>>;
 
 #[utoipa::path(
     get,
     path = "/api/submissions",
+    tag = "submissions",
     responses(
         (status = 200, description = "List all submissions", body = ApiResponse<Vec<Submission>>),
         (status = 500, description = "Internal server error", body = ApiResponse<Vec<Submission>>)
@@ -47,6 +49,25 @@ pub async fn get_submissions(
                 if let Ok(Some(db_template)) = TemplateQueries::get_template_by_id(pool, db_sub.template_id).await {
                     let template = convert_db_template_to_template(db_template);
                     
+                    // Get submitters for this submission
+                    let submitters = match SubmitterQueries::get_submitters_by_submission(pool, db_sub.id).await {
+                        Ok(submitters) => Some(submitters.into_iter().map(|db_submitter| {
+                            Submitter {
+                                id: Some(db_submitter.id),
+                                submission_id: Some(db_submitter.submission_id),
+                                name: db_submitter.name,
+                                email: db_submitter.email,
+                                status: db_submitter.status,
+                                signed_at: db_submitter.signed_at,
+                                token: db_submitter.token,
+                                fields_data: db_submitter.fields_data,
+                                created_at: db_submitter.created_at,
+                                updated_at: db_submitter.updated_at,
+                            }
+                        }).collect::<Vec<_>>()),
+                        Err(_) => None,
+                    };
+
                     // Convert to API model
                     let submission = Submission {
                         id: db_sub.id,
@@ -54,7 +75,7 @@ pub async fn get_submissions(
                         user_id: db_sub.user_id,
                         status: db_sub.status,
                         documents: None, // TODO: implement documents
-                        submitters: db_sub.submitters.map(|s| serde_json::from_value(s).unwrap_or_default()),
+                        submitters: submitters,
                         created_at: db_sub.created_at,
                         updated_at: db_sub.updated_at,
                         expires_at: db_sub.expires_at,
@@ -71,6 +92,7 @@ pub async fn get_submissions(
 #[utoipa::path(
     post,
     path = "/api/submissions",
+    tag = "submissions",
     request_body = CreateSubmissionRequest,
     responses(
         (status = 201, description = "Submission created successfully", body = ApiResponse<Submission>),
@@ -84,6 +106,7 @@ pub async fn create_submission(
     Extension(user_id): Extension<i64>,
     Json(payload): Json<CreateSubmissionRequest>,
 ) -> (StatusCode, Json<ApiResponse<Submission>>) {
+    
     let pool = &*state.lock().await;
 
     // Check if template exists
@@ -97,7 +120,6 @@ pub async fn create_submission(
                 user_id: user_id,
                 status: "pending".to_string(),
                 documents: None,
-                submitters: Some(submitters_json),
                 expires_at: payload.expires_at,
             };
 
@@ -142,11 +164,36 @@ pub async fn create_submission(
                         user_id: db_sub.user_id,
                         status: db_sub.status,
                         documents: None,
-                        submitters: Some(submitters),
+                        submitters: Some(submitters.clone()),
                         created_at: db_sub.created_at,
                         updated_at: db_sub.updated_at,
                         expires_at: db_sub.expires_at,
                     };
+
+                    // Send email notifications to submitters
+                    let email_service = match EmailService::new() {
+                        Ok(service) => Some(service),
+                        Err(e) => {
+                            eprintln!("Failed to initialize email service: {}", e);
+                            None
+                        }
+                    };
+
+                    if let Some(email_service) = email_service {
+                        let submission_name = payload.name.clone().unwrap_or_else(|| format!("Submission #{}", db_sub.id));
+                        for submitter in &submitters {
+                            let signature_link = format!("http://localhost:8080/public/submitters/{}", submitter.token);
+                            if let Err(e) = email_service.send_signature_request(
+                                &submitter.email,
+                                &submitter.name,
+                                &submission_name,
+                                &signature_link,
+                            ).await {
+                                eprintln!("Failed to send email to {}: {}", submitter.email, e);
+                            }
+                        }
+                    }
+
                     ApiResponse::success(submission, "Submission created successfully".to_string())
                 }
                 Err(e) => ApiResponse::internal_error(format!("Failed to create submission: {}", e)),
@@ -159,6 +206,7 @@ pub async fn create_submission(
 #[utoipa::path(
     get,
     path = "/api/submissions/{id}",
+    tag = "submissions",
     params(
         ("id" = i64, Path, description = "Submission ID")
     ),
@@ -215,6 +263,7 @@ pub async fn get_submission(
 #[utoipa::path(
     put,
     path = "/api/submissions/{id}",
+    tag = "submissions",
     params(
         ("id" = i64, Path, description = "Submission ID")
     ),
@@ -235,15 +284,34 @@ pub async fn update_submission(
 
     let submitters_json = payload.submitters.as_ref().map(|s| serde_json::to_value(s).unwrap_or(serde_json::Value::Null));
 
-    match SubmissionQueries::update_submission(pool, submission_id, user_id, payload.status.as_deref(), submitters_json.as_ref()).await {
+    match SubmissionQueries::update_submission(pool, submission_id, user_id, payload.status.as_deref()).await {
         Ok(Some(db_sub)) => {
+            // Get submitters for this submission
+            let submitters = match SubmitterQueries::get_submitters_by_submission(pool, db_sub.id).await {
+                Ok(submitters) => Some(submitters.into_iter().map(|db_submitter| {
+                    Submitter {
+                        id: Some(db_submitter.id),
+                        submission_id: Some(db_submitter.submission_id),
+                        name: db_submitter.name,
+                        email: db_submitter.email,
+                        status: db_submitter.status,
+                        signed_at: db_submitter.signed_at,
+                        token: db_submitter.token,
+                        fields_data: db_submitter.fields_data,
+                        created_at: db_submitter.created_at,
+                        updated_at: db_submitter.updated_at,
+                    }
+                }).collect::<Vec<_>>()),
+                Err(_) => None,
+            };
+
             let submission = Submission {
                 id: db_sub.id,
                 template_id: db_sub.template_id,
                 user_id: db_sub.user_id,
                 status: db_sub.status,
                 documents: None,
-                submitters: db_sub.submitters.map(|s| serde_json::from_value(s).unwrap_or_default()),
+                submitters: submitters,
                 created_at: db_sub.created_at,
                 updated_at: db_sub.updated_at,
                 expires_at: db_sub.expires_at,
@@ -258,6 +326,7 @@ pub async fn update_submission(
 #[utoipa::path(
     delete,
     path = "/api/submissions/{id}",
+    tag = "submissions",
     params(
         ("id" = i64, Path, description = "Submission ID")
     ),

@@ -2,7 +2,7 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::Json,
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 use std::sync::Arc;
@@ -31,7 +31,7 @@ pub fn create_router() -> Router<AppState> {
         .route("/auth/login", post(login_handler))
         .merge(templates::create_template_router())
         .merge(submissions::create_submission_router())
-        .merge(submitters::create_submitter_router());
+    .merge(submitters::create_submitter_router());
 
     // Combine API routes with other routes
     Router::new()
@@ -39,8 +39,9 @@ pub fn create_router() -> Router<AppState> {
         .route("/health", get(health_check))
         .route("/test", get(|| async { "Test route works" }))
         .route("/public/submissions/:token", get(submitters::get_public_submission))
+        .route("/public/submitters/:token", put(submitters::update_public_submitter))
         .route("/public/signatures/positions/:token", post(submitters::submit_public_signature_position))
-        .route("/public/signatures/:token", post(submitters::submit_public_signature))
+        .route("/public/signatures/history/:token", get(submitters::get_signature_history))
 }
 
 #[utoipa::path(

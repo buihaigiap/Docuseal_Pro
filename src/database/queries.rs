@@ -65,38 +65,34 @@ impl TemplateQueries {
 
         let row = sqlx::query(
             r#"
-            INSERT INTO templates (name, slug, user_id, fields, submitters, documents, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING id, name, slug, user_id, fields, submitters, documents, created_at, updated_at
+            INSERT INTO templates (name, slug, user_id, fields)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, name, slug, user_id, fields, created_at, updated_at
             "#
         )
         .bind(&template_data.name)
         .bind(&template_data.slug)
         .bind(&template_data.user_id)
         .bind(&template_data.fields)
-        .bind(&template_data.submitters)
-        .bind(&template_data.documents)
-        .bind(now)
-        .bind(now)
         .fetch_one(pool)
         .await?;
 
         Ok(DbTemplate {
-            id: row.try_get("id")?,
-            name: row.try_get("name")?,
-            slug: row.try_get("slug")?,
-            user_id: row.try_get("user_id")?,
-            fields: row.try_get("fields")?,
-            submitters: row.try_get("submitters")?,
-            documents: row.try_get("documents")?,
-            created_at: row.try_get("created_at")?,
-            updated_at: row.try_get("updated_at")?,
+            id: row.get(0),
+            name: row.get(1),
+            slug: row.get(2),
+            user_id: row.get(3),
+            fields: row.get(4),
+            submitters: None, // No longer stored in templates
+            documents: None, // Not inserted
+            created_at: row.get(5),
+            updated_at: row.get(6),
         })
     }
 
     pub async fn get_template_by_id(pool: &PgPool, id: i64) -> Result<Option<DbTemplate>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, slug, user_id, fields, submitters, documents, created_at, updated_at FROM templates WHERE id = $1"
+            "SELECT id, name, slug, user_id, fields, documents, created_at, updated_at FROM templates WHERE id = $1"
         )
         .bind(id)
         .fetch_optional(pool)
@@ -109,7 +105,7 @@ impl TemplateQueries {
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
                 fields: row.try_get("fields")?,
-                submitters: row.try_get("submitters")?,
+                submitters: None, // No longer stored in templates
                 documents: row.try_get("documents")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
@@ -120,7 +116,7 @@ impl TemplateQueries {
 
     pub async fn get_template_by_slug(pool: &PgPool, slug: &str) -> Result<Option<DbTemplate>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, slug, user_id, fields, submitters, documents, created_at, updated_at FROM templates WHERE slug = $1"
+            "SELECT id, name, slug, user_id, fields, documents, created_at, updated_at FROM templates WHERE slug = $1"
         )
         .bind(slug)
         .fetch_optional(pool)
@@ -133,7 +129,7 @@ impl TemplateQueries {
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
                 fields: row.try_get("fields")?,
-                submitters: row.try_get("submitters")?,
+                submitters: None, // No longer stored in templates
                 documents: row.try_get("documents")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
@@ -144,7 +140,7 @@ impl TemplateQueries {
 
     pub async fn get_all_templates(pool: &PgPool, user_id: i64) -> Result<Vec<DbTemplate>, sqlx::Error> {
         let rows = sqlx::query(
-            "SELECT id, name, slug, user_id, fields, submitters, documents, created_at, updated_at FROM templates WHERE user_id = $1 ORDER BY created_at DESC "
+            "SELECT id, name, slug, user_id, fields, documents, created_at, updated_at FROM templates WHERE user_id = $1 ORDER BY created_at DESC "
         )
         .bind(user_id)
         .fetch_all(pool)
@@ -158,7 +154,7 @@ impl TemplateQueries {
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
                 fields: row.try_get("fields")?,
-                submitters: row.try_get("submitters")?,
+                submitters: None, // No longer stored in templates
                 documents: row.try_get("documents")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
@@ -167,7 +163,7 @@ impl TemplateQueries {
         Ok(templates)
     }
 
-    pub async fn update_template(pool: &PgPool, id: i64, user_id: i64, name: Option<&str>, fields: Option<&serde_json::Value>, submitters: Option<&serde_json::Value>) -> Result<Option<DbTemplate>, sqlx::Error> {
+    pub async fn update_template(pool: &PgPool, id: i64, user_id: i64, name: Option<&str>, fields: Option<&serde_json::Value>) -> Result<Option<DbTemplate>, sqlx::Error> {
         let now = Utc::now();
 
         let row = sqlx::query(
@@ -175,17 +171,15 @@ impl TemplateQueries {
             UPDATE templates
             SET name = COALESCE($3, name),
                 fields = COALESCE($4, fields),
-                submitters = COALESCE($5, submitters),
-                updated_at = $6
+                updated_at = $5
             WHERE id = $1 AND user_id = $2
-            RETURNING id, name, slug, user_id, fields, submitters, documents, created_at, updated_at
+            RETURNING id, name, slug, user_id, fields, documents, created_at, updated_at
             "#
         )
         .bind(id)
         .bind(user_id)
         .bind(name)
         .bind(fields)
-        .bind(submitters)
         .bind(now)
         .fetch_optional(pool)
         .await?;
@@ -197,7 +191,7 @@ impl TemplateQueries {
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
                 fields: row.try_get("fields")?,
-                submitters: row.try_get("submitters")?,
+                submitters: None, // No longer stored in templates
                 documents: row.try_get("documents")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
@@ -230,7 +224,6 @@ impl TemplateQueries {
                 slug: new_slug.to_string(),
                 user_id: user_id,
                 fields: original.fields,
-                submitters: original.submitters,
                 documents: original.documents,
             };
 
@@ -247,15 +240,14 @@ impl SubmissionQueries {
     pub async fn create_submission(pool: &PgPool, submission_data: CreateSubmission) -> Result<DbSubmission, sqlx::Error> {
         let now = Utc::now();
         let row = sqlx::query(
-            "INSERT INTO submissions (template_id, user_id, status, documents, submitters, created_at, updated_at, expires_at) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-             RETURNING id, template_id, user_id, status, documents, submitters, created_at, updated_at, expires_at "
+            "INSERT INTO submissions (template_id, user_id, status, documents, created_at, updated_at, expires_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7) 
+             RETURNING id, template_id, user_id, status, documents, created_at, updated_at, expires_at "
         )
         .bind(submission_data.template_id)
         .bind(submission_data.user_id)
         .bind(submission_data.status)
         .bind(submission_data.documents)
-        .bind(submission_data.submitters)
         .bind(now)
         .bind(now)
         .bind(submission_data.expires_at)
@@ -268,16 +260,15 @@ impl SubmissionQueries {
             user_id: row.get(2),
             status: row.get(3),
             documents: row.get(4),
-            submitters: row.get(5),
-            created_at: row.get(6),
-            updated_at: row.get(7),
-            expires_at: row.get(8),
+            created_at: row.get(5),
+            updated_at: row.get(6),
+            expires_at: row.get(7),
         })
     }
 
     pub async fn get_submissions_by_user(pool: &PgPool, user_id: i64) -> Result<Vec<DbSubmission>, sqlx::Error> {
         let rows = sqlx::query(
-            "SELECT id, template_id, user_id, status, documents, submitters, created_at, updated_at, expires_at 
+            "SELECT id, template_id, user_id, status, documents, created_at, updated_at, expires_at 
              FROM submissions WHERE user_id = $1 ORDER BY created_at DESC "
         )
         .bind(user_id)
@@ -292,10 +283,34 @@ impl SubmissionQueries {
                 user_id: row.get(2),
                 status: row.get(3),
                 documents: row.get(4),
-                submitters: row.get(5),
-                created_at: row.get(6),
-                updated_at: row.get(7),
-                expires_at: row.get(8),
+                created_at: row.get(5),
+                updated_at: row.get(6),
+                expires_at: row.get(7),
+            });
+        }
+        Ok(submissions)
+    }
+
+    pub async fn get_submissions_by_template(pool: &PgPool, template_id: i64) -> Result<Vec<DbSubmission>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT id, template_id, user_id, status, documents, created_at, updated_at, expires_at 
+             FROM submissions WHERE template_id = $1 ORDER BY created_at DESC "
+        )
+        .bind(template_id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut submissions = Vec::new();
+        for row in rows {
+            submissions.push(DbSubmission {
+                id: row.get(0),
+                template_id: row.get(1),
+                user_id: row.get(2),
+                status: row.get(3),
+                documents: row.get(4),
+                created_at: row.get(5),
+                updated_at: row.get(6),
+                expires_at: row.get(7),
             });
         }
         Ok(submissions)
@@ -303,7 +318,7 @@ impl SubmissionQueries {
 
     pub async fn get_submission(pool: &PgPool, id: i64, user_id: i64) -> Result<Option<DbSubmission>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, template_id, user_id, status, documents, submitters, created_at, updated_at, expires_at 
+            "SELECT id, template_id, user_id, status, documents, created_at, updated_at, expires_at 
              FROM submissions WHERE id = $1 AND user_id = $2"
         )
         .bind(id)
@@ -318,25 +333,23 @@ impl SubmissionQueries {
                 user_id: row.get(2),
                 status: row.get(3),
                 documents: row.get(4),
-                submitters: row.get(5),
-                created_at: row.get(6),
-                updated_at: row.get(7),
-                expires_at: row.get(8),
+                created_at: row.get(5),
+                updated_at: row.get(6),
+                expires_at: row.get(7),
             }))
         } else {
             Ok(None)
         }
     }
 
-    pub async fn update_submission(pool: &PgPool, id: i64, user_id: i64, status: Option<&str>, submitters: Option<&serde_json::Value>) -> Result<Option<DbSubmission>, sqlx::Error> {
+    pub async fn update_submission(pool: &PgPool, id: i64, user_id: i64, status: Option<&str>) -> Result<Option<DbSubmission>, sqlx::Error> {
         let now = Utc::now();
         let row = sqlx::query(
-            "UPDATE submissions SET status = COALESCE($1, status), submitters = COALESCE($2, submitters), updated_at = $3 
-             WHERE id = $4 AND user_id = $5 
-             RETURNING id, template_id, user_id, status, documents, submitters, created_at, updated_at, expires_at "
+            "UPDATE submissions SET status = COALESCE($1, status), updated_at = $2 
+             WHERE id = $3 AND user_id = $4 
+             RETURNING id, template_id, user_id, status, documents, created_at, updated_at, expires_at "
         )
         .bind(status)
-        .bind(submitters)
         .bind(now)
         .bind(id)
         .bind(user_id)
@@ -350,10 +363,9 @@ impl SubmissionQueries {
                 user_id: row.get(2),
                 status: row.get(3),
                 documents: row.get(4),
-                submitters: row.get(5),
-                created_at: row.get(6),
-                updated_at: row.get(7),
-                expires_at: row.get(8),
+                created_at: row.get(5),
+                updated_at: row.get(6),
+                expires_at: row.get(7),
             }))
         } else {
             Ok(None)
@@ -371,7 +383,7 @@ impl SubmissionQueries {
 
     pub async fn get_submission_by_id(pool: &PgPool, id: i64) -> Result<Option<DbSubmission>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, template_id, user_id, status, documents, submitters, created_at, updated_at, expires_at 
+            "SELECT id, template_id, user_id, status, documents, created_at, updated_at, expires_at 
              FROM submissions WHERE id = $1"
         )
         .bind(id)
@@ -385,10 +397,9 @@ impl SubmissionQueries {
                 user_id: row.get(2),
                 status: row.get(3),
                 documents: row.get(4),
-                submitters: row.get(5),
-                created_at: row.get(6),
-                updated_at: row.get(7),
-                expires_at: row.get(8),
+                created_at: row.get(5),
+                updated_at: row.get(6),
+                expires_at: row.get(7),
             }))
         } else {
             Ok(None)
@@ -558,11 +569,37 @@ impl SignatureQueries {
     ) -> Result<DbSignaturePosition, sqlx::Error> {
         let now = Utc::now();
 
+        // Get the next version for this field
+        let next_version = sqlx::query_scalar::<_, i32>(
+            r#"
+            SELECT COALESCE(MAX(version), 0) + 1
+            FROM signature_positions
+            WHERE submitter_id = $1 AND field_name = $2
+            "#
+        )
+        .bind(position_data.submitter_id)
+        .bind(&position_data.field_name)
+        .fetch_one(pool)
+        .await?;
+
+        // Deactivate previous signatures for this field
+        sqlx::query(
+            r#"
+            UPDATE signature_positions
+            SET is_active = false
+            WHERE submitter_id = $1 AND field_name = $2 AND is_active = true
+            "#
+        )
+        .bind(position_data.submitter_id)
+        .bind(&position_data.field_name)
+        .execute(pool)
+        .await?;
+
         let row = sqlx::query(
             r#"
-            INSERT INTO signature_positions (submitter_id, field_name, page, x, y, width, height, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING id, submitter_id, field_name, page, x, y, width, height, created_at
+            INSERT INTO signature_positions (submitter_id, field_name, page, x, y, width, height, signature_value, signed_at, ip_address, user_agent, version, is_active, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            RETURNING id, submitter_id, field_name, page, x, y, width, height, signature_value, signed_at, ip_address, user_agent, version, is_active, created_at
             "#
         )
         .bind(position_data.submitter_id)
@@ -572,6 +609,12 @@ impl SignatureQueries {
         .bind(position_data.y)
         .bind(position_data.width)
         .bind(position_data.height)
+        .bind(&position_data.signature_value)
+        .bind(now)
+        .bind(&position_data.ip_address)
+        .bind(&position_data.user_agent)
+        .bind(next_version)
+        .bind(true)
         .bind(now)
         .fetch_one(pool)
         .await?;
@@ -585,6 +628,12 @@ impl SignatureQueries {
             y: row.try_get("y")?,
             width: row.try_get("width")?,
             height: row.try_get("height")?,
+            signature_value: row.try_get("signature_value")?,
+            signed_at: row.try_get("signed_at")?,
+            ip_address: row.try_get("ip_address")?,
+            user_agent: row.try_get("user_agent")?,
+            version: row.try_get("version")?,
+            is_active: row.try_get("is_active")?,
             created_at: row.try_get("created_at")?,
         })
     }
@@ -597,13 +646,13 @@ impl SignatureQueries {
 
         let row = sqlx::query(
             r#"
-            INSERT INTO signature_data (submitter_id, signature_image, signed_at, ip_address, user_agent)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, submitter_id, signature_image, signed_at, ip_address, user_agent
+            INSERT INTO signature_data (submitter_id, signature_image, signature_value, signed_at, ip_address, user_agent)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, submitter_id, signature_value, signed_at, ip_address, user_agent
             "#
         )
         .bind(signature_data.submitter_id)
-        .bind(&signature_data.signature_image)
+        .bind(&signature_data.signature_value)
         .bind(now)
         .bind(&signature_data.ip_address)
         .bind(&signature_data.user_agent)
@@ -613,7 +662,7 @@ impl SignatureQueries {
         Ok(DbSignatureData {
             id: row.try_get("id")?,
             submitter_id: row.try_get("submitter_id")?,
-            signature_image: row.try_get("signature_image")?,
+            signature_value: row.try_get("signature_value")?,
             signed_at: row.try_get("signed_at")?,
             ip_address: row.try_get("ip_address")?,
             user_agent: row.try_get("user_agent")?,
@@ -626,10 +675,10 @@ impl SignatureQueries {
     ) -> Result<Vec<DbSignaturePosition>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, submitter_id, field_name, page, x, y, width, height, created_at
+            SELECT id, submitter_id, field_name, page, x, y, width, height, signature_value, signed_at, ip_address, user_agent, version, is_active, created_at
             FROM signature_positions
             WHERE submitter_id = $1
-            ORDER BY created_at
+            ORDER BY field_name, version DESC
             "#
         )
         .bind(submitter_id)
@@ -647,11 +696,101 @@ impl SignatureQueries {
                 y: row.try_get("y")?,
                 width: row.try_get("width")?,
                 height: row.try_get("height")?,
+                signature_value: row.try_get("signature_value")?,
+                signed_at: row.try_get("signed_at")?,
+                ip_address: row.try_get("ip_address")?,
+                user_agent: row.try_get("user_agent")?,
+                version: row.try_get("version")?,
+                is_active: row.try_get("is_active")?,
                 created_at: row.try_get("created_at")?,
             });
         }
 
         Ok(positions)
+    }
+
+    pub async fn get_signature_history_by_field(
+        pool: &PgPool,
+        submitter_id: i64,
+        field_name: &str,
+    ) -> Result<Vec<DbSignaturePosition>, sqlx::Error> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, submitter_id, field_name, page, x, y, width, height, signature_value, signed_at, ip_address, user_agent, version, is_active, created_at
+            FROM signature_positions
+            WHERE submitter_id = $1 AND field_name = $2
+            ORDER BY version DESC
+            "#
+        )
+        .bind(submitter_id)
+        .bind(field_name)
+        .fetch_all(pool)
+        .await?;
+
+        let mut positions = Vec::new();
+        for row in rows {
+            positions.push(DbSignaturePosition {
+                id: row.try_get("id")?,
+                submitter_id: row.try_get("submitter_id")?,
+                field_name: row.try_get("field_name")?,
+                page: row.try_get("page")?,
+                x: row.try_get("x")?,
+                y: row.try_get("y")?,
+                width: row.try_get("width")?,
+                height: row.try_get("height")?,
+                signature_value: row.try_get("signature_value")?,
+                signed_at: row.try_get("signed_at")?,
+                ip_address: row.try_get("ip_address")?,
+                user_agent: row.try_get("user_agent")?,
+                version: row.try_get("version")?,
+                is_active: row.try_get("is_active")?,
+                created_at: row.try_get("created_at")?,
+            });
+        }
+
+        Ok(positions)
+    }
+
+    pub async fn get_latest_signature_by_field(
+        pool: &PgPool,
+        submitter_id: i64,
+        field_name: &str,
+    ) -> Result<Option<DbSignaturePosition>, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, submitter_id, field_name, page, x, y, width, height, signature_value, signed_at, ip_address, user_agent, version, is_active, created_at
+            FROM signature_positions
+            WHERE submitter_id = $1 AND field_name = $2 AND is_active = true
+            ORDER BY version DESC
+            LIMIT 1
+            "#
+        )
+        .bind(submitter_id)
+        .bind(field_name)
+        .fetch_optional(pool)
+        .await?;
+
+        if let Some(row) = row {
+            Ok(Some(DbSignaturePosition {
+                id: row.try_get("id")?,
+                submitter_id: row.try_get("submitter_id")?,
+                field_name: row.try_get("field_name")?,
+                page: row.try_get("page")?,
+                x: row.try_get("x")?,
+                y: row.try_get("y")?,
+                width: row.try_get("width")?,
+                height: row.try_get("height")?,
+                signature_value: row.try_get("signature_value")?,
+                signed_at: row.try_get("signed_at")?,
+                ip_address: row.try_get("ip_address")?,
+                user_agent: row.try_get("user_agent")?,
+                version: row.try_get("version")?,
+                is_active: row.try_get("is_active")?,
+                created_at: row.try_get("created_at")?,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn get_signature_data_by_submitter(
@@ -660,7 +799,7 @@ impl SignatureQueries {
     ) -> Result<Option<DbSignatureData>, sqlx::Error> {
         let row = sqlx::query(
             r#"
-            SELECT id, submitter_id, signature_image, signed_at, ip_address, user_agent
+            SELECT id, submitter_id, signature_image, signature_value, signed_at, ip_address, user_agent
             FROM signature_data
             WHERE submitter_id = $1
             ORDER BY signed_at DESC
@@ -675,7 +814,7 @@ impl SignatureQueries {
             Ok(Some(DbSignatureData {
                 id: row.try_get("id")?,
                 submitter_id: row.try_get("submitter_id")?,
-                signature_image: row.try_get("signature_image")?,
+                signature_value: row.try_get("signature_value")?,
                 signed_at: row.try_get("signed_at")?,
                 ip_address: row.try_get("ip_address")?,
                 user_agent: row.try_get("user_agent")?,

@@ -12,6 +12,12 @@ pub struct SignaturePosition {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    pub signature_value: Option<String>,
+    pub signed_at: Option<DateTime<Utc>>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub version: i32,
+    pub is_active: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -24,6 +30,10 @@ pub struct CreateSignaturePosition {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    pub signature_value: Option<String>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub version: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -34,14 +44,17 @@ pub struct PublicCreateSignaturePosition {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    pub signature_value: Option<String>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SignatureData {
     pub id: Option<i64>,
     pub submitter_id: i64,
-    pub signature_image: String, // Base64 encoded image
-    pub signed_at: DateTime<Utc>,
+    pub signature_value: Option<String>, // Text value của chữ ký (optional)
+    pub signed_at: Option<DateTime<Utc>>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
 }
@@ -49,14 +62,14 @@ pub struct SignatureData {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateSignatureData {
     pub submitter_id: i64,
-    pub signature_image: String,
+    pub signature_value: Option<String>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PublicCreateSignatureData {
-    pub signature_image: String,
+    pub signature_value: Option<String>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
 }
