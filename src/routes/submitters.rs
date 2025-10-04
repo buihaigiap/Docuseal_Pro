@@ -13,8 +13,9 @@ use tokio::sync::Mutex;
 use crate::common::responses::ApiResponse;
 use crate::models::submitter::{Submitter, UpdateSubmitterRequest};
 use crate::database::connection::DbPool;
-use crate::database::queries::SubmitterQueries;
+use crate::database::queries::{SubmitterQueries, TemplateFieldQueries};
 use crate::common::jwt::auth_middleware;
+use crate::common::token::generate_token;
 
 pub type AppState = Arc<Mutex<DbPool>>;
 
@@ -147,6 +148,7 @@ pub async fn get_public_submission(
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
     let pool = &*state.lock().await;
 
+    let tokens_secret = std::env::var("TOKENS_SECRET").unwrap_or_else(|_| "default-tokens-secret-change-this".to_string());
     match SubmitterQueries::get_submitter_by_token(pool, &token).await {
         Ok(Some(db_submitter)) => {
             // Get submission details
@@ -155,8 +157,11 @@ pub async fn get_public_submission(
                     // Get template details
                     match crate::database::queries::TemplateQueries::get_template_by_id(pool, db_submission.template_id).await {
                         Ok(Some(db_template)) => {
-                            // Convert template to API model
-                            let template = crate::routes::templates::convert_db_template_to_template(db_template);
+                            // Convert template to API model with fields
+                            let template = match crate::routes::templates::convert_db_template_to_template_with_fields(db_template, pool).await {
+                                Ok(t) => t,
+                                Err(_) => return ApiResponse::internal_error("Failed to load template fields".to_string()),
+                            };
                             
                             // Get all submitters for this submission
                             let submitters = match SubmitterQueries::get_submitters_by_submission(pool, db_submission.id).await {
@@ -190,27 +195,41 @@ pub async fn get_public_submission(
                                 expires_at: db_submission.expires_at,
                             };
 
-                            // Get signature positions for this submitter
-                            let signature_positions = match crate::database::queries::SignatureQueries::get_signature_positions_by_submitter(pool, db_submitter.id).await {
-                                Ok(positions) => positions.into_iter().map(|pos| crate::models::signature::SignaturePosition {
-                                    id: Some(pos.id),
-                                    submitter_id: pos.submitter_id,
-                                    field_name: pos.field_name,
-                                    page: pos.page,
-                                    x: pos.x,
-                                    y: pos.y,
-                                    width: pos.width,
-                                    height: pos.height,
-                                    signature_value: pos.signature_value,
-                                    signed_at: pos.signed_at,
-                                    ip_address: pos.ip_address,
-                                    user_agent: pos.user_agent,
-                                    version: pos.version,
-                                    is_active: pos.is_active,
-                                    created_at: pos.created_at,
-                                }).collect::<Vec<_>>(),
-                                Err(_) => Vec::new(),
-                            };
+                            // DEPRECATED: Old signature positions format, now we use bulk_signatures
+                            let mut signature_positions: Vec<crate::models::signature::SignaturePosition> = Vec::new();
+
+                            // Also get bulk signatures from signature_positions table and convert them to signature positions format
+                            if let Ok(bulk_signature_positions) = crate::database::queries::SignatureQueries::get_bulk_signature_positions_by_submitter(pool, db_submitter.id).await {
+                                for bulk_pos in bulk_signature_positions {
+                                    if let Some(bulk_signatures) = bulk_pos.bulk_signatures {
+                                        if let Some(signatures_array) = bulk_signatures.as_array() {
+                                            for signature_item in signatures_array {
+                                                if let Some(obj) = signature_item.as_object() {
+                                                    let field_id = obj.get("field_id").and_then(|v| v.as_i64());
+                                                    let field_name = obj.get("field_name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                                                    let signature_value = obj.get("signature_value").and_then(|v| v.as_str());
+
+                                                    if let Some(sig_val) = signature_value {
+                                                        signature_positions.push(crate::models::signature::SignaturePosition {
+                                                            id: Some(bulk_pos.id),
+                                                            submitter_id: bulk_pos.submitter_id,
+                                                            field_id,
+                                                            field_name,
+                                                            signature_value: Some(sig_val.to_string()),
+                                                            signed_at: bulk_pos.signed_at,
+                                                            ip_address: bulk_pos.ip_address.clone(),
+                                                            user_agent: bulk_pos.user_agent.clone(),
+                                                            version: 1,
+                                                            is_active: true,
+                                                            created_at: bulk_pos.created_at,
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                             // Get signature data for this submitter
                             let signature_data = match crate::database::queries::SignatureQueries::get_signature_data_by_submitter(pool, db_submitter.id).await {
@@ -263,215 +282,12 @@ pub fn create_submitter_router() -> Router<AppState> {
         .route("/submitters", get(get_submitters))
         .route("/submitters/:id", get(get_submitter))
         .route("/submitters/:id", put(update_submitter))
-        .route("/signatures/positions", post(submit_signature_position))
-        .route("/signatures", post(submit_signature))
         .layer(middleware::from_fn(auth_middleware))
 }
 
-#[utoipa::path(
-    post,
-    path = "/api/signatures/positions",
-    request_body = crate::models::signature::CreateSignaturePosition,
-    responses(
-        (status = 201, description = "Signature position submitted successfully", body = ApiResponse<crate::models::signature::SignaturePosition>),
-        (status = 400, description = "Bad request", body = ApiResponse<crate::models::signature::SignaturePosition>),
-        (status = 404, description = "Submitter not found", body = ApiResponse<crate::models::signature::SignaturePosition>)
-    ),
-    security(("bearer_auth" = []))
-)]
-pub async fn submit_signature_position(
-    State(state): State<AppState>,
-    Extension(user_id): Extension<i64>,
-    Json(payload): Json<crate::models::signature::CreateSignaturePosition>,
-) -> (StatusCode, Json<ApiResponse<crate::models::signature::SignaturePosition>>) {
-    let pool = &*state.lock().await;
 
-    // Verify submitter belongs to user
-    match SubmitterQueries::get_submitter_by_id(pool, payload.submitter_id).await {
-        Ok(Some(db_submitter)) => {
-            // Check if submitter belongs to user's submission
-            match crate::database::queries::SubmissionQueries::get_submission_by_id(pool, db_submitter.submission_id).await {
-                Ok(Some(db_submission)) => {
-                    if db_submission.user_id != user_id {
-                        return ApiResponse::forbidden("Access denied".to_string());
-                    }
 
-                    // Create signature position
-                    match crate::database::queries::SignatureQueries::create_signature_position(pool, payload).await {
-                        Ok(db_position) => {
-                            let position = crate::models::signature::SignaturePosition {
-                                id: Some(db_position.id),
-                                submitter_id: db_position.submitter_id,
-                                field_name: db_position.field_name,
-                                page: db_position.page,
-                                x: db_position.x,
-                                y: db_position.y,
-                                width: db_position.width,
-                                height: db_position.height,
-                                signature_value: db_position.signature_value,
-                                signed_at: db_position.signed_at,
-                                ip_address: db_position.ip_address,
-                                user_agent: db_position.user_agent,
-                                version: db_position.version,
-                                is_active: db_position.is_active,
-                                created_at: db_position.created_at,
-                            };
-                            ApiResponse::success(position, "Signature position submitted successfully".to_string())
-                        }
-                        Err(e) => ApiResponse::internal_error(format!("Failed to submit signature position: {}", e)),
-                    }
-                }
-                _ => ApiResponse::not_found("Submission not found".to_string()),
-            }
-        }
-        _ => ApiResponse::not_found("Submitter not found".to_string()),
-    }
-}
 
-#[utoipa::path(
-    post,
-    path = "/api/signatures",
-    request_body = crate::models::signature::CreateSignatureData,
-    responses(
-        (status = 201, description = "Signature submitted successfully", body = ApiResponse<crate::models::signature::SignatureData>),
-        (status = 400, description = "Bad request", body = ApiResponse<crate::models::signature::SignatureData>),
-        (status = 404, description = "Submitter not found", body = ApiResponse<crate::models::signature::SignatureData>)
-    ),
-    security(("bearer_auth" = []))
-)]
-pub async fn submit_signature(
-    State(state): State<AppState>,
-    Extension(user_id): Extension<i64>,
-    Json(payload): Json<crate::models::signature::CreateSignatureData>,
-) -> (StatusCode, Json<ApiResponse<crate::models::signature::SignatureData>>) {
-    let pool = &*state.lock().await;
-
-    // Verify submitter belongs to user
-    match SubmitterQueries::get_submitter_by_id(pool, payload.submitter_id).await {
-        Ok(Some(db_submitter)) => {
-            // Check if submitter belongs to user's submission
-            match crate::database::queries::SubmissionQueries::get_submission_by_id(pool, db_submitter.submission_id).await {
-                Ok(Some(db_submission)) => {
-                    if db_submission.user_id != user_id {
-                        return ApiResponse::forbidden("Access denied".to_string());
-                    }
-
-                    // Create signature data
-                    match crate::database::queries::SignatureQueries::create_signature_data(pool, payload).await {
-                        Ok(db_signature) => {
-                            let signature = crate::models::signature::SignatureData {
-                                id: Some(db_signature.id),
-                                submitter_id: db_signature.submitter_id,
-                                signature_value: db_signature.signature_value,
-                                signed_at: Some(db_signature.signed_at),
-                                ip_address: db_signature.ip_address,
-                                user_agent: db_signature.user_agent,
-                            };
-                            ApiResponse::success(signature, "Signature submitted successfully".to_string())
-                        }
-                        Err(e) => ApiResponse::internal_error(format!("Failed to submit signature: {}", e)),
-                    }
-                }
-                _ => ApiResponse::not_found("Submission not found".to_string()),
-            }
-        }
-        _ => ApiResponse::not_found("Submitter not found".to_string()),
-    }
-}
-
-#[utoipa::path(
-    post,
-    path = "/public/signatures/positions/{token}",
-    params(
-        ("token" = String, Path, description = "Submitter token")
-    ),
-    request_body = crate::models::signature::CreateSignaturePosition,
-    responses(
-        (status = 201, description = "Signature position submitted successfully", body = ApiResponse<crate::models::signature::SignaturePosition>),
-        (status = 400, description = "Bad request", body = ApiResponse<crate::models::signature::SignaturePosition>),
-        (status = 404, description = "Submitter not found", body = ApiResponse<crate::models::signature::SignaturePosition>)
-    )
-)]
-pub async fn submit_public_signature_position(
-    State(state): State<AppState>,
-    Path(token): Path<String>,
-    Json(payload): Json<crate::models::signature::PublicCreateSignaturePosition>,
-) -> (StatusCode, Json<ApiResponse<crate::models::signature::SignaturePosition>>) {
-    let pool = &*state.lock().await;
-
-    // Get submitter by token
-    match SubmitterQueries::get_submitter_by_token(pool, &token).await {
-        Ok(Some(db_submitter)) => {
-            // Create full payload
-            let full_payload = crate::models::signature::CreateSignaturePosition {
-                submitter_id: db_submitter.id,
-                field_name: payload.field_name,
-                page: payload.page,
-                x: payload.x,
-                y: payload.y,
-                width: payload.width,
-                height: payload.height,
-                signature_value: payload.signature_value,
-                ip_address: payload.ip_address,
-                user_agent: payload.user_agent,
-                version: Some(1),
-            };
-
-            // Create signature position
-            match crate::database::queries::SignatureQueries::create_signature_position(pool, full_payload).await {
-                Ok(db_position) => {
-                    // Update submitter status to completed after successful signature
-                    match SubmitterQueries::update_submitter(pool, db_submitter.id, Some("completed"), None).await {
-                        Ok(_) => {
-                            let position = crate::models::signature::SignaturePosition {
-                                id: Some(db_position.id),
-                                submitter_id: db_position.submitter_id,
-                                field_name: db_position.field_name,
-                                page: db_position.page,
-                                x: db_position.x,
-                                y: db_position.y,
-                                width: db_position.width,
-                                height: db_position.height,
-                                signature_value: db_position.signature_value,
-                                signed_at: db_position.signed_at,
-                                ip_address: db_position.ip_address,
-                                user_agent: db_position.user_agent,
-                                version: db_position.version,
-                                is_active: db_position.is_active,
-                                created_at: db_position.created_at,
-                            };
-                            ApiResponse::success(position, "Signature submitted successfully - document completed".to_string())
-                        }
-                        Err(e) => {
-                            // If status update fails, still return success for signature but log error
-                            let position = crate::models::signature::SignaturePosition {
-                                id: Some(db_position.id),
-                                submitter_id: db_position.submitter_id,
-                                field_name: db_position.field_name,
-                                page: db_position.page,
-                                x: db_position.x,
-                                y: db_position.y,
-                                width: db_position.width,
-                                height: db_position.height,
-                                signature_value: db_position.signature_value,
-                                signed_at: db_position.signed_at,
-                                ip_address: db_position.ip_address,
-                                user_agent: db_position.user_agent,
-                                version: db_position.version,
-                                is_active: db_position.is_active,
-                                created_at: db_position.created_at,
-                            };
-                            ApiResponse::success(position, "Signature position submitted successfully".to_string())
-                        }
-                    }
-                }
-                Err(e) => ApiResponse::internal_error(format!("Failed to submit signature position: {}", e)),
-            }
-        }
-        Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Database error: {}", e)),
-    }
-}
 
 #[utoipa::path(
     get,
@@ -490,37 +306,11 @@ pub async fn get_signature_history(
 ) -> (StatusCode, Json<ApiResponse<Vec<crate::models::signature::SignaturePosition>>>) {
     let pool = &*state.lock().await;
 
-    // Get submitter by token
-    match SubmitterQueries::get_submitter_by_token(pool, &token).await {
-        Ok(Some(db_submitter)) => {
-            // Get signature positions for this submitter
-            match crate::database::queries::SignatureQueries::get_signature_positions_by_submitter(pool, db_submitter.id).await {
-                Ok(positions) => {
-                    let signature_positions = positions.into_iter().map(|pos| crate::models::signature::SignaturePosition {
-                        id: Some(pos.id),
-                        submitter_id: pos.submitter_id,
-                        field_name: pos.field_name,
-                        page: pos.page,
-                        x: pos.x,
-                        y: pos.y,
-                        width: pos.width,
-                        height: pos.height,
-                        signature_value: pos.signature_value,
-                        signed_at: pos.signed_at,
-                        ip_address: pos.ip_address,
-                        user_agent: pos.user_agent,
-                        version: pos.version,
-                        is_active: pos.is_active,
-                        created_at: pos.created_at,
-                    }).collect::<Vec<_>>();
-                    ApiResponse::success(signature_positions, "Signature history retrieved successfully".to_string())
-                }
-                Err(e) => ApiResponse::internal_error(format!("Failed to get signature history: {}", e)),
-            }
-        }
-        Ok(None) => ApiResponse::not_found("Invalid token".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Database error: {}", e)),
-    }
+    let tokens_secret = std::env::var("TOKENS_SECRET").unwrap_or_else(|_| "default-tokens-secret-change-this".to_string());
+    // DEPRECATED: Old signature history endpoint, now we use bulk_signatures
+    // Return empty array for backward compatibility
+    let signature_positions: Vec<crate::models::signature::SignaturePosition> = Vec::new();
+    ApiResponse::success(signature_positions, "Signature history endpoint deprecated, use bulk signatures instead".to_string())
 }
 
 #[utoipa::path(
@@ -542,6 +332,7 @@ pub async fn update_public_submitter(
 ) -> (StatusCode, Json<ApiResponse<Submitter>>) {
     let pool = &*state.lock().await;
 
+    let tokens_secret = std::env::var("TOKENS_SECRET").unwrap_or_else(|_| "default-tokens-secret-change-this".to_string());
     // Get submitter by token
     match SubmitterQueries::get_submitter_by_token(pool, &token).await {
         Ok(Some(db_submitter)) => {
@@ -564,6 +355,98 @@ pub async fn update_public_submitter(
                 }
                 Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
                 Err(e) => ApiResponse::internal_error(format!("Failed to update submitter: {}", e)),
+            }
+        }
+        Ok(None) => ApiResponse::not_found("Invalid token".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Database error: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/public/signatures/bulk/{token}",
+    params(
+        ("token" = String, Path, description = "Submitter token")
+    ),
+    request_body = crate::models::signature::BulkSignatureRequest,
+    responses(
+        (status = 201, description = "Bulk signatures submitted successfully", body = ApiResponse<crate::database::models::DbSignaturePosition>),
+        (status = 400, description = "Bad request", body = ApiResponse<crate::database::models::DbSignaturePosition>),
+        (status = 404, description = "Submitter not found", body = ApiResponse<crate::database::models::DbSignaturePosition>)
+    )
+)]
+pub async fn submit_bulk_signatures(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+    Json(payload): Json<crate::models::signature::BulkSignatureRequest>,
+) -> (StatusCode, Json<ApiResponse<crate::database::models::DbSignaturePosition>>) {
+    let pool = &*state.lock().await;
+
+    let tokens_secret = std::env::var("TOKENS_SECRET").unwrap_or_else(|_| "default-tokens-secret-change-this".to_string());
+
+    // Get submitter by token
+    match SubmitterQueries::get_submitter_by_token(pool, &token).await {
+        Ok(Some(db_submitter)) => {
+            // Get submission to validate template
+            match crate::database::queries::SubmissionQueries::get_submission_by_id(pool, db_submitter.submission_id).await {
+                Ok(Some(db_submission)) => {
+                    // Validate that all field_ids belong to this template
+                    for signature_item in &payload.signatures {
+                        match TemplateFieldQueries::get_template_field_by_id(pool, signature_item.field_id).await {
+                            Ok(Some(field)) => {
+                                if field.template_id != db_submission.template_id {
+                                    return ApiResponse::bad_request(format!("Field {} does not belong to this template", signature_item.field_id));
+                                }
+                            }
+                            Ok(None) => return ApiResponse::bad_request(format!("Field {} not found", signature_item.field_id)),
+                            Err(e) => return ApiResponse::internal_error(format!("Failed to validate field {}: {}", signature_item.field_id, e)),
+                        }
+                    }
+
+                    // Create signatures array with field details
+                    let mut signatures_array = Vec::new();
+                    for signature_item in &payload.signatures {
+                        let field_id = signature_item.field_id;
+
+                        // Get field name from template_fields
+                        let field_name = match TemplateFieldQueries::get_template_field_by_id(pool, field_id).await {
+                            Ok(Some(field)) => field.name,
+                            Ok(None) => format!("field_{}", field_id), // Fallback if field not found
+                            Err(_) => format!("field_{}", field_id), // Fallback on error
+                        };
+
+                        let signature_obj = serde_json::json!({
+                            "field_id": field_id,
+                            "field_name": field_name,
+                            "signature_value": signature_item.signature_value
+                        });
+                        signatures_array.push(signature_obj);
+                    }
+
+                    let signatures_json = serde_json::Value::Array(signatures_array);
+
+                    // Create bulk signature record in signature_positions table
+                    match crate::database::queries::SignatureQueries::create_bulk_signature_position(
+                        pool,
+                        db_submitter.id,
+                        signatures_json,
+                        payload.ip_address.as_deref(),
+                        payload.user_agent.as_deref(),
+                    ).await {
+                        Ok(db_bulk_signature) => {
+                            // Update submitter status to completed
+                            match SubmitterQueries::update_submitter(pool, db_submitter.id, Some("completed"), None).await {
+                                Ok(_) => {
+                                    ApiResponse::success(db_bulk_signature, "Bulk signatures submitted successfully".to_string())
+                                }
+                                Err(e) => ApiResponse::internal_error(format!("Signatures saved but failed to update status: {}", e)),
+                            }
+                        }
+                        Err(e) => ApiResponse::internal_error(format!("Failed to save bulk signatures: {}", e)),
+                    }
+                }
+                Ok(None) => ApiResponse::not_found("Submission not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to get submission: {}", e)),
             }
         }
         Ok(None) => ApiResponse::not_found("Invalid token".to_string()),

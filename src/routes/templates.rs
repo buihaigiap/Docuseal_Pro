@@ -16,10 +16,12 @@ use serde_json;
 use crate::common::responses::ApiResponse;
 use crate::models::template::{
     Template, UpdateTemplateRequest, CloneTemplateRequest,
-    CreateTemplateFromHtmlRequest, MergeTemplatesRequest
+    CreateTemplateFromHtmlRequest, MergeTemplatesRequest,
+    TemplateField, FieldPosition, SuggestedPosition,
+    CreateTemplateFieldRequest, UpdateTemplateFieldRequest
 };
 use crate::database::connection::DbPool;
-use crate::database::models::{CreateTemplate};
+use crate::database::models::{CreateTemplate, CreateTemplateField};
 use crate::database::queries::TemplateQueries;
 use crate::services::storage::StorageService;
 use crate::common::jwt::auth_middleware;
@@ -98,36 +100,8 @@ pub async fn get_template_full_info(
                         submissions.push(submission);
                     }
 
-                    // Get all signature positions for all submitters of this template
-                    let mut all_signature_positions = Vec::new();
-                    for db_submission in &db_submissions {
-                        if let Ok(submitters) = crate::database::queries::SubmitterQueries::get_submitters_by_submission(pool, db_submission.id).await {
-                            for db_submitter in submitters {
-                                if let Ok(positions) = crate::database::queries::SignatureQueries::get_signature_positions_by_submitter(pool, db_submitter.id).await {
-                                    for db_pos in positions {
-                                        let position = crate::models::signature::SignaturePosition {
-                                            id: Some(db_pos.id),
-                                            submitter_id: db_pos.submitter_id,
-                                            field_name: db_pos.field_name,
-                                            page: db_pos.page,
-                                            x: db_pos.x,
-                                            y: db_pos.y,
-                                            width: db_pos.width,
-                                            height: db_pos.height,
-                                            signature_value: db_pos.signature_value,
-                                            signed_at: db_pos.signed_at,
-                                            ip_address: db_pos.ip_address,
-                                            user_agent: db_pos.user_agent,
-                                            version: db_pos.version,
-                                            is_active: db_pos.is_active,
-                                            created_at: db_pos.created_at,
-                                        };
-                                        all_signature_positions.push(position);
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // DEPRECATED: Old signature positions, now we use bulk_signatures
+                    let all_signature_positions: Vec<crate::models::signature::SignaturePosition> = Vec::new();
 
                     let data = serde_json::json!({
                         "template": template,
@@ -160,6 +134,11 @@ pub fn create_template_router() -> Router<AppState> {
         .route("/templates/pdf", post(create_template_from_pdf))
         .route("/templates/docx", post(create_template_from_docx))
         .route("/templates/merge", post(merge_templates))
+        // Template Fields routes
+        .route("/templates/:template_id/fields", get(get_template_fields))
+        .route("/templates/:template_id/fields", post(create_template_field))
+        .route("/templates/:template_id/fields/:field_id", put(update_template_field))
+        .route("/templates/:template_id/fields/:field_id", delete(delete_template_field))
         .route("/files/:key", get(download_file))
         .route("/files/:key/preview", get(preview_file))
         .layer(middleware::from_fn(auth_middleware))
@@ -183,9 +162,13 @@ pub async fn get_templates(
 
     match TemplateQueries::get_all_templates(pool, user_id).await {
         Ok(db_templates) => {
-            let templates: Vec<Template> = db_templates.into_iter()
-                .map(|db_template| convert_db_template_to_template(db_template))
-                .collect();
+            let mut templates = Vec::new();
+            for db_template in db_templates {
+                match convert_db_template_to_template_with_fields(db_template, pool).await {
+                    Ok(template) => templates.push(template),
+                    Err(e) => return ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
+                }
+            }
             ApiResponse::success(templates, "Templates retrieved successfully".to_string())
         }
         Err(e) => ApiResponse::internal_error(format!("Failed to retrieve templates: {}", e)),
@@ -219,8 +202,10 @@ pub async fn get_template(
             if db_template.user_id != user_id {
                 return ApiResponse::not_found("Template not found".to_string());
             }
-            let template = convert_db_template_to_template(db_template);
-            ApiResponse::success(template, "Template retrieved successfully".to_string())
+            match convert_db_template_to_template_with_fields(db_template, pool).await {
+                Ok(template) => ApiResponse::success(template, "Template retrieved successfully".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
+            }
         }
         Ok(None) => ApiResponse::not_found("Template not found".to_string()),
         Err(e) => ApiResponse::internal_error(format!("Failed to retrieve template: {}", e)),
@@ -250,13 +235,13 @@ pub async fn update_template(
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
     let pool = &*state.lock().await;
 
-    // Convert fields to JSON values
-    let fields_json = payload.fields.as_ref().map(|f| serde_json::to_value(f).unwrap_or(serde_json::Value::Null));
-
-    match TemplateQueries::update_template(pool, id, user_id, payload.name.as_deref(), fields_json.as_ref()).await {
+    // Update template (fields are managed separately via template_fields endpoints)
+    match TemplateQueries::update_template(pool, id, user_id, payload.name.as_deref()).await {
         Ok(Some(db_template)) => {
-            let template = convert_db_template_to_template(db_template);
-            ApiResponse::success(template, "Template updated successfully".to_string())
+            match convert_db_template_to_template_with_fields(db_template, pool).await {
+                Ok(template) => ApiResponse::success(template, "Template updated successfully".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
+            }
         }
         Ok(None) => ApiResponse::not_found("Template not found".to_string()),
         Err(e) => ApiResponse::internal_error(format!("Failed to update template: {}", e)),
@@ -319,8 +304,14 @@ pub async fn clone_template(
 
     match TemplateQueries::clone_template(pool, id, user_id, &payload.name, &slug).await {
         Ok(Some(db_template)) => {
-            let template = convert_db_template_to_template(db_template);
-            ApiResponse::created(template, "Template cloned successfully".to_string())
+            // Clone template fields from original template
+            use crate::database::queries::TemplateFieldQueries;
+            let _ = TemplateFieldQueries::clone_template_fields(pool, id, db_template.id).await;
+
+            match convert_db_template_to_template_with_fields(db_template, pool).await {
+                Ok(template) => ApiResponse::created(template, "Template cloned successfully".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
+            }
         }
         Ok(None) => ApiResponse::not_found("Original template not found".to_string()),
         Err(e) => ApiResponse::internal_error(format!("Failed to clone template: {}", e)),
@@ -380,14 +371,20 @@ pub async fn create_template_from_html(
         name: payload.name.clone(),
         slug: slug.clone(),
         user_id: user_id,
-        fields: payload.fields.map(|f| serde_json::to_value(f).unwrap_or(serde_json::Value::Null)),
+        // fields: None, // Removed - fields will be added separately
         documents: None, // Skip documents for now
     };
 
     match TemplateQueries::create_template(pool, create_template).await {
         Ok(db_template) => {
-            let template = convert_db_template_to_template(db_template);
-            ApiResponse::created(template, "Template created from HTML successfully".to_string())
+            match convert_db_template_to_template_with_fields(db_template, pool).await {
+                Ok(template) => ApiResponse::created(template, "Template created from HTML successfully".to_string()),
+                Err(e) => {
+                    // Try to delete uploaded file if database operation fails
+                    let _ = storage.delete_file(&file_key).await;
+                    ApiResponse::internal_error(format!("Failed to load template fields: {}", e))
+                }
+            }
         }
         Err(e) => {
             // Try to delete uploaded file if database operation fails
@@ -464,7 +461,7 @@ pub async fn create_template_from_pdf(
         name: template_name.clone(),
         slug: slug.clone(),
         user_id: user_id,
-        fields: None, // TODO: Extract fields from PDF
+        // fields: None, // TODO: Extract fields from PDF - REMOVED
         documents: Some(serde_json::json!([{
             "filename": filename,
             "content_type": "application/pdf",
@@ -475,8 +472,14 @@ pub async fn create_template_from_pdf(
 
     match TemplateQueries::create_template(pool, create_template).await {
         Ok(db_template) => {
-            let template = convert_db_template_to_template(db_template);
-            ApiResponse::created(template, "Template created from PDF successfully".to_string())
+            match convert_db_template_to_template_with_fields(db_template, pool).await {
+                Ok(template) => ApiResponse::created(template, "Template created from PDF successfully".to_string()),
+                Err(e) => {
+                    // Try to delete uploaded file if database operation fails
+                    let _ = storage.delete_file(&file_key).await;
+                    ApiResponse::internal_error(format!("Failed to load template fields: {}", e))
+                }
+            }
         }
         Err(e) => {
             // Try to delete uploaded file if database operation fails
@@ -553,7 +556,7 @@ pub async fn create_template_from_docx(
         name: template_name.clone(),
         slug: slug.clone(),
         user_id: user_id,
-        fields: None, // TODO: Extract fields from DOCX
+        // fields: None, // TODO: Extract fields from DOCX - REMOVED
         documents: Some(serde_json::json!([{
             "filename": filename,
             "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -564,8 +567,14 @@ pub async fn create_template_from_docx(
 
     match TemplateQueries::create_template(pool, create_template).await {
         Ok(db_template) => {
-            let template = convert_db_template_to_template(db_template);
-            ApiResponse::created(template, "Template created from DOCX successfully".to_string())
+            match convert_db_template_to_template_with_fields(db_template, pool).await {
+                Ok(template) => ApiResponse::created(template, "Template created from DOCX successfully".to_string()),
+                Err(e) => {
+                    // Try to delete uploaded file if database operation fails
+                    let _ = storage.delete_file(&file_key).await;
+                    ApiResponse::internal_error(format!("Failed to load template fields: {}", e))
+                }
+            }
         }
         Err(e) => {
             // Try to delete uploaded file if database operation fails
@@ -609,14 +618,16 @@ async fn create_template_without_storage(
         name: payload.name.clone(),
         slug: slug.clone(),
         user_id: user_id,
-        fields: payload.fields.map(|f| serde_json::to_value(f).unwrap_or(serde_json::Value::Null)),
+        // fields: None, // Removed - fields will be added separately
         documents: None, // Skip documents for now
     };
 
     match TemplateQueries::create_template(pool, create_template).await {
         Ok(db_template) => {
-            let template = convert_db_template_to_template(db_template);
-            ApiResponse::created(template, "Template created from HTML successfully (without storage)".to_string())
+            match convert_db_template_to_template_with_fields(db_template, pool).await {
+                Ok(template) => ApiResponse::created(template, "Template created from HTML successfully (without storage)".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
+            }
         }
         Err(e) => {
             ApiResponse::internal_error(format!("Failed to create template: {}", e))
@@ -624,19 +635,55 @@ async fn create_template_without_storage(
     }
 }
 
-// Helper function to convert database template to API template
+// Helper function to convert database template to API template (sync version for simple cases)
 pub fn convert_db_template_to_template(db_template: crate::database::models::DbTemplate) -> Template {
     Template {
         id: db_template.id,
         name: db_template.name,
         slug: db_template.slug,
         user_id: db_template.user_id,
-        fields: db_template.fields.and_then(|v| serde_json::from_value(v).ok()),
+        template_fields: None, // Will be loaded separately if needed
         submitters: db_template.submitters.and_then(|v| serde_json::from_value(v).ok()),
         documents: db_template.documents.and_then(|v| serde_json::from_value(v).ok()),
         created_at: db_template.created_at,
         updated_at: db_template.updated_at,
     }
+}
+
+// Helper function to convert database template to API template with fields loaded (async)
+pub async fn convert_db_template_to_template_with_fields(
+    db_template: crate::database::models::DbTemplate,
+    pool: &sqlx::PgPool
+) -> Result<Template, sqlx::Error> {
+    use crate::database::queries::TemplateFieldQueries;
+
+    let template_fields = TemplateFieldQueries::get_template_fields(pool, db_template.id).await?
+        .into_iter()
+        .map(|db_field| TemplateField {
+            id: db_field.id,
+            template_id: db_field.template_id,
+            name: db_field.name,
+            field_type: db_field.field_type,
+            required: db_field.required,
+            display_order: db_field.display_order,
+            position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
+            options: db_field.options.and_then(|v| serde_json::from_value(v).ok()),
+            created_at: db_field.created_at,
+            updated_at: db_field.updated_at,
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Template {
+        id: db_template.id,
+        name: db_template.name,
+        slug: db_template.slug,
+        user_id: db_template.user_id,
+        template_fields: Some(template_fields),
+        submitters: db_template.submitters.and_then(|v| serde_json::from_value(v).ok()),
+        documents: db_template.documents.and_then(|v| serde_json::from_value(v).ok()),
+        created_at: db_template.created_at,
+        updated_at: db_template.updated_at,
+    })
 }
 
 #[utoipa::path(
@@ -791,53 +838,8 @@ pub async fn get_template_signature_history(
                 Ok(db_submissions) => {
                     let mut history = Vec::new();
 
-                    for db_submission in db_submissions {
-                        // Get submitters for this submission
-                        if let Ok(submitters) = crate::database::queries::SubmitterQueries::get_submitters_by_submission(pool, db_submission.id).await {
-                            for db_submitter in submitters {
-                                // Get all signature positions for this submitter
-                                if let Ok(signature_positions) = crate::database::queries::SignatureQueries::get_signature_positions_by_submitter(pool, db_submitter.id).await {
-                                    // Group by field_name
-                                    let mut field_groups: std::collections::HashMap<String, Vec<crate::models::signature::SignaturePosition>> = std::collections::HashMap::new();
-
-                                    for db_pos in signature_positions {
-                                        let position = crate::models::signature::SignaturePosition {
-                                            id: Some(db_pos.id),
-                                            submitter_id: db_pos.submitter_id,
-                                            field_name: db_pos.field_name.clone(),
-                                            page: db_pos.page,
-                                            x: db_pos.x,
-                                            y: db_pos.y,
-                                            width: db_pos.width,
-                                            height: db_pos.height,
-                                            signature_value: db_pos.signature_value,
-                                            signed_at: db_pos.signed_at,
-                                            ip_address: db_pos.ip_address,
-                                            user_agent: db_pos.user_agent,
-                                            version: db_pos.version,
-                                            is_active: db_pos.is_active,
-                                            created_at: db_pos.created_at,
-                                        };
-
-                                        field_groups.entry(db_pos.field_name.clone())
-                                            .or_insert_with(Vec::new)
-                                            .push(position);
-                                    }
-
-                                    // Create history entries for each field
-                                    for (field_name, signatures) in field_groups {
-                                        history.push(TemplateSignatureHistory {
-                                            submitter_id: db_submitter.id,
-                                            submitter_name: db_submitter.name.clone(),
-                                            submitter_email: db_submitter.email.clone(),
-                                            field_name,
-                                            signatures,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // DEPRECATED: Old signature history, now we use bulk_signatures
+                    // Comment out code that accesses removed fields
 
                     ApiResponse::success(history, "Template signature history retrieved successfully".to_string())
                 }
@@ -845,5 +847,236 @@ pub async fn get_template_signature_history(
             }
         }
         _ => ApiResponse::not_found("Template not found".to_string()),
+    }
+}
+
+// ===== TEMPLATE FIELDS ENDPOINTS =====
+
+#[utoipa::path(
+    get,
+    path = "/api/templates/{template_id}/fields",
+    params(
+        ("template_id" = i64, Path, description = "Template ID")
+    ),
+    responses(
+        (status = 200, description = "Template fields retrieved successfully", body = ApiResponse<Vec<TemplateField>>),
+        (status = 404, description = "Template not found", body = ApiResponse<Vec<TemplateField>>),
+        (status = 500, description = "Internal server error", body = ApiResponse<Vec<TemplateField>>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "template_fields"
+)]
+pub async fn get_template_fields(
+    State(state): State<AppState>,
+    Path(template_id): Path<i64>,
+    Extension(user_id): Extension<i64>,
+) -> (StatusCode, Json<ApiResponse<Vec<TemplateField>>>) {
+    let pool = &*state.lock().await;
+
+    // Verify template belongs to user
+    match TemplateQueries::get_template_by_id(pool, template_id).await {
+        Ok(Some(db_template)) => {
+            if db_template.user_id != user_id {
+                return ApiResponse::not_found("Template not found".to_string());
+            }
+        }
+        Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to verify template: {}", e)),
+    }
+
+    match crate::database::queries::TemplateFieldQueries::get_template_fields(pool, template_id).await {
+        Ok(fields) => {
+            let template_fields: Vec<TemplateField> = fields.into_iter()
+                .map(|db_field| TemplateField {
+                    id: db_field.id,
+                    template_id: db_field.template_id,
+                    name: db_field.name,
+                    field_type: db_field.field_type,
+                    required: db_field.required,
+                    display_order: db_field.display_order,
+                    position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
+                    options: db_field.options.and_then(|v| serde_json::from_value(v).ok()),
+                    created_at: db_field.created_at,
+                    updated_at: db_field.updated_at,
+                })
+                .collect();
+
+            ApiResponse::success(template_fields, "Template fields retrieved successfully".to_string())
+        }
+        Err(e) => ApiResponse::internal_error(format!("Failed to retrieve template fields: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/templates/{template_id}/fields",
+    params(
+        ("template_id" = i64, Path, description = "Template ID")
+    ),
+    request_body = CreateTemplateFieldRequest,
+    responses(
+        (status = 201, description = "Template field created successfully", body = ApiResponse<TemplateField>),
+        (status = 404, description = "Template not found", body = ApiResponse<TemplateField>),
+        (status = 500, description = "Internal server error", body = ApiResponse<TemplateField>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "template_fields"
+)]
+pub async fn create_template_field(
+    State(state): State<AppState>,
+    Path(template_id): Path<i64>,
+    Extension(user_id): Extension<i64>,
+    Json(payload): Json<CreateTemplateFieldRequest>,
+) -> (StatusCode, Json<ApiResponse<TemplateField>>) {
+    let pool = &*state.lock().await;
+
+    // Verify template belongs to user
+    match TemplateQueries::get_template_by_id(pool, template_id).await {
+        Ok(Some(db_template)) => {
+            if db_template.user_id != user_id {
+                return ApiResponse::not_found("Template not found".to_string());
+            }
+        }
+        Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to verify template: {}", e)),
+    }
+
+    let create_field = CreateTemplateField {
+        template_id,
+        name: payload.name,
+        field_type: payload.field_type,
+        required: payload.required,
+        display_order: payload.display_order.unwrap_or(0),
+        position: payload.position.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
+        options: payload.options.map(|o| serde_json::to_value(o).unwrap_or(serde_json::Value::Null)),
+        metadata: None,
+    };
+
+    match crate::database::queries::TemplateFieldQueries::create_template_field(pool, create_field).await {
+        Ok(db_field) => {
+            let template_field = TemplateField {
+                id: db_field.id,
+                template_id: db_field.template_id,
+                name: db_field.name,
+                field_type: db_field.field_type,
+                required: db_field.required,
+                display_order: db_field.display_order,
+                position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
+                options: db_field.options.and_then(|v| serde_json::from_value(v).ok()),
+                created_at: db_field.created_at,
+                updated_at: db_field.updated_at,
+            };
+
+            ApiResponse::created(template_field, "Template field created successfully".to_string())
+        }
+        Err(e) => ApiResponse::internal_error(format!("Failed to create template field: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/templates/{template_id}/fields/{field_id}",
+    params(
+        ("template_id" = i64, Path, description = "Template ID"),
+        ("field_id" = i64, Path, description = "Field ID")
+    ),
+    request_body = UpdateTemplateFieldRequest,
+    responses(
+        (status = 200, description = "Template field updated successfully", body = ApiResponse<TemplateField>),
+        (status = 404, description = "Template field not found", body = ApiResponse<TemplateField>),
+        (status = 500, description = "Internal server error", body = ApiResponse<TemplateField>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "template_fields"
+)]
+pub async fn update_template_field(
+    State(state): State<AppState>,
+    Path((template_id, field_id)): Path<(i64, i64)>,
+    Extension(user_id): Extension<i64>,
+    Json(payload): Json<UpdateTemplateFieldRequest>,
+) -> (StatusCode, Json<ApiResponse<TemplateField>>) {
+    let pool = &*state.lock().await;
+
+    // Verify template belongs to user
+    match TemplateQueries::get_template_by_id(pool, template_id).await {
+        Ok(Some(db_template)) => {
+            if db_template.user_id != user_id {
+                return ApiResponse::not_found("Template not found".to_string());
+            }
+        }
+        Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to verify template: {}", e)),
+    }
+
+    let update_field = CreateTemplateField {
+        template_id,
+        name: payload.name.unwrap_or_else(|| "temp".to_string()),
+        field_type: payload.field_type.unwrap_or_else(|| "text".to_string()),
+        required: payload.required.unwrap_or(false),
+        display_order: payload.display_order.unwrap_or(0),
+        position: payload.position.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
+        options: payload.options.map(|o| serde_json::to_value(o).unwrap_or(serde_json::Value::Null)),
+        metadata: None,
+    };
+
+    match crate::database::queries::TemplateFieldQueries::update_template_field(pool, field_id, update_field).await {
+        Ok(Some(db_field)) => {
+            let template_field = TemplateField {
+                id: db_field.id,
+                template_id: db_field.template_id,
+                name: db_field.name,
+                field_type: db_field.field_type,
+                required: db_field.required,
+                display_order: db_field.display_order,
+                position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
+                options: db_field.options.and_then(|v| serde_json::from_value(v).ok()),
+                created_at: db_field.created_at,
+                updated_at: db_field.updated_at,
+            };
+
+            ApiResponse::success(template_field, "Template field updated successfully".to_string())
+        }
+        Ok(None) => ApiResponse::not_found("Template field not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to update template field: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/templates/{template_id}/fields/{field_id}",
+    params(
+        ("template_id" = i64, Path, description = "Template ID"),
+        ("field_id" = i64, Path, description = "Field ID")
+    ),
+    responses(
+        (status = 200, description = "Template field deleted successfully", body = ApiResponse<serde_json::Value>),
+        (status = 404, description = "Template field not found", body = ApiResponse<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = ApiResponse<serde_json::Value>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "template_fields"
+)]
+pub async fn delete_template_field(
+    State(state): State<AppState>,
+    Path((template_id, field_id)): Path<(i64, i64)>,
+    Extension(user_id): Extension<i64>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let pool = &*state.lock().await;
+
+    // Verify template belongs to user
+    match TemplateQueries::get_template_by_id(pool, template_id).await {
+        Ok(Some(db_template)) => {
+            if db_template.user_id != user_id {
+                return ApiResponse::not_found("Template not found".to_string());
+            }
+        }
+        Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to verify template: {}", e)),
+    }
+
+    match crate::database::queries::TemplateFieldQueries::delete_template_field(pool, field_id).await {
+        Ok(true) => ApiResponse::success(serde_json::json!({"deleted": true}), "Template field deleted successfully".to_string()),
+        Ok(false) => ApiResponse::not_found("Template field not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to delete template field: {}", e)),
     }
 }

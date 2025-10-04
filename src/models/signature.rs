@@ -6,12 +6,8 @@ use utoipa::ToSchema;
 pub struct SignaturePosition {
     pub id: Option<i64>,
     pub submitter_id: i64,
-    pub field_name: String,
-    pub page: i32,
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
+    pub field_id: Option<i64>, // New field to reference template_fields
+    pub field_name: String, // Keep for backward compatibility
     pub signature_value: Option<String>,
     pub signed_at: Option<DateTime<Utc>>,
     pub ip_address: Option<String>,
@@ -24,26 +20,18 @@ pub struct SignaturePosition {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateSignaturePosition {
     pub submitter_id: i64,
-    pub field_name: String,
-    pub page: i32,
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
+    pub field_id: Option<i64>, // New field to reference template_fields
+    pub field_name: String, // Keep for backward compatibility
     pub signature_value: Option<String>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub version: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PublicCreateSignaturePosition {
-    pub field_name: String,
-    pub page: i32,
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
+    pub field_id: Option<i64>,
+    pub field_name: Option<String>,
     pub signature_value: Option<String>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
@@ -89,4 +77,17 @@ pub struct SignaturePositionData {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct BulkSignatureRequest {
+    pub signatures: Vec<BulkSignatureItem>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct BulkSignatureItem {
+    pub field_id: i64,
+    pub signature_value: String,
 }

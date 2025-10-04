@@ -40,7 +40,7 @@ pub fn create_router() -> Router<AppState> {
         .route("/test", get(|| async { "Test route works" }))
         .route("/public/submissions/:token", get(submitters::get_public_submission))
         .route("/public/submitters/:token", put(submitters::update_public_submitter))
-        .route("/public/signatures/positions/:token", post(submitters::submit_public_signature_position))
+        .route("/public/signatures/bulk/:token", post(submitters::submit_bulk_signatures))
         .route("/public/signatures/history/:token", get(submitters::get_signature_history))
 }
 

@@ -18,6 +18,7 @@ use crate::models::submission::{Submission, CreateSubmissionRequest, UpdateSubmi
 use crate::models::submitter::Submitter;
 use crate::database::connection::DbPool;
 use crate::database::models::{CreateSubmission, CreateSubmitter};
+use crate::common::token::generate_token;
 use crate::database::queries::{SubmissionQueries, SubmitterQueries, TemplateQueries};
 use crate::routes::templates::convert_db_template_to_template;
 use crate::common::jwt::auth_middleware;
@@ -126,8 +127,11 @@ pub async fn create_submission(
             match SubmissionQueries::create_submission(pool, create_data).await {
                 Ok(db_sub) => {
                     // Create submitters
-                    for submitter in &payload.submitters {
-                        let token = Uuid::new_v4().to_string();
+                    let mut plaintext_tokens = Vec::new();
+                    let tokens_secret = std::env::var("TOKENS_SECRET").unwrap_or_else(|_| "default-tokens-secret-change-this".to_string());
+                    for (i, submitter) in payload.submitters.iter().enumerate() {
+                        let token = generate_token();
+                        plaintext_tokens.push(token.clone());
                         let create_submitter = CreateSubmitter {
                             submission_id: db_sub.id,
                             name: submitter.name.clone(),
@@ -137,20 +141,20 @@ pub async fn create_submission(
                             fields_data: None,
                         };
                         if let Err(e) = SubmitterQueries::create_submitter(pool, create_submitter).await {
-                            eprintln!("Failed to create submitter: {}", e);
+                            return ApiResponse::internal_error(format!("Failed to create submitter: {}", e));
                         }
                     }
 
                     // Get the created submitters from database
                     let submitters = match SubmitterQueries::get_submitters_by_submission(pool, db_sub.id).await {
-                        Ok(submitters) => submitters.into_iter().map(|s| crate::models::submitter::Submitter {
+                        Ok(submitters) => submitters.into_iter().enumerate().map(|(i, s)| crate::models::submitter::Submitter {
                             id: Some(s.id),
                             submission_id: Some(s.submission_id),
                             name: s.name,
                             email: s.email,
                             status: s.status,
                             signed_at: s.signed_at,
-                            token: s.token,
+                            token: plaintext_tokens[i].clone(),
                             fields_data: s.fields_data,
                             created_at: s.created_at,
                             updated_at: s.updated_at,

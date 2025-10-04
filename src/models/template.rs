@@ -8,20 +8,12 @@ pub struct Template {
     pub name: String,
     pub slug: String,
     pub user_id: i64,
-    pub fields: Option<Vec<Field>>,
+    // pub fields: Option<Vec<Field>>, // Removed - now stored in separate table
+    pub template_fields: Option<Vec<TemplateField>>, // New: fields from separate table
     pub submitters: Option<Vec<Submitter>>,
     pub documents: Option<Vec<Document>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct Field {
-    pub name: String,
-    pub field_type: String, // text, signature, date, etc.
-    pub required: bool,
-    pub position: Option<FieldPosition>,
-    pub options: Option<Vec<String>>, // for select/radio fields
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -45,6 +37,20 @@ pub struct SuggestedPosition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TemplateField {
+    pub id: i64,
+    pub template_id: i64,
+    pub name: String,
+    pub field_type: String,
+    pub required: bool,
+    pub display_order: i32,
+    pub position: Option<FieldPosition>,
+    pub options: Option<Vec<String>>, // for select/radio fields
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Submitter {
     pub name: String,
     pub email: String,
@@ -64,14 +70,34 @@ pub struct Document {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateTemplateRequest {
     pub name: String,
-    pub fields: Option<Vec<Field>>,
+    // pub fields: Option<Vec<Field>>, // Removed - now use separate endpoints
     pub submitters: Option<Vec<Submitter>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateTemplateRequest {
     pub name: Option<String>,
-    pub fields: Option<Vec<Field>>,
+    // pub fields: Option<Vec<Field>>, // Removed - now use separate endpoints
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateTemplateFieldRequest {
+    pub name: String,
+    pub field_type: String,
+    pub required: bool,
+    pub display_order: Option<i32>,
+    pub position: Option<FieldPosition>,
+    pub options: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateTemplateFieldRequest {
+    pub name: Option<String>,
+    pub field_type: Option<String>,
+    pub required: Option<bool>,
+    pub display_order: Option<i32>,
+    pub position: Option<FieldPosition>,
+    pub options: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -83,15 +109,14 @@ pub struct CloneTemplateRequest {
 pub struct CreateTemplateFromHtmlRequest {
     pub name: String,
     pub html: String,
-    pub fields: Option<Vec<Field>>,
+    // pub fields: Option<Vec<Field>>, // Removed - now use separate endpoints
     pub submitters: Option<Vec<Submitter>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateTemplateFromPdfRequest {
     pub name: String,
-    pub pdf_data: String, // base64 encoded
-    pub submitters: Option<Vec<Submitter>>,
+    // pub submitters: Option<Vec<Submitter>>, // Keep this for PDF processing
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
