@@ -2,4 +2,7 @@
 fn main() {
     // trigger recompilation when a new migration is added
     println!("cargo:rerun-if-changed=migrations");
+
+    // Optional: You can add database setup checks here if needed
+    // But be careful as build.rs runs during compilation
 }

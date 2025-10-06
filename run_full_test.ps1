@@ -2,7 +2,7 @@
 # Register -> Login -> Create Template -> Upload PDF -> Create Fields with Position -> Send Email -> Sign
 
 $ErrorActionPreference = "Stop"
-$baseUrl = "http://localhost:3000"
+$baseUrl = "http://localhost:8080"
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "DocuSeal Pro - Complete Workflow" -ForegroundColor Cyan
@@ -58,7 +58,7 @@ try {
 Write-Host ""
 Write-Host "[Step 3] Creating template from PDF..." -ForegroundColor Yellow
 
-$pdfPath = "d:\Docuseal_Pro\test.pdf"
+$pdfPath = "/home/giap/giap/Docuseal_Pro/test.pdf"
 if (-not (Test-Path $pdfPath)) {
     Write-Host "Error test.pdf not found at $pdfPath" -ForegroundColor Red
     exit
@@ -195,13 +195,13 @@ Write-Host "  3. witness_signature (ID: $field3Id) - Bottom of page" -Foreground
 
 # Save field IDs to file for signing script
 $fieldIds = @($field1Id, $field2Id, $field3Id)
-$fieldIds | Out-File -FilePath "d:\Docuseal_Pro\field_ids.txt" -Encoding UTF8
+$fieldIds | Out-File -FilePath "/home/giap/giap/Docuseal_Pro/field_ids.txt" -Encoding UTF8
 Write-Host ""
-Write-Host "Field IDs saved to: d:\Docuseal_Pro\field_ids.txt" -ForegroundColor Cyan
+Write-Host "Field IDs saved to: /home/giap/giap/Docuseal_Pro/field_ids.txt" -ForegroundColor Cyan
 
 # Step 5: Create Submission and Send Email
 Write-Host ""
-Write-Host "[Step 5] Creating submission and sending email to buihaigiap0101@gmail.com..." -ForegroundColor Yellow
+Write-Host "[Step 5] Creating submission and sending emails to 2 different Gmail addresses..." -ForegroundColor Yellow
 
 $submissionBody = @{
     template_id = $templateId
@@ -209,6 +209,10 @@ $submissionBody = @{
         @{
             name = "Bui Hai Giap"
             email = "buihaigiap0101@gmail.com"
+        },
+        @{
+            name = "Test User 2"
+            email = "buihaigiap0102@gmail.com"
         }
     )
 } | ConvertTo-Json
@@ -222,13 +226,24 @@ try {
         Write-Host "Submission ID: $submissionId" -ForegroundColor Gray
         
         if ($submissionResponse.data.submitters -and $submissionResponse.data.submitters.Count -gt 0) {
-            $submitterToken = $submissionResponse.data.submitters[0].token
-            Write-Host "Submitter Token: $submitterToken" -ForegroundColor Cyan
-            Write-Host ""
-            Write-Host "Email sent to buihaigiap0101@gmail.com" -ForegroundColor Green
+            Write-Host "Submitters created:" -ForegroundColor Cyan
+            $tokens = @()
             
-            $submitterToken | Out-File -FilePath "d:\Docuseal_Pro\submitter_token.txt" -Encoding UTF8
-            Write-Host "Token saved to: d:\Docuseal_Pro\submitter_token.txt" -ForegroundColor Cyan
+            for ($i = 0; $i -lt $submissionResponse.data.submitters.Count; $i++) {
+                $submitter = $submissionResponse.data.submitters[$i]
+                $tokens += $submitter.token
+                Write-Host "  $($i+1). $($submitter.name) - $($submitter.email)" -ForegroundColor Gray
+                Write-Host "     Token: $($submitter.token)" -ForegroundColor Cyan
+            }
+            
+            Write-Host ""
+            Write-Host "Emails sent to:" -ForegroundColor Green
+            Write-Host "  - buihaigiap0101@gmail.com" -ForegroundColor Gray
+            Write-Host "  - buihaigiap0102@gmail.com" -ForegroundColor Gray
+            
+            # Save all tokens to file (one per line)
+            $tokens | Out-File -FilePath "/home/giap/giap/Docuseal_Pro/submitter_token.txt" -Encoding UTF8
+            Write-Host "Tokens saved to: /home/giap/giap/Docuseal_Pro/submitter_token.txt" -ForegroundColor Cyan
         }
     } else {
         Write-Host "Error Submission creation failed!" -ForegroundColor Red
@@ -241,19 +256,21 @@ try {
 
 # Step 6: Get Public Submission Info
 Write-Host ""
-Write-Host "[Step 6] Getting public submission info..." -ForegroundColor Yellow
+Write-Host "[Step 6] Getting public submission info for first submitter..." -ForegroundColor Yellow
 
 try {
-    $publicSubmissionResponse = Invoke-RestMethod -Uri "$baseUrl/public/submissions/$submitterToken" -Method GET
+    $firstToken = $tokens[0]
+    $publicSubmissionResponse = Invoke-RestMethod -Uri "$baseUrl/public/submissions/$firstToken" -Method GET
     Write-Host "Success Public submission retrieved!" -ForegroundColor Green
-    Write-Host "Template: $($publicSubmissionResponse.data.template_name)" -ForegroundColor Gray
-    Write-Host "Submitter: $($publicSubmissionResponse.data.submitter.name)" -ForegroundColor Gray
+    Write-Host "Template: $($publicSubmissionResponse.data.template.name)" -ForegroundColor Gray
+    Write-Host "Submitter: $($publicSubmissionResponse.data.submitter.name) ($($publicSubmissionResponse.data.submitter.email))" -ForegroundColor Gray
     Write-Host "Status: $($publicSubmissionResponse.data.submitter.status)" -ForegroundColor Gray
-    Write-Host "Fields to sign: $($publicSubmissionResponse.data.fields.Count)" -ForegroundColor Gray
+    Write-Host "Fields to sign: $($publicSubmissionResponse.data.template.template_fields.Count)" -ForegroundColor Gray
+    Write-Host "Total submitters in this submission: 2" -ForegroundColor Gray
     
     Write-Host ""
     Write-Host "Field details:" -ForegroundColor Cyan
-    foreach ($field in $publicSubmissionResponse.data.fields) {
+    foreach ($field in $publicSubmissionResponse.data.template.template_fields) {
         Write-Host "  - $($field.name) (ID: $($field.id), Type: $($field.field_type))" -ForegroundColor Gray
         if ($field.position) {
             Write-Host "    Position: page $($field.position.page), x:$($field.position.x), y:$($field.position.y)" -ForegroundColor Gray
@@ -274,11 +291,13 @@ Write-Host "Success Template created (ID: $templateId)" -ForegroundColor Green
 Write-Host "Success PDF uploaded to S3/MinIO" -ForegroundColor Green
 Write-Host "Success 3 signature fields created with positions" -ForegroundColor Green
 Write-Host "Success Submission created (ID: $submissionId)" -ForegroundColor Green
-Write-Host "Success Email sent to buihaigiap0101@gmail.com" -ForegroundColor Green
+Write-Host "Success Emails sent to 2 different Gmail addresses:" -ForegroundColor Green
+Write-Host "  - buihaigiap0101@gmail.com" -ForegroundColor Gray
+Write-Host "  - buihaigiap0102@gmail.com" -ForegroundColor Gray
 Write-Host ""
 Write-Host "NEXT STEPS:" -ForegroundColor Yellow
-Write-Host "1. Check email at buihaigiap0101@gmail.com" -ForegroundColor White
-Write-Host "2. Or sign programmatically with token: $submitterToken" -ForegroundColor White
+Write-Host "1. Check emails at both Gmail addresses" -ForegroundColor White
+Write-Host "2. Or sign programmatically with the tokens saved in submitter_token.txt" -ForegroundColor White
 Write-Host ""
 Write-Host "To sign now, run:" -ForegroundColor White
 Write-Host "   .\sign_simple.ps1" -ForegroundColor Cyan

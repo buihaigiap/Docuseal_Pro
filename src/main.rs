@@ -18,45 +18,42 @@ use database::connection::establish_connection;
 use models::user::User;
 use models::template::Template;
 
-#[derive(OpenApi)]
-#[openapi(
-    paths(
-        routes::web::register_handler,
-        routes::web::login_handler,
-        routes::templates::get_templates,
-        routes::templates::get_template,
-        routes::templates::get_template_full_info,
-        routes::templates::update_template,
-        routes::templates::delete_template,
-        routes::templates::clone_template,
-        routes::templates::create_template_from_html,
-        routes::templates::create_template_from_pdf,
-        routes::templates::create_template_from_docx,
-        routes::templates::merge_templates,
-        routes::templates::download_file,
-        routes::templates::preview_file,
-        routes::templates::get_template_signature_history,
-        routes::submissions::get_submissions,
-        routes::submissions::create_submission,
-        routes::submissions::get_submission,
-        routes::submissions::update_submission,
-        routes::submissions::delete_submission,
-        routes::submitters::get_public_submission,
-        routes::submitters::update_public_submitter,
-        routes::submitters::submit_bulk_signatures,
-        routes::submitters::get_signature_history
-    ),
-    components(
-        schemas(common::requests::RegisterRequest, common::requests::LoginRequest, common::responses::ApiResponse<User>, common::responses::ApiResponse<common::responses::LoginResponse>, common::responses::ApiResponse<Vec<Template>>, common::responses::ApiResponse<Template>, common::responses::ApiResponse<models::submission::Submission>, common::responses::ApiResponse<Vec<models::submission::Submission>>, common::responses::ApiResponse<models::submitter::Submitter>, routes::templates::TemplateSignatureHistory)
-    ),
-    tags(
-        (name = "auth", description = "Authentication endpoints"),
-        (name = "templates", description = "Template management endpoints"),
-        (name = "submissions", description = "Document submission endpoints"),
-        (name = "submitters", description = "Submitter management endpoints")
-    )
-)]
-struct ApiDoc;
+// #[derive(OpenApi)]
+// #[openapi(
+//     paths(
+//         routes::web::register_handler,
+//         routes::web::login_handler,
+//         routes::templates::get_templates,
+//         routes::templates::get_template,
+//         routes::templates::get_template_full_info,
+//         routes::templates::update_template,
+//         routes::templates::delete_template,
+//         routes::templates::clone_template,
+//         routes::templates::create_template_from_html,
+//         routes::templates::create_template_from_pdf,
+//         routes::templates::create_template_from_docx,
+//         routes::templates::merge_templates,
+//         routes::templates::download_file,
+//         routes::templates::preview_file,
+//         routes::submissions::create_submission,
+//         routes::submitters::get_public_submission,
+//         routes::submitters::get_public_submitter,
+//         routes::submitters::update_public_submitter,
+//         routes::submitters::submit_bulk_signatures
+//     ),
+//     components(
+//         schemas(common::requests::RegisterRequest, common::requests::LoginRequest, common::responses::ApiResponse<User>, common::responses::ApiResponse<common::responses::LoginResponse>, common::responses::ApiResponse<Vec<Template>>, common::responses::ApiResponse<Template>, common::responses::ApiResponse<models::submitter::Submitter>)
+//     ),
+//     tags(
+//         (name = "auth", description = "Authentication endpoints"),
+//         (name = "templates", description = "Template management endpoints"),
+//         (name = "submissions", description = "Document submission endpoints"),
+//         (name = "submitters", description = "Submitter management endpoints")
+//     ),
+//     modifiers(&SecurityAddon),
+//     security(("bearer_auth" = [])),
+// )]
+// struct ApiDoc;
 
 #[tokio::main]
 async fn main() {
@@ -78,21 +75,10 @@ async fn main() {
     // Initialize database connection
     let pool = establish_connection().await.expect("Failed to connect to database");
 
-    // Apply bulk_signatures migration if needed
-    println!("Checking and applying bulk_signatures migration...");
-    if let Err(e) = apply_bulk_signatures_migration(&pool).await {
-        println!("Warning: Failed to apply bulk_signatures migration: {}", e);
-        println!("The application may not work correctly with bulk signatures.");
-    } else {
-        println!("✅ Bulk signatures migration applied successfully");
-    }
-
-    // NOTE: Running embedded migrations at startup was causing a VersionMismatch panic
-    // (some migrations were modified after being applied). To avoid blocking the
-    // server, we skip automatic embedded migration run here. Use the helper binary
-    // `apply_migration` (src/bin/apply_migration.rs) to apply necessary ALTER TABLE
-    // statements manually when needed.
-    // run_migrations(&pool).await.expect("Failed to run database migrations");
+    // Run database migrations automatically on startup
+    println!("Running database migrations...");
+    run_migrations(&pool).await.expect("Failed to run database migrations");
+    println!("✅ Database migrations completed successfully");
 
     // Initialize services
     let app_state: AppState = Arc::new(Mutex::new(pool));
@@ -101,30 +87,30 @@ async fn main() {
     let api_routes = create_router();
 
     // Create custom OpenAPI route with security scheme
-    let openapi_json = {
-        let mut openapi = ApiDoc::openapi();
-        if let Some(components) = openapi.components.as_mut() {
-            components.add_security_scheme("bearer_auth", utoipa::openapi::security::SecurityScheme::Http(
-                utoipa::openapi::security::Http::new(utoipa::openapi::security::HttpAuthScheme::Bearer)
-            ));
-        } else {
-            let mut components = utoipa::openapi::Components::new();
-            components.add_security_scheme("bearer_auth", utoipa::openapi::security::SecurityScheme::Http(
-                utoipa::openapi::security::Http::new(utoipa::openapi::security::HttpAuthScheme::Bearer)
-            ));
-            openapi.components = Some(components);
-        }
-        openapi
-    };
+    // let openapi_json = {
+    //     let mut openapi = ApiDoc::openapi();
+    //     if let Some(components) = openapi.components.as_mut() {
+    //         components.add_security_scheme("bearer_auth", utoipa::openapi::security::SecurityScheme::Http(
+    //             utoipa::openapi::security::Http::new(utoipa::openapi::security::HttpAuthScheme::Bearer)
+    //         ));
+    //     } else {
+    //         let mut components = utoipa::openapi::Components::new();
+    //         components.add_security_scheme("bearer_auth", utoipa::openapi::security::SecurityScheme::Http(
+    //             utoipa::openapi::security::Http::new(utoipa::openapi::security::HttpAuthScheme::Bearer)
+    //         ));
+    //         openapi.components = Some(components);
+    //     }
+    //     openapi
+    // };
 
     // Create Swagger routes
-    let swagger_routes = SwaggerUi::new("/swagger-ui")
-        .url("/api-docs/openapi.json", openapi_json);
+    // let swagger_routes = SwaggerUi::new("/swagger-ui")
+    //     .url("/api-docs/openapi.json", openapi_json);
 
     // Combine all routes
     let app = Router::new()
         .merge(api_routes)
-        .merge(swagger_routes)
+        // .merge(swagger_routes)
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 
@@ -143,46 +129,3 @@ async fn run_migrations(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-async fn apply_bulk_signatures_migration(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    // Check if bulk_signatures column already exists
-    let column_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_name = 'signature_positions'
-            AND column_name = 'bulk_signatures'
-        )"
-    )
-    .fetch_one(pool)
-    .await?;
-
-    if column_exists {
-        println!("Column 'bulk_signatures' already exists");
-        return Ok(());
-    }
-
-    println!("Adding bulk_signatures column to signature_positions table...");
-
-    // Add the column
-    sqlx::query(
-        "ALTER TABLE signature_positions ADD COLUMN IF NOT EXISTS bulk_signatures JSONB NULL"
-    )
-    .execute(pool)
-    .await?;
-
-    // Add comment
-    sqlx::query(
-        "COMMENT ON COLUMN signature_positions.bulk_signatures IS 'JSON array chứa nhiều signatures: [{field_id, field_name, signature_value}, ...]'"
-    )
-    .execute(pool)
-    .await?;
-
-    // Create index
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_signature_positions_bulk_signatures ON signature_positions USING GIN (bulk_signatures) WHERE bulk_signatures IS NOT NULL"
-    )
-    .execute(pool)
-    .await?;
-
-    println!("✅ Bulk signatures column added successfully");
-    Ok(())
-}

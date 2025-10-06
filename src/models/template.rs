@@ -9,8 +9,11 @@ pub struct Template {
     pub slug: String,
     pub user_id: i64,
     // pub fields: Option<Vec<Field>>, // Removed - now stored in separate table
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub template_fields: Option<Vec<TemplateField>>, // New: fields from separate table
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub submitters: Option<Vec<Submitter>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub documents: Option<Vec<Document>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

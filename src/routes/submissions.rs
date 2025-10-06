@@ -1,94 +1,27 @@
 use axum::{
-    extract::{Path, State, Request},
-    http::{StatusCode, header},
-    response::{Json, Response},
-    routing::{get, post, put, delete},
+    extract::State,
+    http::StatusCode,
+    response::Json,
+    routing::post,
     Router,
-    body::Body,
     Extension,
     middleware,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use serde_json;
-use uuid::Uuid;
+use crate::common::token::generate_token;
 
 use crate::common::responses::ApiResponse;
-use crate::models::submission::{Submission, CreateSubmissionRequest, UpdateSubmissionRequest};
+use crate::models::submission::{Submission, CreateSubmissionRequest};
 use crate::models::submitter::Submitter;
 use crate::database::connection::DbPool;
-use crate::database::models::{CreateSubmission, CreateSubmitter};
-use crate::common::token::generate_token;
-use crate::database::queries::{SubmissionQueries, SubmitterQueries, TemplateQueries};
+use crate::database::models::CreateSubmitter;
+use crate::database::queries::{SubmitterQueries, TemplateQueries};
 use crate::routes::templates::convert_db_template_to_template;
 use crate::common::jwt::auth_middleware;
 use crate::services::email::EmailService;
 
 pub type AppState = Arc<Mutex<DbPool>>;
-
-#[utoipa::path(
-    get,
-    path = "/api/submissions",
-    tag = "submissions",
-    responses(
-        (status = 200, description = "List all submissions", body = ApiResponse<Vec<Submission>>),
-        (status = 500, description = "Internal server error", body = ApiResponse<Vec<Submission>>)
-    ),
-    security(("bearer_auth" = []))
-)]
-pub async fn get_submissions(
-    State(state): State<AppState>,
-    Extension(user_id): Extension<i64>,
-) -> (StatusCode, Json<ApiResponse<Vec<Submission>>>) {
-    let pool = &*state.lock().await;
-
-    match SubmissionQueries::get_submissions_by_user(pool, user_id).await {
-        Ok(db_submissions) => {
-            let mut submissions = Vec::new();
-            for db_sub in db_submissions {
-                // Get template info
-                if let Ok(Some(db_template)) = TemplateQueries::get_template_by_id(pool, db_sub.template_id).await {
-                    let template = convert_db_template_to_template(db_template);
-                    
-                    // Get submitters for this submission
-                    let submitters = match SubmitterQueries::get_submitters_by_submission(pool, db_sub.id).await {
-                        Ok(submitters) => Some(submitters.into_iter().map(|db_submitter| {
-                            Submitter {
-                                id: Some(db_submitter.id),
-                                submission_id: Some(db_submitter.submission_id),
-                                name: db_submitter.name,
-                                email: db_submitter.email,
-                                status: db_submitter.status,
-                                signed_at: db_submitter.signed_at,
-                                token: db_submitter.token,
-                                fields_data: db_submitter.fields_data,
-                                created_at: db_submitter.created_at,
-                                updated_at: db_submitter.updated_at,
-                            }
-                        }).collect::<Vec<_>>()),
-                        Err(_) => None,
-                    };
-
-                    // Convert to API model
-                    let submission = Submission {
-                        id: db_sub.id,
-                        template_id: db_sub.template_id,
-                        user_id: db_sub.user_id,
-                        status: db_sub.status,
-                        documents: None, // TODO: implement documents
-                        submitters: submitters,
-                        created_at: db_sub.created_at,
-                        updated_at: db_sub.updated_at,
-                        expires_at: db_sub.expires_at,
-                    };
-                    submissions.push(submission);
-                }
-            }
-            ApiResponse::success(submissions, "Submissions retrieved successfully".to_string())
-        }
-        Err(e) => ApiResponse::internal_error(format!("Failed to get submissions: {}", e)),
-    }
-}
 
 #[utoipa::path(
     post,
@@ -107,259 +40,84 @@ pub async fn create_submission(
     Extension(user_id): Extension<i64>,
     Json(payload): Json<CreateSubmissionRequest>,
 ) -> (StatusCode, Json<ApiResponse<Submission>>) {
-    
+
     let pool = &*state.lock().await;
 
     // Check if template exists
     match TemplateQueries::get_template_by_id(pool, payload.template_id).await {
-        Ok(Some(_)) => {
-            // Create submission
-            let submitters_json = serde_json::to_value(&payload.submitters).unwrap_or(serde_json::Value::Null);
-            
-            let create_data = CreateSubmission {
-                template_id: payload.template_id,
-                user_id: user_id,
-                status: "pending".to_string(),
-                documents: None,
-                expires_at: payload.expires_at,
-            };
+        Ok(Some(db_template)) => {
+            // In merged schema, we create submitters directly without a separate submission record
+            let mut created_submitters = Vec::new();
 
-            match SubmissionQueries::create_submission(pool, create_data).await {
-                Ok(db_sub) => {
-                    // Create submitters
-                    let mut plaintext_tokens = Vec::new();
-                    let tokens_secret = std::env::var("TOKENS_SECRET").unwrap_or_else(|_| "default-tokens-secret-change-this".to_string());
-                    for (i, submitter) in payload.submitters.iter().enumerate() {
-                        let token = generate_token();
-                        plaintext_tokens.push(token.clone());
-                        let create_submitter = CreateSubmitter {
-                            submission_id: db_sub.id,
-                            name: submitter.name.clone(),
-                            email: submitter.email.clone(),
-                            status: "pending".to_string(),
-                            token: token.clone(),
-                            fields_data: None,
+            for submitter in &payload.submitters {
+                let token = generate_token();
+                let create_submitter = CreateSubmitter {
+                    template_id: payload.template_id,
+                    user_id: user_id,
+                    name: submitter.name.clone(),
+                    email: submitter.email.clone(),
+                    status: "pending".to_string(),
+                    token: token.clone(),
+                };
+
+                match SubmitterQueries::create_submitter(pool, create_submitter).await {
+                    Ok(db_submitter) => {
+                        let submitter_api = Submitter {
+                            id: Some(db_submitter.id),
+                            template_id: Some(db_submitter.template_id),
+                            user_id: Some(db_submitter.user_id),
+                            name: db_submitter.name,
+                            email: db_submitter.email,
+                            status: db_submitter.status,
+                            signed_at: db_submitter.signed_at,
+                            token: db_submitter.token,
+                            bulk_signatures: db_submitter.bulk_signatures,
+                            created_at: db_submitter.created_at,
+                            updated_at: db_submitter.updated_at,
                         };
-                        if let Err(e) = SubmitterQueries::create_submitter(pool, create_submitter).await {
-                            return ApiResponse::internal_error(format!("Failed to create submitter: {}", e));
-                        }
-                    }
+                        created_submitters.push(submitter_api);
 
-                    // Get the created submitters from database
-                    let submitters = match SubmitterQueries::get_submitters_by_submission(pool, db_sub.id).await {
-                        Ok(submitters) => submitters.into_iter().enumerate().map(|(i, s)| crate::models::submitter::Submitter {
-                            id: Some(s.id),
-                            submission_id: Some(s.submission_id),
-                            name: s.name,
-                            email: s.email,
-                            status: s.status,
-                            signed_at: s.signed_at,
-                            token: plaintext_tokens[i].clone(),
-                            fields_data: s.fields_data,
-                            created_at: s.created_at,
-                            updated_at: s.updated_at,
-                        }).collect(),
-                        Err(_) => Vec::new(),
-                    };
-
-                    let submission = Submission {
-                        id: db_sub.id,
-                        template_id: db_sub.template_id,
-                        user_id: db_sub.user_id,
-                        status: db_sub.status,
-                        documents: None,
-                        submitters: Some(submitters.clone()),
-                        created_at: db_sub.created_at,
-                        updated_at: db_sub.updated_at,
-                        expires_at: db_sub.expires_at,
-                    };
-
-                    // Send email notifications to submitters
-                    let email_service = match EmailService::new() {
-                        Ok(service) => Some(service),
-                        Err(e) => {
-                            eprintln!("Failed to initialize email service: {}", e);
-                            None
-                        }
-                    };
-
-                    if let Some(email_service) = email_service {
-                        let submission_name = payload.name.clone().unwrap_or_else(|| format!("Submission #{}", db_sub.id));
-                        for submitter in &submitters {
-                            let signature_link = format!("http://localhost:8080/public/submitters/{}", submitter.token);
+                        // Send email to submitter
+                        let template = convert_db_template_to_template(db_template.clone());
+                        if let Ok(email_service) = EmailService::new() {
                             if let Err(e) = email_service.send_signature_request(
                                 &submitter.email,
                                 &submitter.name,
-                                &submission_name,
-                                &signature_link,
+                                &template.name,
+                                &token,
                             ).await {
                                 eprintln!("Failed to send email to {}: {}", submitter.email, e);
                             }
                         }
                     }
-
-                    ApiResponse::success(submission, "Submission created successfully".to_string())
-                }
-                Err(e) => ApiResponse::internal_error(format!("Failed to create submission: {}", e)),
-            }
-        }
-        _ => ApiResponse::not_found("Template not found".to_string()),
-    }
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/submissions/{id}",
-    tag = "submissions",
-    params(
-        ("id" = i64, Path, description = "Submission ID")
-    ),
-    responses(
-        (status = 200, description = "Submission retrieved successfully", body = ApiResponse<Submission>),
-        (status = 404, description = "Submission not found", body = ApiResponse<Submission>)
-    ),
-    security(("bearer_auth" = []))
-)]
-pub async fn get_submission(
-    State(state): State<AppState>,
-    Extension(user_id): Extension<i64>,
-    Path(submission_id): Path<i64>,
-) -> (StatusCode, Json<ApiResponse<Submission>>) {
-    let pool = &*state.lock().await;
-
-    match SubmissionQueries::get_submission(pool, submission_id, user_id).await {
-        Ok(Some(db_sub)) => {
-            // Get submitters from database
-            let submitters = match SubmitterQueries::get_submitters_by_submission(pool, db_sub.id).await {
-                Ok(submitters) => submitters.into_iter().map(|s| crate::models::submitter::Submitter {
-                    id: Some(s.id),
-                    submission_id: Some(s.submission_id),
-                    name: s.name,
-                    email: s.email,
-                    status: s.status,
-                    signed_at: s.signed_at,
-                    token: s.token,
-                    fields_data: s.fields_data,
-                    created_at: s.created_at,
-                    updated_at: s.updated_at,
-                }).collect(),
-                Err(_) => Vec::new(),
-            };
-
-            let submission = Submission {
-                id: db_sub.id,
-                template_id: db_sub.template_id,
-                user_id: db_sub.user_id,
-                status: db_sub.status,
-                documents: None,
-                submitters: Some(submitters),
-                created_at: db_sub.created_at,
-                updated_at: db_sub.updated_at,
-                expires_at: db_sub.expires_at,
-            };
-            ApiResponse::success(submission, "Submission retrieved successfully".to_string())
-        }
-        Ok(None) => ApiResponse::not_found("Submission not found".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Failed to get submission: {}", e)),
-    }
-}
-
-#[utoipa::path(
-    put,
-    path = "/api/submissions/{id}",
-    tag = "submissions",
-    params(
-        ("id" = i64, Path, description = "Submission ID")
-    ),
-    request_body = UpdateSubmissionRequest,
-    responses(
-        (status = 200, description = "Submission updated successfully", body = ApiResponse<Submission>),
-        (status = 404, description = "Submission not found", body = ApiResponse<Submission>)
-    ),
-    security(("bearer_auth" = []))
-)]
-pub async fn update_submission(
-    State(state): State<AppState>,
-    Extension(user_id): Extension<i64>,
-    Path(submission_id): Path<i64>,
-    Json(payload): Json<UpdateSubmissionRequest>,
-) -> (StatusCode, Json<ApiResponse<Submission>>) {
-    let pool = &*state.lock().await;
-
-    let submitters_json = payload.submitters.as_ref().map(|s| serde_json::to_value(s).unwrap_or(serde_json::Value::Null));
-
-    match SubmissionQueries::update_submission(pool, submission_id, user_id, payload.status.as_deref()).await {
-        Ok(Some(db_sub)) => {
-            // Get submitters for this submission
-            let submitters = match SubmitterQueries::get_submitters_by_submission(pool, db_sub.id).await {
-                Ok(submitters) => Some(submitters.into_iter().map(|db_submitter| {
-                    Submitter {
-                        id: Some(db_submitter.id),
-                        submission_id: Some(db_submitter.submission_id),
-                        name: db_submitter.name,
-                        email: db_submitter.email,
-                        status: db_submitter.status,
-                        signed_at: db_submitter.signed_at,
-                        token: db_submitter.token,
-                        fields_data: db_submitter.fields_data,
-                        created_at: db_submitter.created_at,
-                        updated_at: db_submitter.updated_at,
+                    Err(e) => {
+                        return ApiResponse::internal_error(format!("Failed to create submitter: {}", e));
                     }
-                }).collect::<Vec<_>>()),
-                Err(_) => None,
-            };
+                }
+            }
 
+            // Create synthetic submission response
             let submission = Submission {
-                id: db_sub.id,
-                template_id: db_sub.template_id,
-                user_id: db_sub.user_id,
-                status: db_sub.status,
+                id: payload.template_id, // Use template_id as submission id
+                template_id: payload.template_id,
+                user_id: user_id,
+                status: "active".to_string(),
                 documents: None,
-                submitters: submitters,
-                created_at: db_sub.created_at,
-                updated_at: db_sub.updated_at,
-                expires_at: db_sub.expires_at,
+                submitters: Some(created_submitters),
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+                expires_at: payload.expires_at,
             };
-            ApiResponse::success(submission, "Submission updated successfully".to_string())
+
+            ApiResponse::success(submission, "Submission created successfully".to_string())
         }
-        Ok(None) => ApiResponse::not_found("Submission not found".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Failed to update submission: {}", e)),
-    }
-}
-
-#[utoipa::path(
-    delete,
-    path = "/api/submissions/{id}",
-    tag = "submissions",
-    params(
-        ("id" = i64, Path, description = "Submission ID")
-    ),
-    responses(
-        (status = 200, description = "Submission deleted successfully", body = ApiResponse<String>),
-        (status = 404, description = "Submission not found", body = ApiResponse<String>)
-    ),
-    security(("bearer_auth" = []))
-)]
-pub async fn delete_submission(
-    State(state): State<AppState>,
-    Extension(user_id): Extension<i64>,
-    Path(submission_id): Path<i64>,
-) -> (StatusCode, Json<ApiResponse<String>>) {
-    let pool = &*state.lock().await;
-
-    match SubmissionQueries::delete_submission(pool, submission_id, user_id).await {
-        Ok(true) => ApiResponse::success("Submission deleted successfully".to_string(), "Submission deleted successfully".to_string()),
-        Ok(false) => ApiResponse::not_found("Submission not found".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Failed to delete submission: {}", e)),
+        Ok(None) => ApiResponse::not_found("Template not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Database error: {}", e)),
     }
 }
 
 pub fn create_submission_router() -> Router<AppState> {
     Router::new()
-        .route("/submissions", get(get_submissions))
         .route("/submissions", post(create_submission))
-        .route("/submissions/:id", get(get_submission))
-        .route("/submissions/:id", put(update_submission))
-        .route("/submissions/:id", delete(delete_submission))
         .layer(middleware::from_fn(auth_middleware))
 }

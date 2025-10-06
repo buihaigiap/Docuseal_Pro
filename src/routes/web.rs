@@ -4,6 +4,7 @@ use axum::{
     response::Json,
     routing::{get, post, put},
     Router,
+    middleware,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -38,10 +39,9 @@ pub fn create_router() -> Router<AppState> {
         .nest("/api", api_routes)
         .route("/health", get(health_check))
         .route("/test", get(|| async { "Test route works" }))
-        .route("/public/submissions/:token", get(submitters::get_public_submission))
+        .route("/public/submitters/:token", get(submitters::get_public_submitter))
         .route("/public/submitters/:token", put(submitters::update_public_submitter))
         .route("/public/signatures/bulk/:token", post(submitters::submit_bulk_signatures))
-        .route("/public/signatures/history/:token", get(submitters::get_signature_history))
 }
 
 #[utoipa::path(

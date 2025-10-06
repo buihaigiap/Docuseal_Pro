@@ -10,10 +10,13 @@ pub struct Submission {
     pub template_id: i64,
     pub user_id: i64,
     pub status: String, // pending, completed, expired
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub documents: Option<Vec<Document>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub submitters: Option<Vec<Submitter>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<DateTime<Utc>>,
 }
 

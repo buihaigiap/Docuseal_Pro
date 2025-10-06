@@ -13,6 +13,10 @@ pub struct StorageService {
 impl StorageService {
     pub async fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let storage_type = std::env::var("STORAGE_TYPE").unwrap_or_else(|_| "s3".to_string());
+        println!("=== STORAGE DEBUG ===");
+        println!("STORAGE_TYPE env var: {:?}", std::env::var("STORAGE_TYPE"));
+        println!("Using storage_type: {}", storage_type);
+        println!("====================");
 
         if storage_type == "local" {
             let local_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "./uploads".to_string());

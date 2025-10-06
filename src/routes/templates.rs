@@ -8,6 +8,7 @@ use axum::{
     Extension,
     middleware,
 };
+use chrono::Utc;
 use axum_extra::extract::Multipart;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -59,61 +60,32 @@ pub async fn get_template_full_info(
             // Convert template to API model
             let template = convert_db_template_to_template(db_template.clone());
 
-            // Get all submissions for this template
-            match crate::database::queries::SubmissionQueries::get_submissions_by_template(pool, template_id).await {
-                Ok(db_submissions) => {
-                    let mut submissions = Vec::new();
-
-                    for db_submission in &db_submissions {
-                        // Get all submitters for this submission
-                        let submitters = match crate::database::queries::SubmitterQueries::get_submitters_by_submission(pool, db_submission.id).await {
-                            Ok(submitters) => {
-                                submitters.into_iter().map(|db_sub| crate::models::submitter::Submitter {
-                                    id: Some(db_sub.id),
-                                    submission_id: Some(db_sub.submission_id),
-                                    name: db_sub.name,
-                                    email: db_sub.email,
-                                    status: db_sub.status,
-                                    signed_at: db_sub.signed_at,
-                                    token: db_sub.token,
-                                    fields_data: db_sub.fields_data,
-                                    created_at: db_sub.created_at,
-                                    updated_at: db_sub.updated_at,
-                                }).collect::<Vec<_>>()
-                            }
-                            Err(_) => Vec::new(),
-                        };
-
-                        // Convert submission to API model
-                        let submission = crate::models::submission::Submission {
-                            id: db_submission.id,
-                            template_id: db_submission.template_id,
-                            user_id: db_submission.user_id,
-                            status: db_submission.status.clone(),
-                            documents: None, // TODO: implement documents
-                            submitters: Some(submitters),
-                            created_at: db_submission.created_at,
-                            updated_at: db_submission.updated_at,
-                            expires_at: db_submission.expires_at,
-                        };
-
-                        submissions.push(submission);
-                    }
-
-                    // DEPRECATED: Old signature positions, now we use bulk_signatures
-                    let all_signature_positions: Vec<crate::models::signature::SignaturePosition> = Vec::new();
+            // Get all submitters for this template directly
+            match crate::database::queries::SubmitterQueries::get_submitters_by_template(pool, template_id).await {
+                Ok(db_submitters) => {
+                    let submitters = db_submitters.into_iter().map(|db_sub| crate::models::submitter::Submitter {
+                        id: Some(db_sub.id),
+                        template_id: Some(db_sub.template_id),
+                        user_id: Some(db_sub.user_id),
+                        name: db_sub.name,
+                        email: db_sub.email,
+                        status: db_sub.status,
+                        signed_at: db_sub.signed_at,
+                        token: db_sub.token,
+                        bulk_signatures: db_sub.bulk_signatures,
+                        created_at: db_sub.created_at,
+                        updated_at: db_sub.updated_at,
+                    }).collect::<Vec<_>>();
 
                     let data = serde_json::json!({
                         "template": template,
-                        "submissions": submissions,
-                        "signature_positions": all_signature_positions,
-                        "total_submissions": submissions.len(),
-                        "completed_submissions": submissions.iter().filter(|s| s.status == "completed").count()
+                        "submitters": submitters,
+                        "total_submitters": submitters.len()
                     });
 
                     ApiResponse::success(data, "Template full information retrieved successfully".to_string())
                 }
-                Err(e) => ApiResponse::internal_error(format!("Failed to get submissions: {}", e)),
+                Err(e) => ApiResponse::internal_error(format!("Failed to get submitters: {}", e)),
             }
         }
         Ok(None) => ApiResponse::not_found("Template not found".to_string()),
@@ -129,7 +101,6 @@ pub fn create_template_router() -> Router<AppState> {
         .route("/templates/:id", put(update_template))
         .route("/templates/:id", delete(delete_template))
         .route("/templates/:id/clone", post(clone_template))
-        .route("/templates/:id/signatures/history", get(get_template_signature_history))
         .route("/templates/html", post(create_template_from_html))
         .route("/templates/pdf", post(create_template_from_pdf))
         .route("/templates/docx", post(create_template_from_docx))
@@ -643,7 +614,7 @@ pub fn convert_db_template_to_template(db_template: crate::database::models::DbT
         slug: db_template.slug,
         user_id: db_template.user_id,
         template_fields: None, // Will be loaded separately if needed
-        submitters: db_template.submitters.and_then(|v| serde_json::from_value(v).ok()),
+        submitters: None, // No longer stored in templates
         documents: db_template.documents.and_then(|v| serde_json::from_value(v).ok()),
         created_at: db_template.created_at,
         updated_at: db_template.updated_at,
@@ -679,7 +650,7 @@ pub async fn convert_db_template_to_template_with_fields(
         slug: db_template.slug,
         user_id: db_template.user_id,
         template_fields: Some(template_fields),
-        submitters: db_template.submitters.and_then(|v| serde_json::from_value(v).ok()),
+        submitters: None, // No longer stored in templates
         documents: db_template.documents.and_then(|v| serde_json::from_value(v).ok()),
         created_at: db_template.created_at,
         updated_at: db_template.updated_at,
@@ -794,59 +765,6 @@ pub async fn preview_file(
             let (status, json_resp) = ApiResponse::<()>::bad_request("Cannot preview binary file. Use download endpoint instead.".to_string());
             Err((status, json_resp))
         }
-    }
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub struct TemplateSignatureHistory {
-    pub submitter_id: i64,
-    pub submitter_name: String,
-    pub submitter_email: String,
-    pub field_name: String,
-    pub signatures: Vec<crate::models::signature::SignaturePosition>,
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/templates/{id}/signatures/history",
-    tag = "templates",
-    params(
-        ("id" = i64, Path, description = "Template ID")
-    ),
-    responses(
-        (status = 200, description = "Template signature history retrieved successfully", body = ApiResponse<Vec<TemplateSignatureHistory>>),
-        (status = 404, description = "Template not found", body = ApiResponse<Vec<TemplateSignatureHistory>>)
-    ),
-    security(("bearer_auth" = []))
-)]
-pub async fn get_template_signature_history(
-    State(state): State<AppState>,
-    Extension(user_id): Extension<i64>,
-    Path(template_id): Path<i64>,
-) -> (StatusCode, Json<ApiResponse<Vec<TemplateSignatureHistory>>>) {
-    let pool = &*state.lock().await;
-
-    // Verify template belongs to user
-    match TemplateQueries::get_template_by_id(pool, template_id).await {
-        Ok(Some(db_template)) => {
-            if db_template.user_id != user_id {
-                return ApiResponse::forbidden("Access denied".to_string());
-            }
-
-            // Get all submissions for this template
-            match crate::database::queries::SubmissionQueries::get_submissions_by_template(pool, template_id).await {
-                Ok(db_submissions) => {
-                    let mut history = Vec::new();
-
-                    // DEPRECATED: Old signature history, now we use bulk_signatures
-                    // Comment out code that accesses removed fields
-
-                    ApiResponse::success(history, "Template signature history retrieved successfully".to_string())
-                }
-                Err(e) => ApiResponse::internal_error(format!("Failed to get submissions: {}", e)),
-            }
-        }
-        _ => ApiResponse::not_found("Template not found".to_string()),
     }
 }
 

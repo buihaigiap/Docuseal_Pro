@@ -5,24 +5,72 @@ param(
     [Parameter(Mandatory=$false)]
     [string]$Token,
     [Parameter(Mandatory=$false)]
-    [array]$FieldIds
+    [array]$FieldIds,
+    [Parameter(Mandatory=$false)]
+    [string]$Email = "test_$([DateTimeOffset]::Now.ToUnixTimeSeconds())@example.com",
+    [Parameter(Mandatory=$false)]
+    [string]$Password = "Test123456!"
 )
 
 $ErrorActionPreference = "Stop"
-$baseUrl = "http://localhost:3000"
+$baseUrl = "http://localhost:8080"
+
+# If no token provided, try to read from submitter_token.txt
+if (-not $Token) {
+    if (Test-Path "submitter_token.txt") {
+        $tokens = Get-Content "submitter_token.txt"
+        if ($tokens.Count -gt 0) {
+            $Token = $tokens[0].Trim()
+            Write-Host "Using token from submitter_token.txt: $Token" -ForegroundColor Gray
+        } else {
+            Write-Host "Error No tokens found in submitter_token.txt" -ForegroundColor Red
+            exit
+        }
+    } else {
+        Write-Host "Error No token provided and submitter_token.txt not found. Run run_full_test.ps1 first." -ForegroundColor Red
+        exit
+    }
+}
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "DocuSeal Pro - Document Signing" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Load token from file if not provided
+# Step 1: Get submitter information
+Write-Host ""
+Write-Host "[Step 1] Getting submitter information..." -ForegroundColor Yellow
+
+try {
+    $submitterResponse = Invoke-RestMethod -Uri "$baseUrl/public/submitters/$Token" -Method GET
+    Write-Host "Success Submitter found!" -ForegroundColor Green
+    Write-Host "Name: $($submitterResponse.data.name)" -ForegroundColor Gray
+    Write-Host "Email: $($submitterResponse.data.email)" -ForegroundColor Gray
+    Write-Host "Status: $($submitterResponse.data.status)" -ForegroundColor Gray
+} catch {
+    Write-Host "Error Failed to get submitter: $($_.Exception.Message)" -ForegroundColor Red
+    if ($_.Exception.Response) {
+        $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+        $reader.BaseStream.Position = 0
+        $responseBody = $reader.ReadToEnd()
+        Write-Host "Response: $responseBody" -ForegroundColor Red
+    }
+    exit
+}# Load token from file if not provided
 if (-not $Token) {
-    $tokenFile = "d:\Docuseal_Pro\submitter_token.txt"
+    $tokenFile = "/home/giap/giap/Docuseal_Pro/submitter_token.txt"
     if (Test-Path $tokenFile) {
-        $Token = Get-Content $tokenFile -Raw
-        $Token = $Token.Trim()
-        Write-Host "Success Token loaded from file" -ForegroundColor Green
+        $allTokens = Get-Content $tokenFile | Where-Object { $_.Trim() -ne "" }
+        if ($allTokens.Count -gt 1) {
+            $Token = $allTokens[1].Trim()  # Use second token (Test User 2)
+            Write-Host "Success Using second token (Test User 2) from file" -ForegroundColor Green
+        } elseif ($allTokens.Count -gt 0) {
+            $Token = $allTokens[0].Trim()  # Use first token if only one available
+            Write-Host "Success Token loaded from file" -ForegroundColor Green
+        } else {
+            Write-Host "Error No tokens found in file!" -ForegroundColor Red
+            exit
+        }
     } else {
         Write-Host "Error No token found!" -ForegroundColor Red
         exit
@@ -31,7 +79,7 @@ if (-not $Token) {
 
 # Load field IDs from workflow output if not provided
 if (-not $FieldIds -or $FieldIds.Count -eq 0) {
-    $fieldIdsFile = "d:\Docuseal_Pro\field_ids.txt"
+    $fieldIdsFile = "/home/giap/giap/Docuseal_Pro/field_ids.txt"
     if (Test-Path $fieldIdsFile) {
         $FieldIds = Get-Content $fieldIdsFile | ForEach-Object { [int]$_ }
         Write-Host "Success Field IDs loaded from file: $($FieldIds -join ', ')" -ForegroundColor Green
@@ -45,7 +93,7 @@ if (-not $FieldIds -or $FieldIds.Count -eq 0) {
 Write-Host "Token: $($Token.Substring(0, 20))..." -ForegroundColor Gray
 Write-Host "Field IDs to sign: $($FieldIds -join ', ')" -ForegroundColor Gray
 
-# URL encode the token
+# URL encode the token for safe URL usage
 $EncodedToken = [System.Web.HttpUtility]::UrlEncode($Token)
 
 # Prepare signatures for all field IDs
@@ -55,7 +103,7 @@ Write-Host "[Step 1] Preparing signatures for $($FieldIds.Count) fields..." -For
 $signatures = @()
 foreach ($fieldId in $FieldIds) {
     # Create a simple base64 encoded signature
-    $signatureText = "Signed by Bui Hai Giap - Field $fieldId - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    $signatureText = "Signed by Test User 2 - Field $fieldId - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
     $signatureBytes = [System.Text.Encoding]::UTF8.GetBytes($signatureText)
     $signatureBase64 = [System.Convert]::ToBase64String($signatureBytes)
     
@@ -79,8 +127,12 @@ $signBody = @{
     user_agent = "PowerShell/TestScript"
 } | ConvertTo-Json -Depth 10
 
+$headers = @{
+    "Content-Type" = "application/json"
+}
+
 try {
-    $signResponse = Invoke-RestMethod -Uri "$baseUrl/public/signatures/bulk/$EncodedToken" -Method POST -Body $signBody -ContentType "application/json"
+    $signResponse = Invoke-RestMethod -Uri "$baseUrl/public/signatures/bulk/$EncodedToken" -Method POST -Headers $headers -Body $signBody
     Write-Host "Success Signatures submitted successfully!" -ForegroundColor Green
     Write-Host "Signed at: $($signResponse.data.signed_at)" -ForegroundColor Gray
     
@@ -108,28 +160,32 @@ try {
     exit
 }
 
-# Get signature history to verify
+# Verify signatures by checking public submitter
 Write-Host ""
-Write-Host "[Step 3] Verifying signature history..." -ForegroundColor Yellow
+Write-Host "[Step 3] Verifying signatures..." -ForegroundColor Yellow
 
 try {
-    $historyResponse = Invoke-RestMethod -Uri "$baseUrl/public/signatures/history/$EncodedToken" -Method GET
-    if ($historyResponse.data -and $historyResponse.data.Count -gt 0) {
-        Write-Host "Success Signature history verified!" -ForegroundColor Green
-        Write-Host "Total signature records: $($historyResponse.data.Count)" -ForegroundColor Gray
+    $verifyResponse = Invoke-RestMethod -Uri "$baseUrl/public/submitters/$Token" -Method GET
+    if ($verifyResponse.data.status -eq "completed") {
+        Write-Host "Success Signatures verified!" -ForegroundColor Green
+        Write-Host "Submitter status: $($verifyResponse.data.status)" -ForegroundColor Gray
+        Write-Host "Signed at: $($verifyResponse.data.signed_at)" -ForegroundColor Gray
         
-        $latestRecord = $historyResponse.data[0]
-        Write-Host ""
-        Write-Host "Latest signature record:" -ForegroundColor Cyan
-        Write-Host "  Signed at: $($latestRecord.signed_at)" -ForegroundColor Gray
-        Write-Host "  IP: $($latestRecord.ip_address)" -ForegroundColor Gray
+        $sigCount = $verifyResponse.data.signature_positions.Count
+        Write-Host "Number of signatures: $sigCount" -ForegroundColor Gray
         
-        if ($latestRecord.signature_value) {
-            Write-Host "  Has bulk signatures data" -ForegroundColor Gray
+        if ($sigCount -gt 0) {
+            Write-Host ""
+            Write-Host "Signature details:" -ForegroundColor Cyan
+            foreach ($sig in $verifyResponse.data.signature_positions) {
+                Write-Host "  - Field: $($sig.field_name) (ID: $($sig.field_id))" -ForegroundColor Gray
+            }
         }
+    } else {
+        Write-Host "Warning Submitter status is not completed: $($verifyResponse.data.status)" -ForegroundColor Yellow
     }
 } catch {
-    Write-Host "Warning Could not verify signature history" -ForegroundColor Yellow
+    Write-Host "Warning Could not verify signatures: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
 # Summary
