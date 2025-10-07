@@ -23,7 +23,7 @@ DocuSeal cung cấp các tính năng cơ bản sau:
 Phiên bản Pro cung cấp các tính năng nâng cao:
 
 - **Logo Công Ty và White-Label**: Tùy chỉnh thương hiệu.
-- **Vai Trò Người Dùng**: Phân quyền chi tiết.
+- **Vai Trò Người Dùng**: [Hệ thống phân quyền chi tiết](./ROLE_SYSTEM.md) - Phân quyền 3 cấp (Admin, Team Member, Recipient).
 - **Nhắc Nhở Tự Động**: Gửi nhắc nhở ký tài liệu.
 - **Xác Minh Danh Tính Qua SMS**: Xác thực qua tin nhắn.
 - **Trường Điều Kiện và Công Thức**: Logic động trong biểu mẫu.
@@ -319,10 +319,47 @@ Mỗi phần nên được hoàn thành và test riêng trước khi chuyển sa
 
 DocuSeal cung cấp API RESTful để tích hợp. Dưới đây là các endpoint chính từ OpenAPI spec:
 
-### Bảo Mật
-- Sử dụng `X-Auth-Token` trong header cho xác thực.
+### Bảo Mật và Phân Quyền
+
+#### Authentication
+- Sử dụng JWT Bearer Token trong header `Authorization: Bearer <token>`
+- Đăng ký: `POST /api/auth/register`
+- Đăng nhập: `POST /api/auth/login`
+
+#### Hệ thống Phân Quyền
+DocuSeal Pro sử dụng hệ thống phân quyền 3 cấp. Chi tiết tại [ROLE_SYSTEM.md](./ROLE_SYSTEM.md)
+
+**Các cấp độ quyền:**
+- **Admin**: Toàn quyền quản lý hệ thống
+- **Team Member**: Có thể tạo/sửa templates, gửi tài liệu
+- **Recipient**: Chỉ ký tài liệu được gửi
+
+**Ví dụ API calls với authentication:**
+```bash
+# Đăng nhập để lấy token
+curl -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"password"}'
+
+# Sử dụng token để truy cập API
+curl -H "Authorization: Bearer <token>" \
+     http://localhost:8080/api/templates
+```
 
 ### Các Nhóm API
+
+#### Quyền Truy Cập Theo Role
+
+| API Group | Endpoint | Admin | Team Member | Recipient | Ghi chú |
+|-----------|----------|-------|-------------|-----------|---------|
+| **Templates** | `GET /templates` | ✅ | ✅ | ❌ | Liệt kê templates |
+| | `POST /templates` | ✅ | ✅ | ❌ | Tạo template mới |
+| | `PUT /templates/{id}` | ✅ | ✅ | ❌ | Cập nhật template |
+| | `DELETE /templates/{id}` | ✅ | ✅ | ❌ | Xóa template |
+| **Submissions** | `POST /submissions` | ✅ | ✅ | ❌ | Tạo submission |
+| | `GET /submissions` | ✅ | ✅ | ❌ | Liệt kê submissions |
+| **Submitters** | `GET /submitters` | ✅ | ✅ | ❌ | Liệt kê submitters |
+| **Public** | `/public/submissions/{token}` | ✅ | ✅ | ✅ | Ký tài liệu (theo token) |
 
 #### Templates (Mẫu)
 - **GET /templates**: Liệt kê tất cả mẫu.
@@ -367,3 +404,34 @@ POST /submissions
     }
   ]
 }
+```
+
+### Testing Role System
+
+#### 1. Tạo User với Role khác nhau
+```sql
+-- Tạo Admin user
+INSERT INTO users (name, email, password_hash, role)
+VALUES ('Admin User', 'admin@example.com', '$2b$12$...', 'admin');
+
+-- Tạo Team Member
+INSERT INTO users (name, email, password_hash, role)
+VALUES ('Team User', 'team@example.com', '$2b$12$...', 'team_member');
+```
+
+#### 2. Test API với Role
+```bash
+# Login với Admin
+curl -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"password"}'
+
+# Sử dụng token để truy cập templates (Admin/Team Member only)
+curl -H "Authorization: Bearer <admin_token>" \
+     http://localhost:8080/api/templates
+```
+
+#### 3. Chạy Full Test
+```bash
+./run_full_test.sh
+```

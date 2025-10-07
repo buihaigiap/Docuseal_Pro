@@ -1,15 +1,17 @@
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, errors::Error};
 use serde::{Serialize, Deserialize};
 use chrono::{Utc, Duration};
+use crate::models::role::Role;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: i64, // user id
     pub email: String,
+    pub role: Role,
     pub exp: usize, // expiration time
 }
 
-pub fn generate_jwt(user_id: i64, email: &str, secret: &str) -> Result<String, Error> {
+pub fn generate_jwt(user_id: i64, email: &str, role: &Role, secret: &str) -> Result<String, Error> {
     let expiration = Utc::now()
         .checked_add_signed(Duration::hours(24))
         .expect("valid timestamp")
@@ -18,6 +20,7 @@ pub fn generate_jwt(user_id: i64, email: &str, secret: &str) -> Result<String, E
     let claims = Claims {
         sub: user_id,
         email: email.to_owned(),
+        role: role.clone(),
         exp: expiration,
     };
 
@@ -60,8 +63,9 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> Result<Respons
         Err(_) => return Err(StatusCode::UNAUTHORIZED),
     };
 
-    // Add user_id to request extensions
+    // Add user_id and role to request extensions
     request.extensions_mut().insert(claims.sub);
+    request.extensions_mut().insert(claims.role);
 
     Ok(next.run(request).await)
 }

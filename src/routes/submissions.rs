@@ -19,6 +19,7 @@ use crate::database::models::CreateSubmitter;
 use crate::database::queries::{SubmitterQueries, TemplateQueries};
 use crate::routes::templates::convert_db_template_to_template;
 use crate::common::jwt::auth_middleware;
+use crate::common::authorization::require_admin_or_team_member;
 use crate::services::email::EmailService;
 
 pub type AppState = Arc<Mutex<DbPool>>;

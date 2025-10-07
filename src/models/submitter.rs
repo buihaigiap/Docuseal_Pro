@@ -32,3 +32,9 @@ pub struct CreateSubmitterRequest {
     pub name: String,
     pub email: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PublicSubmissionResponse {
+    pub template: crate::models::template::Template,
+    pub submitter: Submitter,
+}

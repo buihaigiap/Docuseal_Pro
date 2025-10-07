@@ -12,14 +12,15 @@ impl UserQueries {
 
         let row = sqlx::query(
             r#"
-            INSERT INTO users (name, email, password_hash, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, name, email, password_hash, created_at, updated_at
+            INSERT INTO users (name, email, password_hash, role, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, name, email, password_hash, role, created_at, updated_at
             "#
         )
         .bind(&user_data.name)
         .bind(&user_data.email)
         .bind(&user_data.password_hash)
+        .bind(&user_data.role)
         .bind(now)
         .bind(now)
         .fetch_one(pool)
@@ -30,6 +31,7 @@ impl UserQueries {
             name: row.try_get("name")?,
             email: row.try_get("email")?,
             password_hash: row.try_get("password_hash")?,
+            role: row.try_get("role")?,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
         })
@@ -37,7 +39,7 @@ impl UserQueries {
 
     pub async fn get_user_by_email(pool: &PgPool, email: &str) -> Result<Option<DbUser>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, email, password_hash, created_at, updated_at FROM users WHERE email = $1"
+            "SELECT id, name, email, password_hash, role, created_at, updated_at FROM users WHERE email = $1"
         )
         .bind(email)
         .fetch_optional(pool)
@@ -49,6 +51,7 @@ impl UserQueries {
                 name: row.try_get("name")?,
                 email: row.try_get("email")?,
                 password_hash: row.try_get("password_hash")?,
+                role: row.try_get("role")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             })),

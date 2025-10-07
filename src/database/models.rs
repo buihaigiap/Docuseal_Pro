@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use crate::models::role::Role;
 
 // Database-specific user model
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -9,6 +10,7 @@ pub struct DbUser {
     pub name: String,
     pub email: String,
     pub password_hash: String,
+    pub role: Role,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -19,6 +21,7 @@ pub struct CreateUser {
     pub name: String,
     pub email: String,
     pub password_hash: String,
+    pub role: Role,
 }
 
 // Database-specific template field model

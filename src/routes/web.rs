@@ -13,6 +13,7 @@ use bcrypt::{hash, verify, DEFAULT_COST};
 use crate::common::requests::{RegisterRequest, LoginRequest};
 use crate::common::responses::{ApiResponse, LoginResponse};
 use crate::models::user::User;
+use crate::models::role::Role;
 use crate::database::connection::DbPool;
 use crate::database::models::CreateUser;
 use crate::database::queries::UserQueries;
@@ -39,8 +40,8 @@ pub fn create_router() -> Router<AppState> {
         .nest("/api", api_routes)
         .route("/health", get(health_check))
         .route("/test", get(|| async { "Test route works" }))
-        .route("/public/submitters/:token", get(submitters::get_public_submitter))
-        .route("/public/submitters/:token", put(submitters::update_public_submitter))
+        .route("/public/submissions/:token", get(submitters::get_public_submitter))
+        .route("/public/submissions/:token", put(submitters::update_public_submitter))
         .route("/public/signatures/bulk/:token", post(submitters::submit_bulk_signatures))
 }
 
@@ -76,6 +77,7 @@ pub async fn register_handler(
         name: payload.name.clone(),
         email: payload.email.clone(),
         password_hash,
+        role: Role::TeamMember, // Default role for new users
     };
 
     match UserQueries::create_user(pool, create_user).await {
@@ -113,7 +115,7 @@ pub async fn login_handler(
                     let jwt_secret = std::env::var("JWT_SECRET")
                         .unwrap_or_else(|_| "your-secret-key".to_string());
 
-                    match generate_jwt(db_user.id, &db_user.email, &jwt_secret) {
+                    match generate_jwt(db_user.id, &db_user.email, &db_user.role, &jwt_secret) {
                         Ok(token) => {
                             let user: User = db_user.into();
                             let login_response = LoginResponse { token, user };

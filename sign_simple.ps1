@@ -42,11 +42,12 @@ Write-Host ""
 Write-Host "[Step 1] Getting submitter information..." -ForegroundColor Yellow
 
 try {
-    $submitterResponse = Invoke-RestMethod -Uri "$baseUrl/public/submitters/$Token" -Method GET
+    $encodedToken = [uri]::EscapeDataString($Token)
+    $submitterResponse = Invoke-RestMethod -Uri "$baseUrl/public/submissions/$encodedToken" -Method GET
     Write-Host "Success Submitter found!" -ForegroundColor Green
-    Write-Host "Name: $($submitterResponse.data.name)" -ForegroundColor Gray
-    Write-Host "Email: $($submitterResponse.data.email)" -ForegroundColor Gray
-    Write-Host "Status: $($submitterResponse.data.status)" -ForegroundColor Gray
+    Write-Host "Name: $($submitterResponse.data.submitter.name)" -ForegroundColor Gray
+    Write-Host "Email: $($submitterResponse.data.submitter.email)" -ForegroundColor Gray
+    Write-Host "Status: $($submitterResponse.data.submitter.status)" -ForegroundColor Gray
 } catch {
     Write-Host "Error Failed to get submitter: $($_.Exception.Message)" -ForegroundColor Red
     if ($_.Exception.Response) {
@@ -165,7 +166,7 @@ Write-Host ""
 Write-Host "[Step 3] Verifying signatures..." -ForegroundColor Yellow
 
 try {
-    $verifyResponse = Invoke-RestMethod -Uri "$baseUrl/public/submitters/$Token" -Method GET
+    $verifyResponse = Invoke-RestMethod -Uri "$baseUrl/public/submissions/$Token" -Method GET
     if ($verifyResponse.data.status -eq "completed") {
         Write-Host "Success Signatures verified!" -ForegroundColor Green
         Write-Host "Submitter status: $($verifyResponse.data.status)" -ForegroundColor Gray

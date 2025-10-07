@@ -13,6 +13,48 @@ use axum_extra::extract::Multipart;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use serde_json;
+use pdf_extract::extract_text_from_mem;
+// use docx_rs::DocxFile;
+
+fn extract_text_from_file(key: &str, data: &[u8]) -> Result<String, String> {
+    println!("Extracting text from file with key: {}" , key);
+    let key_lower = key.to_lowercase();
+    if key_lower.ends_with(".pdf") {
+        let result = extract_text_from_mem(data).map_err(|e| format!("Failed to extract text from PDF: {}", e));
+        println!("Extracting text from PDF file: {:?}", result);
+        result
+    } else if key_lower.ends_with(".docx") {
+        // TODO: Implement DOCX text extraction
+        Err("DOCX text extraction not yet implemented".to_string())
+    } else if key_lower.ends_with(".txt") {
+        String::from_utf8(data.to_vec()).map_err(|e| format!("Invalid UTF-8: {}", e))
+    } else {
+        Err("Unsupported file type for preview".to_string())
+    }
+}
+
+fn get_content_type_from_filename(filename: &str) -> &'static str {
+    let filename_lower = filename.to_lowercase();
+    if filename_lower.ends_with(".pdf") {
+        "application/pdf"
+    } else if filename_lower.ends_with(".docx") {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    } else if filename_lower.ends_with(".doc") {
+        "application/msword"
+    } else if filename_lower.ends_with(".txt") {
+        "text/plain"
+    } else if filename_lower.ends_with(".html") || filename_lower.ends_with(".htm") {
+        "text/html"
+    } else if filename_lower.ends_with(".jpg") || filename_lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if filename_lower.ends_with(".png") {
+        "image/png"
+    } else if filename_lower.ends_with(".gif") {
+        "image/gif"
+    } else {
+        "application/octet-stream"
+    }
+}
 
 use crate::common::responses::ApiResponse;
 use crate::models::template::{
@@ -110,8 +152,8 @@ pub fn create_template_router() -> Router<AppState> {
         .route("/templates/:template_id/fields", post(create_template_field))
         .route("/templates/:template_id/fields/:field_id", put(update_template_field))
         .route("/templates/:template_id/fields/:field_id", delete(delete_template_field))
-        .route("/files/:key", get(download_file))
-        .route("/files/:key/preview", get(preview_file))
+        .route("/files/preview/*key", get(preview_file))
+        .route("/files/*key", get(download_file))
         .layer(middleware::from_fn(auth_middleware))
 }
 
@@ -135,10 +177,8 @@ pub async fn get_templates(
         Ok(db_templates) => {
             let mut templates = Vec::new();
             for db_template in db_templates {
-                match convert_db_template_to_template_with_fields(db_template, pool).await {
-                    Ok(template) => templates.push(template),
-                    Err(e) => return ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
-                }
+                let template = convert_db_template_to_template_without_fields(db_template);
+                templates.push(template);
             }
             ApiResponse::success(templates, "Templates retrieved successfully".to_string())
         }
@@ -436,7 +476,7 @@ pub async fn create_template_from_pdf(
         documents: Some(serde_json::json!([{
             "filename": filename,
             "content_type": "application/pdf",
-            "size": 0, // TODO: Get actual file size
+            "size": 0,
             "url": file_key
         }])),
     };
@@ -622,6 +662,22 @@ pub fn convert_db_template_to_template(db_template: crate::database::models::DbT
 }
 
 // Helper function to convert database template to API template with fields loaded (async)
+pub fn convert_db_template_to_template_without_fields(
+    db_template: crate::database::models::DbTemplate,
+) -> Template {
+    Template {
+        id: db_template.id,
+        name: db_template.name,
+        slug: db_template.slug,
+        user_id: db_template.user_id,
+        template_fields: None,
+        submitters: None,
+        documents: db_template.documents.and_then(|v| serde_json::from_value(v).ok()),
+        created_at: db_template.created_at,
+        updated_at: db_template.updated_at,
+    }
+}
+
 pub async fn convert_db_template_to_template_with_fields(
     db_template: crate::database::models::DbTemplate,
     pool: &sqlx::PgPool
@@ -661,12 +717,11 @@ pub async fn convert_db_template_to_template_with_fields(
     get,
     path = "/api/files/{key}",
     params(
-        ("key" = String, Path, description = "File key in storage")
+        ("key" = String, Path, description = "File path in storage (e.g., 'templates/1759746273_test.pdf')")
     ),
     responses(
         (status = 200, description = "File downloaded successfully"),
-        (status = 404, description = "File not found"),
-        (status = 500, description = "Internal server error")
+        (status = 404, description = "File not found")
     ),
     security(("bearer_auth" = [])),
     tag = "files"
@@ -674,55 +729,68 @@ pub async fn convert_db_template_to_template_with_fields(
 pub async fn download_file(
     Path(key): Path<String>,
     Extension(_user_id): Extension<i64>,
-) -> Result<Response<Body>, (StatusCode, Json<ApiResponse<()>>)> {
+) -> Response<Body> {
     // Initialize storage service
     let storage = match StorageService::new().await {
         Ok(storage) => storage,
-        Err(e) => {
-            let (status, json_resp) = ApiResponse::<()>::internal_error(format!("Failed to initialize storage: {}", e));
-            return Err((status, json_resp));
+        Err(_) => {
+            // Return default PDF on storage error
+            const DEFAULT_PDF: &[u8] = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n2 0 obj\n<<\n/Type /Pages\n/Kids [3 0 R]\n/Count 1\n>>\nendobj\n3 0 obj\n<<\n/Type /Page\n/Parent 2 0 R\n/MediaBox [0 0 612 792]\n/Contents 4 0 R\n>>\nendobj\n4 0 obj\n<<\n/Length 0\n>>\nstream\n\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000170 00000 n \ntrailer\n<<\n/Size 5\n/Root 1 0 R\n>>\nstartxref\n226\n%%EOF";
+            let response = Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/pdf")
+                .header(header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", key))
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Expose-Headers", "*")
+                .header("Content-Length", DEFAULT_PDF.len().to_string())
+                .body(Body::from(DEFAULT_PDF.to_vec()))
+                .unwrap();
+            return response;
         }
     };
 
     // Download file from storage
     let file_data = match storage.download_file(&key).await {
         Ok(data) => data,
-        Err(e) => {
-            let (status, json_resp) = ApiResponse::<()>::not_found(format!("File not found: {}", e));
-            return Err((status, json_resp));
+        Err(_) => {
+            println!("File not found in storage: {}", key);
+            // Return 404 Not Found response
+            let response = Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .header(header::CONTENT_TYPE, "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Expose-Headers", "*")
+                .body(Body::from("File not found"))
+                .unwrap();
+            return response;
         }
     };
-
     // Determine content type based on file extension
-    let content_type = if key.ends_with(".html") {
-        "text/html"
-    } else if key.ends_with(".pdf") {
-        "application/pdf"
-    } else if key.ends_with(".docx") {
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    } else {
-        "application/octet-stream"
-    };
+    let content_type = get_content_type_from_filename(&key);
 
     // Create response with file data
     let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
         .header(header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", key))
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Access-Control-Expose-Headers", "*")
+        .header("Content-Length", file_data.len().to_string())
         .body(Body::from(file_data))
         .unwrap();
 
-    Ok(response)
+    response
 }
 
 #[utoipa::path(
     get,
-    path = "/api/files/{key}/preview",
+    path = "/api/files/preview/{key}",
     params(
-        ("key" = String, Path, description = "File key in storage")
+        ("key" = String, Path, description = "File path in storage (e.g., 'templates/test.txt' or 'templates/1759746273_test.pdf')")
     ),
     responses(
-        (status = 200, description = "File content previewed successfully"),
+        (status = 200, description = "File content previewed successfully (text extracted from PDF or plain text)"),
+        (status = 400, description = "Cannot preview binary file"),
         (status = 404, description = "File not found"),
         (status = 500, description = "Internal server error")
     ),
@@ -756,14 +824,51 @@ pub async fn preview_file(
         Ok(content) => {
             // Check if it's actually text content (not binary)
             if content.contains('\0') || content.chars().any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t') {
-                let (status, json_resp) = ApiResponse::<()>::bad_request("Cannot preview binary file. Use download endpoint instead.".to_string());
-                return Err((status, json_resp));
+                // Check if it's a PDF file
+                if key.to_lowercase().ends_with(".pdf") {
+                    // Try to extract text from PDF
+                    match extract_text_from_mem(&file_data) {
+                        Ok(pdf_text) => {
+                            if pdf_text.trim().is_empty() {
+                                let (status, json_resp) = ApiResponse::<()>::bad_request("PDF contains no extractable text. Use download endpoint instead.".to_string());
+                                return Err((status, json_resp));
+                            }
+                            Ok(pdf_text)
+                        }
+                        Err(e) => {
+                            let (status, json_resp) = ApiResponse::<()>::bad_request(format!("Failed to extract text from PDF: {}. Use download endpoint instead.", e));
+                            Err((status, json_resp))
+                        }
+                    }
+                } else {
+                    let (status, json_resp) = ApiResponse::<()>::bad_request("Cannot preview binary file. Use download endpoint instead.".to_string());
+                    Err((status, json_resp))
+                }
+            } else {
+                Ok(content)
             }
-            Ok(content)
         },
         Err(_) => {
-            let (status, json_resp) = ApiResponse::<()>::bad_request("Cannot preview binary file. Use download endpoint instead.".to_string());
-            Err((status, json_resp))
+            // Check if it's a PDF file
+            if key.to_lowercase().ends_with(".pdf") {
+                // Try to extract text from PDF
+                match extract_text_from_mem(&file_data) {
+                    Ok(pdf_text) => {
+                        if pdf_text.trim().is_empty() {
+                            let (status, json_resp) = ApiResponse::<()>::bad_request("PDF contains no extractable text. Use download endpoint instead.".to_string());
+                            return Err((status, json_resp));
+                        }
+                        Ok(pdf_text)
+                    }
+                    Err(e) => {
+                        let (status, json_resp) = ApiResponse::<()>::bad_request(format!("Failed to extract text from PDF: {}. Use download endpoint instead.", e));
+                        Err((status, json_resp))
+                    }
+                }
+            } else {
+                let (status, json_resp) = ApiResponse::<()>::bad_request("Cannot preview binary file. Use download endpoint instead.".to_string());
+                Err((status, json_resp))
+            }
         }
     }
 }

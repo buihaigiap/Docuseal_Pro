@@ -18,42 +18,41 @@ use database::connection::establish_connection;
 use models::user::User;
 use models::template::Template;
 
-// #[derive(OpenApi)]
-// #[openapi(
-//     paths(
-//         routes::web::register_handler,
-//         routes::web::login_handler,
-//         routes::templates::get_templates,
-//         routes::templates::get_template,
-//         routes::templates::get_template_full_info,
-//         routes::templates::update_template,
-//         routes::templates::delete_template,
-//         routes::templates::clone_template,
-//         routes::templates::create_template_from_html,
-//         routes::templates::create_template_from_pdf,
-//         routes::templates::create_template_from_docx,
-//         routes::templates::merge_templates,
-//         routes::templates::download_file,
-//         routes::templates::preview_file,
-//         routes::submissions::create_submission,
-//         routes::submitters::get_public_submission,
-//         routes::submitters::get_public_submitter,
-//         routes::submitters::update_public_submitter,
-//         routes::submitters::submit_bulk_signatures
-//     ),
-//     components(
-//         schemas(common::requests::RegisterRequest, common::requests::LoginRequest, common::responses::ApiResponse<User>, common::responses::ApiResponse<common::responses::LoginResponse>, common::responses::ApiResponse<Vec<Template>>, common::responses::ApiResponse<Template>, common::responses::ApiResponse<models::submitter::Submitter>)
-//     ),
-//     tags(
-//         (name = "auth", description = "Authentication endpoints"),
-//         (name = "templates", description = "Template management endpoints"),
-//         (name = "submissions", description = "Document submission endpoints"),
-//         (name = "submitters", description = "Submitter management endpoints")
-//     ),
-//     modifiers(&SecurityAddon),
-//     security(("bearer_auth" = [])),
-// )]
-// struct ApiDoc;
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        routes::web::register_handler,
+        routes::web::login_handler,
+        routes::templates::get_templates,
+        routes::templates::get_template,
+        routes::templates::get_template_full_info,
+        routes::templates::update_template,
+        routes::templates::delete_template,
+        routes::templates::clone_template,
+        routes::templates::create_template_from_html,
+        routes::templates::create_template_from_pdf,
+        routes::templates::create_template_from_docx,
+        routes::templates::merge_templates,
+        routes::templates::download_file,
+        routes::templates::preview_file,
+        routes::submissions::create_submission,
+        routes::submitters::get_public_submitter,
+        routes::submitters::get_public_submitter,
+        routes::submitters::update_public_submitter,
+        routes::submitters::submit_bulk_signatures
+    ),
+    components(
+        schemas(common::requests::RegisterRequest, common::requests::LoginRequest, common::responses::ApiResponse<User>, common::responses::ApiResponse<common::responses::LoginResponse>, common::responses::ApiResponse<Vec<Template>>, common::responses::ApiResponse<Template>, common::responses::ApiResponse<models::submitter::Submitter>, models::role::Role)
+    ),
+    tags(
+        (name = "auth", description = "Authentication endpoints"),
+        (name = "templates", description = "Template management endpoints"),
+        (name = "submissions", description = "Document submission endpoints"),
+        (name = "submitters", description = "Submitter management endpoints")
+    ),
+    security(("bearer_auth" = [])),
+)]
+struct ApiDoc;
 
 #[tokio::main]
 async fn main() {
@@ -87,36 +86,36 @@ async fn main() {
     let api_routes = create_router();
 
     // Create custom OpenAPI route with security scheme
-    // let openapi_json = {
-    //     let mut openapi = ApiDoc::openapi();
-    //     if let Some(components) = openapi.components.as_mut() {
-    //         components.add_security_scheme("bearer_auth", utoipa::openapi::security::SecurityScheme::Http(
-    //             utoipa::openapi::security::Http::new(utoipa::openapi::security::HttpAuthScheme::Bearer)
-    //         ));
-    //     } else {
-    //         let mut components = utoipa::openapi::Components::new();
-    //         components.add_security_scheme("bearer_auth", utoipa::openapi::security::SecurityScheme::Http(
-    //             utoipa::openapi::security::Http::new(utoipa::openapi::security::HttpAuthScheme::Bearer)
-    //         ));
-    //         openapi.components = Some(components);
-    //     }
-    //     openapi
-    // };
+    let openapi_json = {
+        let mut openapi = ApiDoc::openapi();
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme("bearer_auth", utoipa::openapi::security::SecurityScheme::Http(
+                utoipa::openapi::security::Http::new(utoipa::openapi::security::HttpAuthScheme::Bearer)
+            ));
+        } else {
+            let mut components = utoipa::openapi::Components::new();
+            components.add_security_scheme("bearer_auth", utoipa::openapi::security::SecurityScheme::Http(
+                utoipa::openapi::security::Http::new(utoipa::openapi::security::HttpAuthScheme::Bearer)
+            ));
+            openapi.components = Some(components);
+        }
+        openapi
+    };
 
     // Create Swagger routes
-    // let swagger_routes = SwaggerUi::new("/swagger-ui")
-    //     .url("/api-docs/openapi.json", openapi_json);
+    let swagger_routes = SwaggerUi::new("/swagger-ui")
+        .url("/api-docs/openapi.json", openapi_json);
 
     // Combine all routes
     let app = Router::new()
         .merge(api_routes)
-        // .merge(swagger_routes)
+        .merge(swagger_routes)
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 
     // Run server
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string()).parse::<u16>().unwrap_or(8080);
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("Server running on http://{}", addr);
     println!("Swagger UI: http://{}/swagger-ui", addr);
     println!("API Base URL: http://{}/api", addr);

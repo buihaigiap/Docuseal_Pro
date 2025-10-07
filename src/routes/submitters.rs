@@ -12,6 +12,7 @@ use crate::common::responses::ApiResponse;
 use crate::database::connection::DbPool;
 use crate::database::queries::{SubmitterQueries, TemplateQueries, TemplateFieldQueries, SignatureQueries};
 use crate::common::jwt::auth_middleware;
+use crate::common::authorization::require_admin_or_team_member;
 use crate::common::token::generate_token;
 use chrono::Utc;
 
@@ -145,19 +146,19 @@ pub async fn update_submitter(
 
 #[utoipa::path(
     get,
-    path = "/public/submitters/{token}",
+    path = "/public/submissions/{token}",
     params(
         ("token" = String, Path, description = "Submitter token")
     ),
     responses(
-        (status = 200, description = "Submitter retrieved successfully", body = ApiResponse<crate::models::submitter::Submitter>),
-        (status = 404, description = "Submitter not found", body = ApiResponse<crate::models::submitter::Submitter>)
+        (status = 200, description = "Submission retrieved successfully", body = ApiResponse<crate::models::submitter::PublicSubmissionResponse>),
+        (status = 404, description = "Submitter not found", body = ApiResponse<crate::models::submitter::PublicSubmissionResponse>)
     )
 )]
 pub async fn get_public_submitter(
     State(state): State<AppState>,
     Path(token): Path<String>,
-) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
+) -> (StatusCode, Json<ApiResponse<crate::models::submitter::PublicSubmissionResponse>>) {
     let pool = &*state.lock().await;
 
     match SubmitterQueries::get_submitter_by_token(pool, &token).await {
@@ -175,7 +176,25 @@ pub async fn get_public_submitter(
                 created_at: db_submitter.created_at,
                 updated_at: db_submitter.updated_at,
             };
-            ApiResponse::success(submitter, "Submitter retrieved successfully".to_string())
+
+            // Get the template
+            let template_id = db_submitter.template_id;
+            match crate::database::queries::TemplateQueries::get_template_by_id(pool, template_id).await {
+                Ok(Some(db_template)) => {
+                    match crate::routes::templates::convert_db_template_to_template_with_fields(db_template, pool).await {
+                        Ok(template) => {
+                            let response = crate::models::submitter::PublicSubmissionResponse {
+                                template,
+                                submitter,
+                            };
+                            ApiResponse::success(response, "Submission retrieved successfully".to_string())
+                        }
+                        Err(e) => ApiResponse::internal_error(format!("Failed to load template: {}", e)),
+                    }
+                }
+                Ok(None) => ApiResponse::not_found("Template not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to get template: {}", e)),
+            }
         }
         Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
         Err(e) => ApiResponse::internal_error(format!("Failed to get submitter: {}", e)),
@@ -184,7 +203,7 @@ pub async fn get_public_submitter(
 
 #[utoipa::path(
     put,
-    path = "/public/submitters/{token}",
+    path = "/public/submissions/{token}",
     params(
         ("token" = String, Path, description = "Submitter token")
     ),
@@ -319,4 +338,5 @@ pub fn create_submitter_router() -> Router<AppState> {
         .route("/submitters/:id", get(get_submitter))
         .route("/submitters/:id", put(update_submitter))
         .layer(middleware::from_fn(auth_middleware))
+        .layer(middleware::from_fn(require_admin_or_team_member))
 }
