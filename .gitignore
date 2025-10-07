@@ -1,11 +1,36 @@
-# Rust
+# Rust build artifacts
 target/
 Cargo.lock
 
-# IDE
+# Node.js dependencies
+node_modules/
+
+# Environment files
+.env
+
+# Uploads and generated files
+uploads/
+public/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE files
 .vscode/
 .idea/
 
-# OS
-.DS_Store
-Thumbs.db
+# Database files
+*.db
+*.sqlite
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+*.bak
+
+# Package files
+packages-microsoft-prod.deb
