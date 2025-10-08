@@ -923,9 +923,9 @@ pub async fn get_template_fields(
     ),
     request_body = CreateTemplateFieldRequest,
     responses(
-        (status = 201, description = "Template field created successfully", body = ApiResponse<TemplateField>),
-        (status = 404, description = "Template not found", body = ApiResponse<TemplateField>),
-        (status = 500, description = "Internal server error", body = ApiResponse<TemplateField>)
+        (status = 201, description = "Template field(s) created successfully", body = ApiResponse<Vec<TemplateField>>),
+        (status = 404, description = "Template not found", body = ApiResponse<Vec<TemplateField>>),
+        (status = 500, description = "Internal server error", body = ApiResponse<Vec<TemplateField>>)
     ),
     security(("bearer_auth" = [])),
     tag = "template_fields"
@@ -934,8 +934,8 @@ pub async fn create_template_field(
     State(state): State<AppState>,
     Path(template_id): Path<i64>,
     Extension(user_id): Extension<i64>,
-    Json(payload): Json<CreateTemplateFieldRequest>,
-) -> (StatusCode, Json<ApiResponse<TemplateField>>) {
+    Json(payload): Json<serde_json::Value>,
+) -> (StatusCode, Json<ApiResponse<Vec<TemplateField>>>) {
     let pool = &*state.lock().await;
 
     // Verify template belongs to user
@@ -949,36 +949,62 @@ pub async fn create_template_field(
         Err(e) => return ApiResponse::internal_error(format!("Failed to verify template: {}", e)),
     }
 
-    let create_field = CreateTemplateField {
-        template_id,
-        name: payload.name,
-        field_type: payload.field_type,
-        required: payload.required,
-        display_order: payload.display_order.unwrap_or(0),
-        position: payload.position.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
-        options: payload.options.map(|o| serde_json::to_value(o).unwrap_or(serde_json::Value::Null)),
-        metadata: None,
+    // Check if it's bulk request (has "fields" array) or single field
+    let field_requests: Vec<CreateTemplateFieldRequest> = if let Some(fields) = payload.get("fields") {
+        if let Some(fields_array) = fields.as_array() {
+            fields_array.iter()
+                .filter_map(|f| serde_json::from_value(f.clone()).ok())
+                .collect()
+        } else {
+            return ApiResponse::bad_request("Invalid fields format".to_string());
+        }
+    } else {
+        // Single field request
+        match serde_json::from_value::<CreateTemplateFieldRequest>(payload) {
+            Ok(field) => vec![field],
+            Err(_) => return ApiResponse::bad_request("Invalid field format".to_string()),
+        }
     };
 
-    match crate::database::queries::TemplateFieldQueries::create_template_field(pool, create_field).await {
-        Ok(db_field) => {
-            let template_field = TemplateField {
-                id: db_field.id,
-                template_id: db_field.template_id,
-                name: db_field.name,
-                field_type: db_field.field_type,
-                required: db_field.required,
-                display_order: db_field.display_order,
-                position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
-                options: db_field.options.and_then(|v| serde_json::from_value(v).ok()),
-                created_at: db_field.created_at,
-                updated_at: db_field.updated_at,
-            };
-
-            ApiResponse::created(template_field, "Template field created successfully".to_string())
-        }
-        Err(e) => ApiResponse::internal_error(format!("Failed to create template field: {}", e)),
+    if field_requests.is_empty() {
+        return ApiResponse::bad_request("No fields provided".to_string());
     }
+
+    let mut created_fields = Vec::new();
+
+    for field_req in field_requests {
+        let create_field = CreateTemplateField {
+            template_id,
+            name: field_req.name,
+            field_type: field_req.field_type,
+            required: field_req.required,
+            display_order: field_req.display_order.unwrap_or(0),
+            position: field_req.position.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
+            options: field_req.options.map(|o| serde_json::to_value(o).unwrap_or(serde_json::Value::Null)),
+            metadata: None,
+        };
+
+        match crate::database::queries::TemplateFieldQueries::create_template_field(pool, create_field).await {
+            Ok(db_field) => {
+                let template_field = TemplateField {
+                    id: db_field.id,
+                    template_id: db_field.template_id,
+                    name: db_field.name,
+                    field_type: db_field.field_type,
+                    required: db_field.required,
+                    display_order: db_field.display_order,
+                    position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
+                    options: db_field.options.and_then(|v| serde_json::from_value(v).ok()),
+                    created_at: db_field.created_at,
+                    updated_at: db_field.updated_at,
+                };
+                created_fields.push(template_field);
+            }
+            Err(e) => return ApiResponse::internal_error(format!("Failed to create template field: {}", e)),
+        }
+    }
+
+    ApiResponse::created(created_fields, "Template fields created successfully".to_string())
 }
 
 #[utoipa::path(

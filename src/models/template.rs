@@ -134,3 +134,8 @@ pub struct MergeTemplatesRequest {
     pub template_ids: Vec<i64>,
     pub name: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateTemplateFieldsRequest {
+    pub fields: Vec<CreateTemplateFieldRequest>,
+}

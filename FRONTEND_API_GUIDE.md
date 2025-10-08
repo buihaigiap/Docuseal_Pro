@@ -286,18 +286,142 @@ const getTemplateFullInfo = async (templateId) => {
 
 ## 3. Submission Management APIs
 
-### 3.1 POST /api/submissions
-**Mục đích:** Tạo submission và gửi email mời ký
+### 3.1 GET /public/submissions/{token}/fields
+**Mục đích:** Lấy danh sách tất cả các ô ký đã được tạo cho một submission
 
 **Request:**
 ```javascript
-POST /api/submissions
+GET /public/submissions/{token}/fields
+```
+
+**Response:**
+```javascript
+{
+  "success": true,
+  "status_code": 200,
+  "message": "Template fields retrieved successfully",
+  "data": {
+    "template": {
+      "id": 10,
+      "name": "Contract Template 1759895426",
+      "slug": "pdf-contract-template-1759895426-1759895427",
+      "user_id": 16,
+      "documents": [
+        {
+          "filename": "fixed_test.pdf",
+          "content_type": "application/pdf",
+          "size": 0,
+          "url": "templates/1759895427_fixed_test.pdf"
+        }
+      ],
+      "created_at": "2025-10-08T03:50:27.828509Z",
+      "updated_at": "2025-10-08T03:50:27.828509Z"
+    },
+    "template_fields": [
+      {
+        "id": 49,
+        "template_id": 10,
+        "name": "buyer_signature",
+        "field_type": "signature",
+        "required": true,
+        "display_order": 1,
+        "position": {
+          "x": 50,
+          "y": 100,
+          "width": 200,
+          "height": 60,
+          "page": 0
+        },
+        "created_at": "2025-10-08T03:50:27.887515Z",
+        "updated_at": "2025-10-08T03:50:27.887515Z"
+      }
+    ]
+  }
+}
+```
+
+**Frontend Usage:**
+```javascript
+const getSubmissionFields = async (token) => {
+  const response = await fetch(`/public/submissions/${encodeURIComponent(token)}/fields`);
+  const data = await response.json();
+  
+  if (data.success) {
+    return {
+      template: data.data.template,
+      fields: data.data.template_fields
+    };
+  }
+};
+```
+
+### 3.2 GET /public/submissions/{token}/signatures
+**Mục đích:** Lấy danh sách các chữ ký đã được thực hiện cho một submission
+
+**Request:**
+```javascript
+GET /public/submissions/{token}/signatures
+```
+
+**Response:**
+```javascript
+{
+  "success": true,
+  "status_code": 200,
+  "message": "Signatures retrieved successfully",
+  "data": {
+    "bulk_signatures": [
+      {
+        "field_id": 49,
+        "field_name": "buyer_signature",
+        "signature_value": "data:text/plain;base64,U2lnbmVkIGJ5IFRlc3QgVXNlciAyIC0gRmllbGQgNDkgLSAyMDI1LTEwLTA4IDEwOjU1OjU5"
+      }
+    ]
+  }
+}
+```
+
+**Frontend Usage:**
+```javascript
+const getSubmissionSignatures = async (token) => {
+  const response = await fetch(`/public/submissions/${encodeURIComponent(token)}/signatures`);
+  const data = await response.json();
+  
+  if (data.success) {
+    return data.data.bulk_signatures || [];
+  }
+};
+```
+
+### 3.3 PUT /public/submissions/{token}
+**Mục đích:** Cập nhật trạng thái submitter (không dùng để lấy data)
+
+**Request:**
+```javascript
+PUT /public/submissions/{token}
 Content-Type: application/json
-Authorization: Bearer {jwt_token}
 
 {
-  "template_id": 1,
-  "submitters": [
+  "status": "signed"
+}
+```
+
+**Response:**
+```javascript
+{
+  "success": true,
+  "status_code": 200,
+  "message": "Submitter updated successfully",
+  "data": {
+    "id": 15,
+    "name": "Bui Hai Giap",
+    "email": "buihaigiap0101@gmail.com",
+    "status": "signed"
+  }
+}
+```
+
+## 4. Submission Management APIs
     {
       "name": "John Doe",
       "email": "john@example.com"
@@ -472,9 +596,9 @@ const submitSignatures = async (token, signatures) => {
 };
 ```
 
-## 4. File Access APIs
+## 5. File Access APIs
 
-### 4.1 GET /api/files/{key}
+### 5.1 GET /api/files/{key}
 **Mục đích:** Download/xem file từ S3 storage (PDF, DOCX, HTML)
 
 **Request:**
@@ -603,116 +727,153 @@ const PDFViewer = ({ fileKey }) => {
 - PDF sẽ được hiển thị inline trong browser
 - Có thể sử dụng PDF.js library để render PDF với controls tùy chỉnh
 
-## 5. Workflow Implementation
+## 6. Public APIs (For Document Signing)
 
-### 5.1 Complete User Journey
+### 6.1 GET /public/submissions/{token}/fields
+**Mục đích:** Lấy danh sách tất cả các ô ký đã được tạo cho một submission
 
+**Request:**
 ```javascript
-// 1. Register/Login
-const token = await loginUser(email, password);
-
-// 2. Create Template
-const template = await createTemplateFromPDF(pdfFile, "My Contract");
-
-// 3. Get template full info (to see submitters status)
-const templateInfo = await getTemplateFullInfo(template.data.id);
-console.log(`Template has ${templateInfo.data.total_submitters} submitters`);
-
-// 4. Add Signature Fields
-const fields = [];
-for (const field of signatureFields) {
-  const newField = await createTemplateField(template.data.id, field);
-  fields.push(newField.data);
-}
-
-// 4. Create Submission
-const submission = await createSubmission(template.data.id, [
-  { name: "Signer 1", email: "signer1@example.com" },
-  { name: "Signer 2", email: "signer2@example.com" }
-]);
-
-// 5. Share signing links (tokens are in submission.data.submitters)
-const signingUrls = submission.data.submitters.map(submitter =>
-  `${window.location.origin}/sign/${submitter.token}`
-);
+GET /public/submissions/{token}/fields
 ```
 
-### 5.2 Signing Journey (For Signers)
-
+**Response:**
 ```javascript
-// 1. Get submitter info using token from URL
-const submitterInfo = await getSubmitterInfo(tokenFromUrl);
-
-// 2. Display signing form with template fields
-// (Template info would be included in submitterInfo response)
-
-// 3. Collect signatures and submit
-const signatures = fields.map(field => ({
-  field_id: field.id,
-  signature_value: canvasSignature.toDataURL() // Base64 image
-}));
-
-const result = await submitSignatures(tokenFromUrl, signatures);
-
-// 4. Show success message
-if (result.success) {
-  showSuccess("Document signed successfully!");
-}
-```
-
-## 6. Error Handling
-
-### Common Error Responses:
-```javascript
-// 401 Unauthorized - JWT token missing/invalid
 {
-  "success": false,
-  "status_code": 401,
-  "message": "Unauthorized",
-  "error": "Invalid or missing JWT token"
-}
-
-// 403 Forbidden - No permission
-{
-  "success": false,
-  "status_code": 403,
-  "message": "Forbidden",
-  "error": "You don't have permission to access this resource"
-}
-
-// 404 Not Found - Resource not found
-{
-  "success": false,
-  "status_code": 404,
-  "message": "Not Found",
-  "error": "Resource not found"
-}
-```
-
-### Frontend Error Handling:
-```javascript
-const handleApiResponse = async (response) => {
-  const data = await response.json();
-
-  if (!response.ok) {
-    switch (response.status) {
-      case 401:
-        // Redirect to login
-        window.location.href = '/login';
-        break;
-      case 403:
-        showError('You do not have permission to perform this action');
-        break;
-      case 404:
-        showError('Resource not found');
-        break;
-      default:
-        showError(data.error || 'An error occurred');
-    }
-    throw new Error(data.error);
+  "success": true,
+  "status_code": 200,
+  "message": "Template fields retrieved successfully",
+  "data": {
+    "template_info": {
+      "id": 10,
+      "name": "Contract Template 1759895426",
+      "slug": "pdf-contract-template-1759895426-1759895427",
+      "user_id": 16,
+      "document": {
+        "filename": "fixed_test.pdf",
+        "content_type": "application/pdf",
+        "size": 0,
+        "url": "templates/1759895427_fixed_test.pdf"
+      }
+    },
+    "template_fields": [
+      {
+        "id": 49,
+        "template_id": 10,
+        "name": "buyer_signature",
+        "field_type": "signature",
+        "required": true,
+        "display_order": 1,
+        "position": {
+          "x": 50,
+          "y": 100,
+          "width": 200,
+          "height": 60,
+          "page": 0
+        },
+        "created_at": "2025-10-08T03:50:27.887515Z",
+        "updated_at": "2025-10-08T03:50:27.887515Z"
+      }
+    ]
   }
+}
+```
 
-  return data;
+**Frontend Usage:**
+```javascript
+const getSubmissionFields = async (token) => {
+  const response = await fetch(`/public/submissions/${encodeURIComponent(token)}/fields`);
+  const data = await response.json();
+  
+  if (data.success) {
+    const templateInfo = data.data.template_info;
+    const fields = data.data.template_fields;
+    
+    // Template info
+    console.log('Template ID:', templateInfo.id);
+    console.log('Template Name:', templateInfo.name);
+    console.log('Document URL:', templateInfo.document?.url);
+    
+    return { templateInfo, fields };
+  }
+};
+```
+
+**Use Case:** Hiển thị các ô ký trên PDF để người dùng biết chỗ nào cần ký.
+
+### 6.2 GET /public/submissions/{token}/signatures
+**Mục đích:** Lấy danh sách các chữ ký đã được thực hiện cho một submission
+
+**Request:**
+```javascript
+GET /public/submissions/{token}/signatures
+```
+
+**Response:**
+```javascript
+{
+  "success": true,
+  "status_code": 200,
+  "message": "Signatures retrieved successfully",
+  "data": {
+    "bulk_signatures": [
+      {
+        "field_id": 49,
+        "field_name": "buyer_signature",
+        "signature_value": "data:text/plain;base64,U2lnbmVkIGJ5IFRlc3QgVXNlciAyIC0gRmllbGQgNDkgLSAyMDI1LTEwLTA4IDEwOjU1OjU5"
+      }
+    ]
+  }
+}
+```
+
+**Frontend Usage:**
+```javascript
+const getSubmissionSignatures = async (token) => {
+  const response = await fetch(`/public/submissions/${encodeURIComponent(token)}/signatures`);
+  const data = await response.json();
+  
+  if (data.success) {
+    return data.data.bulk_signatures || [];
+  }
+};
+```
+
+**Use Case:** Kiểm tra trạng thái ký của từng ô, hiển thị chữ ký đã có.
+
+**Lưu ý:** API `GET /public/submissions/{token}` đã được tách thành 2 API riêng biệt để tối ưu performance và separation of concerns:
+
+- `GET /public/submissions/{token}/fields`: Lấy cấu trúc fields (thường không đổi)
+- `GET /public/submissions/{token}/signatures`: Lấy dữ liệu signatures (thay đổi khi ký)
+
+```javascript
+const loadSubmissionData = async (token) => {
+  const [fieldsResponse, signaturesResponse] = await Promise.all([
+    fetch(`/public/submissions/${encodeURIComponent(token)}/fields`),
+    fetch(`/public/submissions/${encodeURIComponent(token)}/signatures`)
+  ]);
+  
+  const fieldsData = await fieldsResponse.json();
+  const signaturesData = await signaturesResponse.json();
+  
+  if (fieldsData.success && signaturesData.success) {
+    const templateInfo = fieldsData.data.template_info;
+    const fields = fieldsData.data.template_fields;
+    const signatures = signaturesData.data.bulk_signatures || [];
+    
+    // Create map of signed fields
+    const signedFields = new Map();
+    signatures.forEach(sig => signedFields.set(sig.field_id, sig));
+    
+    // Combine data
+    const fieldsWithStatus = fields.map(field => ({
+      ...field,
+      isSigned: signedFields.has(field.id),
+      signature: signedFields.get(field.id) || null
+    }));
+    
+    return { templateInfo, fieldsWithStatus };
+  }
 };
 ```
 

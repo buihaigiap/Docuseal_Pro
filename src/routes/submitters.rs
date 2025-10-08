@@ -143,64 +143,6 @@ pub async fn update_submitter(
     }
 }
 
-
-#[utoipa::path(
-    get,
-    path = "/public/submissions/{token}",
-    params(
-        ("token" = String, Path, description = "Submitter token")
-    ),
-    responses(
-        (status = 200, description = "Submission retrieved successfully", body = ApiResponse<crate::models::submitter::PublicSubmissionResponse>),
-        (status = 404, description = "Submitter not found", body = ApiResponse<crate::models::submitter::PublicSubmissionResponse>)
-    )
-)]
-pub async fn get_public_submitter(
-    State(state): State<AppState>,
-    Path(token): Path<String>,
-) -> (StatusCode, Json<ApiResponse<crate::models::submitter::PublicSubmissionResponse>>) {
-    let pool = &*state.lock().await;
-
-    match SubmitterQueries::get_submitter_by_token(pool, &token).await {
-        Ok(Some(db_submitter)) => {
-            let submitter = crate::models::submitter::Submitter {
-                id: Some(db_submitter.id),
-                template_id: Some(db_submitter.template_id),
-                user_id: Some(db_submitter.user_id),
-                name: db_submitter.name,
-                email: db_submitter.email,
-                status: db_submitter.status,
-                signed_at: db_submitter.signed_at,
-                token: db_submitter.token,
-                bulk_signatures: db_submitter.bulk_signatures,
-                created_at: db_submitter.created_at,
-                updated_at: db_submitter.updated_at,
-            };
-
-            // Get the template
-            let template_id = db_submitter.template_id;
-            match crate::database::queries::TemplateQueries::get_template_by_id(pool, template_id).await {
-                Ok(Some(db_template)) => {
-                    match crate::routes::templates::convert_db_template_to_template_with_fields(db_template, pool).await {
-                        Ok(template) => {
-                            let response = crate::models::submitter::PublicSubmissionResponse {
-                                template,
-                                submitter,
-                            };
-                            ApiResponse::success(response, "Submission retrieved successfully".to_string())
-                        }
-                        Err(e) => ApiResponse::internal_error(format!("Failed to load template: {}", e)),
-                    }
-                }
-                Ok(None) => ApiResponse::not_found("Template not found".to_string()),
-                Err(e) => ApiResponse::internal_error(format!("Failed to get template: {}", e)),
-            }
-        }
-        Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Failed to get submitter: {}", e)),
-    }
-}
-
 #[utoipa::path(
     put,
     path = "/public/submissions/{token}",
@@ -245,6 +187,45 @@ pub async fn update_public_submitter(
         }
         Ok(None) => ApiResponse::not_found("Invalid token".to_string()),
         Err(e) => ApiResponse::internal_error(format!("Database error: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/public/submissions/{token}",
+    params(
+        ("token" = String, Path, description = "Submitter token")
+    ),
+    responses(
+        (status = 200, description = "Submitter retrieved successfully", body = ApiResponse<crate::models::submitter::Submitter>),
+        (status = 404, description = "Submitter not found", body = ApiResponse<crate::models::submitter::Submitter>)
+    )
+)]
+pub async fn get_public_submitter(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
+    let pool = &*state.lock().await;
+
+    match SubmitterQueries::get_submitter_by_token(pool, &token).await {
+        Ok(Some(db_submitter)) => {
+            let submitter = crate::models::submitter::Submitter {
+                id: Some(db_submitter.id),
+                template_id: Some(db_submitter.template_id),
+                user_id: Some(db_submitter.user_id),
+                name: db_submitter.name,
+                email: db_submitter.email,
+                status: db_submitter.status,
+                signed_at: db_submitter.signed_at,
+                token: db_submitter.token,
+                bulk_signatures: db_submitter.bulk_signatures,
+                created_at: db_submitter.created_at,
+                updated_at: db_submitter.updated_at,
+            };
+            ApiResponse::success(submitter, "Submitter retrieved successfully".to_string())
+        }
+        Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to get submitter: {}", e)),
     }
 }
 
@@ -329,6 +310,145 @@ pub async fn submit_bulk_signatures(
             }
         }
         _ => ApiResponse::not_found("Invalid token".to_string()),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/public/submissions/{token}/fields",
+    params(
+        ("token" = String, Path, description = "Submitter token")
+    ),
+    responses(
+        (status = 200, description = "Template fields retrieved successfully", body = ApiResponse<crate::models::submitter::PublicSubmitterFieldsResponse>),
+        (status = 404, description = "Submitter not found", body = ApiResponse<crate::models::submitter::PublicSubmitterFieldsResponse>)
+    )
+)]
+pub async fn get_public_submitter_fields(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> (StatusCode, Json<ApiResponse<crate::models::submitter::PublicSubmitterFieldsResponse>>) {
+    let pool = &*state.lock().await;
+
+    match SubmitterQueries::get_submitter_by_token(pool, &token).await {
+        Ok(Some(db_submitter)) => {
+            // Get the template
+            let template_id = db_submitter.template_id;
+            match crate::database::queries::TemplateQueries::get_template_by_id(pool, template_id).await {
+                Ok(Some(db_template)) => {
+                    match crate::routes::templates::convert_db_template_to_template_with_fields(db_template, pool).await {
+                        Ok(template) => {
+                            // Extract only required info
+                            let document = template.documents.as_ref()
+                                .and_then(|docs| docs.get(0).cloned());
+                            let template_info = crate::models::submitter::PublicTemplateInfo {
+                                id: template.id,
+                                name: template.name.clone(),
+                                slug: template.slug.clone(),
+                                user_id: template.user_id,
+                                document,
+                            };
+                            let fields = template.template_fields.clone().unwrap_or_default();
+                            let response = crate::models::submitter::PublicSubmitterFieldsResponse {
+                                template_info,
+                                template_fields: fields,
+                            };
+                            ApiResponse::success(response, "Template fields retrieved successfully".to_string())
+                        }
+                        Err(e) => ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
+                    }
+                }
+                Ok(None) => ApiResponse::not_found("Template not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to get template: {}", e)),
+            }
+        }
+        Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to get submitter: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/public/submissions/{token}/signatures",
+    params(
+        ("token" = String, Path, description = "Submitter token")
+    ),
+    responses(
+        (status = 200, description = "Signatures retrieved successfully", body = ApiResponse<crate::models::submitter::PublicSubmitterSignaturesResponse>),
+        (status = 404, description = "Submitter not found", body = ApiResponse<crate::models::submitter::PublicSubmitterSignaturesResponse>)
+    )
+)]
+pub async fn get_public_submitter_signatures(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> (StatusCode, Json<ApiResponse<crate::models::submitter::PublicSubmitterSignaturesResponse>>) {
+    let pool = &*state.lock().await;
+
+    match SubmitterQueries::get_submitter_by_token(pool, &token).await {
+        Ok(Some(db_submitter)) => {
+            // Get the template
+            let template_id = db_submitter.template_id;
+            match crate::database::queries::TemplateQueries::get_template_by_id(pool, template_id).await {
+                Ok(Some(db_template)) => {
+                    match crate::routes::templates::convert_db_template_to_template_with_fields(db_template, pool).await {
+                        Ok(template) => {
+                            // Extract template info
+                            let document = template.documents.as_ref()
+                                .and_then(|docs| docs.get(0).cloned());
+                            let template_info = crate::models::submitter::PublicTemplateInfo {
+                                id: template.id,
+                                name: template.name.clone(),
+                                slug: template.slug.clone(),
+                                user_id: template.user_id,
+                                document,
+                            };
+                            
+                            let fields = crate::database::queries::TemplateFieldQueries::get_all_template_fields(pool, template_id).await
+                                .unwrap_or_default();
+                            
+                            // Enrich bulk_signatures with field information
+                            let enriched_signatures = if let Some(signatures) = &db_submitter.bulk_signatures {
+                                if let Some(signatures_array) = signatures.as_array() {
+                                    let mut enriched = Vec::new();
+                                    for sig in signatures_array {
+                                        if let Some(field_id) = sig.get("field_id").and_then(|v| v.as_i64()) {
+                                            // Find the corresponding field
+                                            if let Some(field) = fields.iter().find(|f| f.id == field_id) {
+                                                let mut enriched_sig = sig.clone();
+                                                if let Some(obj) = enriched_sig.as_object_mut() {
+                                                    obj.insert("field_info".to_string(), serde_json::to_value(field).unwrap_or(serde_json::Value::Null));
+                                                }
+                                                enriched.push(enriched_sig);
+                                            } else {
+                                                enriched.push(sig.clone());
+                                            }
+                                        } else {
+                                            enriched.push(sig.clone());
+                                        }
+                                    }
+                                    Some(serde_json::Value::Array(enriched))
+                                } else {
+                                    db_submitter.bulk_signatures
+                                }
+                            } else {
+                                db_submitter.bulk_signatures
+                            };
+                            
+                            let response = crate::models::submitter::PublicSubmitterSignaturesResponse {
+                                template_info,
+                                bulk_signatures: enriched_signatures,
+                            };
+                            ApiResponse::success(response, "Signatures retrieved successfully".to_string())
+                        }
+                        Err(e) => ApiResponse::internal_error(format!("Failed to load template: {}", e)),
+                    }
+                }
+                Ok(None) => ApiResponse::not_found("Template not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to get template: {}", e)),
+            }
+        }
+        Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to get submitter: {}", e)),
     }
 }
 

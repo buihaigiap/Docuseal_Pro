@@ -1,5 +1,38 @@
 # Complete Workflow Script - DocuSeal Pro
-# Register -> Login -> Create Template -> Upload PDF -> Create Fields with Position -> Send Email -> Sign
+# Register -> Login -> Create Template -> Upload PDF -> Create Fie# Step 4: Creating signature fields with positions (Bulk)
+Write-Host ""
+Write-Host "[Step 4] Creating signature fields with positions..." -ForegroundColor Yellow
+
+$headers = @{
+    "Authorization" = "Bearer $token"
+    "Content-Type" = "application/json"
+}
+
+# Check if fields already exist and clean them up
+Write-Host "Checking for existing fields..." -ForegroundColor Gray
+try {
+    $existingFieldsResponse = Invoke-RestMethod -Uri "$baseUrl/api/templates/$templateId/fields" -Method GET -Headers $headers
+    $existingFields = $existingFieldsResponse.data
+    
+    if ($existingFields -and $existingFields.Count -gt 0) {
+        Write-Host "Found $($existingFields.Count) existing fields. Cleaning up..." -ForegroundColor Yellow
+        
+        foreach ($field in $existingFields) {
+            try {
+                Invoke-RestMethod -Uri "$baseUrl/api/templates/$templateId/fields/$($field.id)" -Method DELETE -Headers $headers | Out-Null
+                Write-Host "  Deleted field: $($field.name) (ID: $($field.id))" -ForegroundColor Gray
+            } catch {
+                Write-Host "  Warning: Could not delete field $($field.name): $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+    } else {
+        Write-Host "No existing fields found." -ForegroundColor Gray
+    }
+} catch {
+    Write-Host "Warning: Could not check existing fields: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+# Create all fields in bulkosition -> Send Email -> Sign
 
 $ErrorActionPreference = "Stop"
 $baseUrl = "http://localhost:8080"
@@ -58,9 +91,9 @@ try {
 Write-Host ""
 Write-Host "[Step 3] Creating template from PDF..." -ForegroundColor Yellow
 
-$pdfPath = "/home/giap/giap/Docuseal_Pro/test.pdf"
+$pdfPath = "/home/giap/giap/Docuseal_Pro/fixed_test.pdf"
 if (-not (Test-Path $pdfPath)) {
-    Write-Host "Error test.pdf not found at $pdfPath" -ForegroundColor Red
+    Write-Host "Error fixed_test.pdf not found at $pdfPath" -ForegroundColor Red
     exit
 }
 
@@ -69,28 +102,18 @@ $templateName = "Contract Template $timestamp"
 Write-Host "Uploading PDF..." -ForegroundColor Gray
 
 try {
-    $boundary = [System.Guid]::NewGuid().ToString()
-    $LF = "`r`n"
-    $pdfBytes = [System.IO.File]::ReadAllBytes($pdfPath)
-    $pdfEnc = [System.Text.Encoding]::GetEncoding("iso-8859-1").GetString($pdfBytes)
-    
-    $bodyLines = @(
-        "--$boundary",
-        "Content-Disposition: form-data; name=`"pdf`"; filename=`"test.pdf`"",
-        "Content-Type: application/pdf",
-        "",
-        $pdfEnc,
-        "--$boundary",
-        "Content-Disposition: form-data; name=`"name`"",
-        "",
-        $templateName,
-        "--$boundary--"
+    # Use curl for reliable binary upload
+    $curlArgs = @(
+        '-X', 'POST',
+        "$baseUrl/api/templates/pdf",
+        '-H', "Authorization: Bearer $token",
+        '-F', "pdf=@$pdfPath",
+        '-F', "name=$templateName",
+        '-s'  # Silent mode
     )
     
-    $body = $bodyLines -join $LF
-    $headers = @{ "Authorization" = "Bearer $token" }
-    
-    $createTemplateResult = Invoke-RestMethod -Uri "$baseUrl/api/templates/pdf" -Method POST -Headers $headers -Body $body -ContentType "multipart/form-data; boundary=$boundary"
+    $curlOutput = & curl @curlArgs 2>$null
+    $createTemplateResult = $curlOutput | ConvertFrom-Json
     
     if ($createTemplateResult -and $createTemplateResult.data.id) {
         $templateId = $createTemplateResult.data.id
@@ -99,6 +122,7 @@ try {
         Write-Host "Template Name: $($createTemplateResult.data.name)" -ForegroundColor Gray
     } else {
         Write-Host "Error Template creation failed!" -ForegroundColor Red
+        Write-Host "Response: $curlOutput" -ForegroundColor Red
         exit
     }
 } catch {
@@ -106,7 +130,7 @@ try {
     exit
 }
 
-# Step 4: Create Template Fields with Positions
+# Step 4: Create Template Fields with Positions (Bulk)
 Write-Host ""
 Write-Host "[Step 4] Creating signature fields with positions..." -ForegroundColor Yellow
 
@@ -115,75 +139,90 @@ $headers = @{
     "Content-Type" = "application/json"
 }
 
-# Field 1: Buyer Signature
-$field1Body = @{
-    name = "buyer_signature"
-    field_type = "signature"
-    required = $true
-    display_order = 1
-    position = @{
-        x = 50.0
-        y = 100.0
-        width = 200.0
-        height = 60.0
-        page = 0
+# Check if fields already exist and clean them up
+Write-Host "Checking for existing fields..." -ForegroundColor Gray
+try {
+    $existingFieldsResponse = Invoke-RestMethod -Uri "$baseUrl/api/templates/$templateId/fields" -Method GET -Headers $headers
+    $existingFields = $existingFieldsResponse.data
+    
+    if ($existingFields -and $existingFields.Count -gt 0) {
+        Write-Host "Found $($existingFields.Count) existing fields. Cleaning up..." -ForegroundColor Yellow
+        
+        foreach ($field in $existingFields) {
+            try {
+                Invoke-RestMethod -Uri "$baseUrl/api/templates/$templateId/fields/$($field.id)" -Method DELETE -Headers $headers | Out-Null
+                Write-Host "  Deleted field: $($field.name) (ID: $($field.id))" -ForegroundColor Gray
+            } catch {
+                Write-Host "  Warning: Could not delete field $($field.name): $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+    } else {
+        Write-Host "No existing fields found." -ForegroundColor Gray
     }
-} | ConvertTo-Json
+} catch {
+    Write-Host "Warning: Could not check existing fields: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+# Create all fields in bulk
+$bulkFieldsBody = @{
+    fields = @(
+        @{
+            name = "buyer_signature"
+            field_type = "signature"
+            required = $true
+            display_order = 1
+            position = @{
+                x = 50.0
+                y = 100.0
+                width = 200.0
+                height = 60.0
+                page = 0
+            }
+        },
+        @{
+            name = "seller_signature"
+            field_type = "signature"
+            required = $true
+            display_order = 2
+            position = @{
+                x = 50.0
+                y = 300.0
+                width = 200.0
+                height = 60.0
+                page = 0
+            }
+        },
+        @{
+            name = "witness_signature"
+            field_type = "signature"
+            required = $true
+            display_order = 3
+            position = @{
+                x = 50.0
+                y = 500.0
+                width = 200.0
+                height = 60.0
+                page = 0
+            }
+        }
+    )
+} | ConvertTo-Json -Depth 10
 
 try {
-    $field1Response = Invoke-RestMethod -Uri "$baseUrl/api/templates/$templateId/fields" -Method POST -Headers $headers -Body $field1Body
+    $bulkFieldsResponse = Invoke-RestMethod -Uri "$baseUrl/api/templates/$templateId/fields" -Method POST -Headers $headers -Body $bulkFieldsBody
+    Write-Host "Success Bulk fields created successfully!" -ForegroundColor Green
+    
+    # Extract field IDs from response
+    $createdFields = $bulkFieldsResponse.data
+    $field1Id = $createdFields[0].id
+    $field2Id = $createdFields[1].id
+    $field3Id = $createdFields[2].id
+    
     Write-Host "Success Field 1 created: buyer_signature (page 0, x:50, y:100)" -ForegroundColor Green
-    $field1Id = $field1Response.data.id
-} catch {
-    Write-Host "Error Failed to create field 1: $($_.Exception.Message)" -ForegroundColor Red
-    exit
-}
-
-# Field 2: Seller Signature
-$field2Body = @{
-    name = "seller_signature"
-    field_type = "signature"
-    required = $true
-    display_order = 2
-    position = @{
-        x = 50.0
-        y = 300.0
-        width = 200.0
-        height = 60.0
-        page = 0
-    }
-} | ConvertTo-Json
-
-try {
-    $field2Response = Invoke-RestMethod -Uri "$baseUrl/api/templates/$templateId/fields" -Method POST -Headers $headers -Body $field2Body
     Write-Host "Success Field 2 created: seller_signature (page 0, x:50, y:300)" -ForegroundColor Green
-    $field2Id = $field2Response.data.id
-} catch {
-    Write-Host "Error Failed to create field 2: $($_.Exception.Message)" -ForegroundColor Red
-    exit
-}
-
-# Field 3: Witness Signature
-$field3Body = @{
-    name = "witness_signature"
-    field_type = "signature"
-    required = $true
-    display_order = 3
-    position = @{
-        x = 50.0
-        y = 500.0
-        width = 200.0
-        height = 60.0
-        page = 0
-    }
-} | ConvertTo-Json
-
-try {
-    $field3Response = Invoke-RestMethod -Uri "$baseUrl/api/templates/$templateId/fields" -Method POST -Headers $headers -Body $field3Body
     Write-Host "Success Field 3 created: witness_signature (page 0, x:50, y:500)" -ForegroundColor Green
-    $field3Id = $field3Response.data.id
 } catch {
-    Write-Host "Error Failed to create field 3: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Error Failed to create fields: $($_.Exception.Message)" -ForegroundColor Red
     exit
 }
 

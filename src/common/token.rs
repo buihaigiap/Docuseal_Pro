@@ -18,5 +18,5 @@ pub fn generate_token() -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     let bytes: [u8; 32] = rng.gen();
-    base64::encode(bytes)
+    base64::encode(&bytes).replace('/', "_").trim_end_matches('=').to_string()
 }

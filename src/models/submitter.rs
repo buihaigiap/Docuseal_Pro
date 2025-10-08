@@ -38,3 +38,24 @@ pub struct PublicSubmissionResponse {
     pub template: crate::models::template::Template,
     pub submitter: Submitter,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PublicTemplateInfo {
+    pub id: i64,
+    pub name: String,
+    pub slug: String,
+    pub user_id: i64,
+    pub document: Option<crate::models::template::Document>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PublicSubmitterFieldsResponse {
+    pub template_info: PublicTemplateInfo,
+    pub template_fields: Vec<crate::models::template::TemplateField>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PublicSubmitterSignaturesResponse {
+    pub template_info: PublicTemplateInfo,
+    pub bulk_signatures: Option<serde_json::Value>,
+}

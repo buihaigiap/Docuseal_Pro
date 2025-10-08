@@ -35,18 +35,41 @@ use models::template::Template;
         routes::templates::merge_templates,
         routes::templates::download_file,
         routes::templates::preview_file,
+        routes::templates::get_template_fields,
+        routes::templates::create_template_field,
+        routes::templates::update_template_field,
+        routes::templates::delete_template_field,
         routes::submissions::create_submission,
-        routes::submitters::get_public_submitter,
+        routes::submitters::get_public_submitter_fields,
+        routes::submitters::get_public_submitter_signatures,
         routes::submitters::get_public_submitter,
         routes::submitters::update_public_submitter,
         routes::submitters::submit_bulk_signatures
     ),
     components(
-        schemas(common::requests::RegisterRequest, common::requests::LoginRequest, common::responses::ApiResponse<User>, common::responses::ApiResponse<common::responses::LoginResponse>, common::responses::ApiResponse<Vec<Template>>, common::responses::ApiResponse<Template>, common::responses::ApiResponse<models::submitter::Submitter>, models::role::Role)
+        schemas(
+            common::requests::RegisterRequest,
+            common::requests::LoginRequest,
+            common::responses::ApiResponse<User>,
+            common::responses::ApiResponse<common::responses::LoginResponse>,
+            common::responses::ApiResponse<Vec<Template>>,
+            common::responses::ApiResponse<Template>,
+            common::responses::ApiResponse<models::submitter::Submitter>,
+            common::responses::ApiResponse<Vec<models::template::TemplateField>>,
+            common::responses::ApiResponse<models::template::TemplateField>,
+            models::role::Role,
+            models::template::CreateTemplateFieldRequest,
+            models::template::UpdateTemplateFieldRequest,
+            models::template::FieldPosition,
+            models::template::TemplateField,
+            models::submitter::PublicSubmitterFieldsResponse,
+            models::submitter::PublicSubmitterSignaturesResponse
+        )
     ),
     tags(
         (name = "auth", description = "Authentication endpoints"),
         (name = "templates", description = "Template management endpoints"),
+        (name = "template_fields", description = "Template field management endpoints"),
         (name = "submissions", description = "Document submission endpoints"),
         (name = "submitters", description = "Submitter management endpoints")
     ),

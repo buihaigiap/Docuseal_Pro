@@ -245,7 +245,7 @@ impl TemplateFieldQueries {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING id, template_id, name, field_type, required, display_order,
-                     position, options, metadata, created_at, updated_at
+                     position, options, metadata, created_at, updated_at, deleted_at
             "#
         )
         .bind(field_data.template_id)
@@ -273,10 +273,20 @@ impl TemplateFieldQueries {
             metadata: row.try_get("metadata")?,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
+            deleted_at: row.try_get("deleted_at")?,
         })
     }
 
     pub async fn get_template_fields(pool: &PgPool, template_id: i64) -> Result<Vec<DbTemplateField>, sqlx::Error> {
+        sqlx::query_as::<_, DbTemplateField>(
+            "SELECT * FROM template_fields WHERE template_id = $1 AND deleted_at IS NULL ORDER BY display_order"
+        )
+        .bind(template_id)
+        .fetch_all(pool)
+        .await
+    }
+
+    pub async fn get_all_template_fields(pool: &PgPool, template_id: i64) -> Result<Vec<DbTemplateField>, sqlx::Error> {
         sqlx::query_as::<_, DbTemplateField>(
             "SELECT * FROM template_fields WHERE template_id = $1 ORDER BY display_order"
         )
@@ -287,7 +297,7 @@ impl TemplateFieldQueries {
 
     pub async fn get_template_field_by_id(pool: &PgPool, field_id: i64) -> Result<Option<DbTemplateField>, sqlx::Error> {
         sqlx::query_as::<_, DbTemplateField>(
-            "SELECT * FROM template_fields WHERE id = $1"
+            "SELECT * FROM template_fields WHERE id = $1 AND deleted_at IS NULL"
         )
         .bind(field_id)
         .fetch_optional(pool)
@@ -302,9 +312,9 @@ impl TemplateFieldQueries {
             UPDATE template_fields SET
                 name = $2, field_type = $3, required = $4, display_order = $5,
                 position = $6, options = $7, metadata = $8, updated_at = $9
-            WHERE id = $1
+            WHERE id = $1 AND deleted_at IS NULL
             RETURNING id, template_id, name, field_type, required, display_order,
-                     position, options, metadata, created_at, updated_at
+                     position, options, metadata, created_at, updated_at, deleted_at
             "#
         )
         .bind(field_id)
@@ -332,16 +342,19 @@ impl TemplateFieldQueries {
                 metadata: row.try_get("metadata")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
+                deleted_at: row.try_get("deleted_at")?,
             })),
             None => Ok(None),
         }
     }
 
     pub async fn delete_template_field(pool: &PgPool, field_id: i64) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM template_fields WHERE id = $1")
-            .bind(field_id)
-            .execute(pool)
-            .await?;
+        let result = sqlx::query(
+            "UPDATE template_fields SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1 AND deleted_at IS NULL"
+        )
+        .bind(field_id)
+        .execute(pool)
+        .await?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -357,7 +370,7 @@ impl TemplateFieldQueries {
                 $2 as template_id, name, field_type, required, display_order,
                 position, options, metadata, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             FROM template_fields
-            WHERE template_id = $1
+            WHERE template_id = $1 AND deleted_at IS NULL
             "#
         )
         .bind(from_template_id)
@@ -371,7 +384,7 @@ impl TemplateFieldQueries {
     pub async fn get_template_fields_with_positions(pool: &PgPool, template_id: i64) -> Result<Vec<DbTemplateField>, sqlx::Error> {
         sqlx::query_as::<_, DbTemplateField>(
             "SELECT * FROM template_fields 
-             WHERE template_id = $1 AND position IS NOT NULL 
+             WHERE template_id = $1 AND position IS NOT NULL AND deleted_at IS NULL
              ORDER BY display_order"
         )
         .bind(template_id)
