@@ -99,8 +99,11 @@ pub async fn get_template_full_info(
                 return ApiResponse::forbidden("Access denied".to_string());
             }
 
-            // Convert template to API model
-            let template = convert_db_template_to_template(db_template.clone());
+            // Convert template to API model with fields loaded
+            let template = match convert_db_template_to_template_with_fields(db_template.clone(), pool).await {
+                Ok(template) => template,
+                Err(e) => return ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
+            };
 
             // Get all submitters for this template directly
             match crate::database::queries::SubmitterQueries::get_submitters_by_template(pool, template_id).await {
