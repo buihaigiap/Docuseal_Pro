@@ -66,7 +66,7 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> Result<Respons
         }
     };
 
-    let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "your-super-secret-jwt-key-change-this-in-production".to_string());
+    let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "your-secret-key".to_string());
     println!("Using secret: {}", secret);
     println!("Token: {}", token);
     let claims = match verify_jwt(token, &secret) {

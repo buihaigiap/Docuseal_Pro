@@ -2,19 +2,14 @@ use axum::{
     extract::{Path, State, Extension},
     http::StatusCode,
     response::Json,
-    routing::{get, put, post, delete},
+    routing::{get, put, delete},
     Router,
     middleware,
 };
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use crate::common::responses::ApiResponse;
-use crate::database::connection::DbPool;
-use crate::database::queries::{SubmitterQueries, TemplateQueries, TemplateFieldQueries, SignatureQueries};
+use crate::database::queries::{SubmitterQueries, TemplateFieldQueries};
 use crate::common::jwt::auth_middleware;
 use crate::common::authorization::require_admin_or_team_member;
-use crate::common::token::generate_token;
-use chrono::Utc;
 
 use crate::routes::web::AppState;
 
@@ -140,6 +135,51 @@ pub async fn update_submitter(
         }
         Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
         Err(e) => ApiResponse::internal_error(format!("Failed to update submitter: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/submitters/{id}",
+    params(
+        ("id" = i64, Path, description = "Submitter ID")
+    ),
+    responses(
+        (status = 200, description = "Submitter deleted successfully", body = ApiResponse<String>),
+        (status = 404, description = "Submitter not found", body = ApiResponse<String>),
+        (status = 500, description = "Internal server error", body = ApiResponse<String>)
+    ),
+    security(("bearer_auth" = []))
+)]
+pub async fn delete_submitter(
+    State(state): State<AppState>,
+    Path(submitter_id): Path<i64>,
+    Extension(user_id): Extension<i64>,
+) -> (StatusCode, Json<ApiResponse<String>>) {
+    let pool = &*state.lock().await;
+
+    // First, verify the submitter exists and belongs to this user
+    match SubmitterQueries::get_submitter_by_id(pool, submitter_id).await {
+        Ok(Some(db_submitter)) => {
+            // Check if the submitter belongs to this user
+            if db_submitter.user_id != user_id {
+                return ApiResponse::unauthorized("You don't have permission to delete this submitter".to_string());
+            }
+
+            // Delete the submitter
+            match SubmitterQueries::delete_submitter(pool, submitter_id).await {
+                Ok(true) => {
+                    ApiResponse::success(
+                        format!("Submitter {} deleted successfully", submitter_id),
+                        "Submitter deleted successfully".to_string()
+                    )
+                }
+                Ok(false) => ApiResponse::not_found("Submitter not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to delete submitter: {}", e)),
+            }
+        }
+        Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to get submitter: {}", e)),
     }
 }
 #[utoipa::path(
@@ -457,6 +497,7 @@ pub fn create_submitter_router() -> Router<AppState> {
         .route("/submitters", get(get_submitters))
         .route("/submitters/:id", get(get_submitter))
         .route("/submitters/:id", put(update_submitter))
+        .route("/submitters/:id", delete(delete_submitter))
         .layer(middleware::from_fn(auth_middleware))
         .layer(middleware::from_fn(require_admin_or_team_member))
 }

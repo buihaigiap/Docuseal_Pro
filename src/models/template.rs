@@ -73,8 +73,8 @@ pub struct Document {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateTemplateRequest {
     pub name: String,
-    // pub fields: Option<Vec<Field>>, // Removed - now use separate endpoints
-    pub submitters: Option<Vec<Submitter>>,
+    pub document: String, // base64 encoded document
+    pub fields: Option<Vec<CreateTemplateFieldRequest>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

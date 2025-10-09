@@ -48,8 +48,7 @@ use models::template::Template;
         routes::submitters::get_submitters,
         routes::submitters::get_submitter,
         routes::submitters::update_submitter,
-        // Note: remove_submitter (DELETE) not included due to utoipa macro compatibility issue
-        // The endpoint works correctly at DELETE /api/submitters/{id}
+        routes::submitters::delete_submitter
     ),
     components(
         schemas(

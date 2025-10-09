@@ -14,6 +14,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use serde_json;
 use pdf_extract::extract_text_from_mem;
+use base64;
 // use docx_rs::DocxFile;
 
 // fn extract_text_from_file(key: &str, data: &[u8]) -> Result<String, String> {
@@ -68,7 +69,7 @@ use crate::models::template::{
     CreateTemplateFromHtmlRequest, MergeTemplatesRequest,
     TemplateField, FieldPosition, SuggestedPosition,
     CreateTemplateFieldRequest, UpdateTemplateFieldRequest,
-    FileUploadResponse, CreateTemplateFromFileRequest
+    FileUploadResponse, CreateTemplateFromFileRequest, CreateTemplateRequest
 };
 use crate::database::connection::DbPool;
 use crate::database::models::{CreateTemplate, CreateTemplateField};
@@ -153,6 +154,7 @@ pub fn create_template_router() -> Router<AppState> {
     // Authenticated routes
     let auth_routes = Router::new()
         .route("/templates", get(get_templates))
+        .route("/templates", post(create_template))
         .route("/templates/:id", get(get_template))
         .route("/templates/:id/full-info", get(get_template_full_info))
         .route("/templates/:id", put(update_template))
@@ -346,6 +348,100 @@ pub async fn clone_template(
         }
         Ok(None) => ApiResponse::not_found("Original template not found".to_string()),
         Err(e) => ApiResponse::internal_error(format!("Failed to clone template: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/templates",
+    request_body = CreateTemplateRequest,
+    responses(
+        (status = 201, description = "Template created successfully", body = ApiResponse<Template>),
+        (status = 500, description = "Internal server error", body = ApiResponse<Template>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "templates"
+)]
+pub async fn create_template(
+    State(state): State<AppState>,
+    Extension(user_id): Extension<i64>,
+    Json(payload): Json<CreateTemplateRequest>,
+) -> (StatusCode, Json<ApiResponse<Template>>) {
+    let pool = &*state.lock().await;
+
+    // Decode base64 document
+    let document_data = match base64::decode(&payload.document) {
+        Ok(data) => data,
+        Err(e) => return ApiResponse::bad_request(format!("Invalid base64 document: {}", e)),
+    };
+
+    // Initialize storage service
+    let storage = match StorageService::new().await {
+        Ok(storage) => storage,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to initialize storage: {}", e)),
+    };
+
+    // Generate filename and upload document
+    let filename = format!("{}.txt", payload.name.to_lowercase().replace(" ", "_"));
+    let file_key = match storage.upload_file(document_data, &filename, "text/plain").await {
+        Ok(key) => key,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to upload document: {}", e)),
+    };
+
+    // Generate unique slug
+    let slug = format!("template-{}-{}", payload.name.to_lowercase().replace(" ", "-"), chrono::Utc::now().timestamp());
+
+    // Create template in database
+    let create_template = CreateTemplate {
+        name: payload.name.clone(),
+        slug: slug.clone(),
+        user_id: user_id,
+        documents: Some(serde_json::json!([{
+            "filename": filename,
+            "content_type": "text/plain",
+            "size": 0,
+            "url": file_key
+        }])),
+    };
+
+    match TemplateQueries::create_template(pool, create_template).await {
+        Ok(db_template) => {
+            let template_id = db_template.id;
+
+            // Create fields if provided
+            if let Some(fields) = payload.fields {
+                for field_req in fields {
+                    let create_field = CreateTemplateField {
+                        template_id,
+                        name: field_req.name,
+                        field_type: field_req.field_type,
+                        required: field_req.required,
+                        display_order: field_req.display_order.unwrap_or(0),
+                        position: field_req.position.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
+                        options: field_req.options.map(|o| serde_json::to_value(o).unwrap_or(serde_json::Value::Null)),
+                        metadata: None,
+                    };
+
+                    if let Err(e) = crate::database::queries::TemplateFieldQueries::create_template_field(pool, create_field).await {
+                        // Try to clean up template if field creation fails
+                        let _ = TemplateQueries::delete_template(pool, template_id, user_id).await;
+                        return ApiResponse::internal_error(format!("Failed to create template field: {}", e));
+                    }
+                }
+            }
+
+            match convert_db_template_to_template_with_fields(db_template, pool).await {
+                Ok(template) => ApiResponse::created(template, "Template created successfully".to_string()),
+                Err(e) => {
+                    // Try to clean up template if loading fields fails
+                    let _ = TemplateQueries::delete_template(pool, template_id, user_id).await;
+                    ApiResponse::internal_error(format!("Failed to load template fields: {}", e))
+                }
+            }
+        }
+        Err(e) => {
+            ApiResponse::internal_error(format!("Failed to create template: {}", e))
+        }
     }
 }
 

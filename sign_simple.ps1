@@ -59,7 +59,7 @@ try {
     exit
 }# Load token from file if not provided
 if (-not $Token) {
-    $tokenFile = "/home/giap/giap/Docuseal_Pro/submitter_token.txt"
+    $tokenFile = "/workspaces/Docuseal_Pro/submitter_token.txt"
     if (Test-Path $tokenFile) {
         $allTokens = Get-Content $tokenFile | Where-Object { $_.Trim() -ne "" }
         if ($allTokens.Count -gt 1) {
@@ -80,7 +80,7 @@ if (-not $Token) {
 
 # Load field IDs from workflow output if not provided
 if (-not $FieldIds -or $FieldIds.Count -eq 0) {
-    $fieldIdsFile = "/home/giap/giap/Docuseal_Pro/field_ids.txt"
+    $fieldIdsFile = "/workspaces/Docuseal_Pro/field_ids.txt"
     if (Test-Path $fieldIdsFile) {
         $FieldIds = Get-Content $fieldIdsFile | ForEach-Object { [int]$_ }
         Write-Host "Success Field IDs loaded from file: $($FieldIds -join ', ')" -ForegroundColor Green

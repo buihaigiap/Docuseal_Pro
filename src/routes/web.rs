@@ -29,16 +29,21 @@ use crate::common::jwt::auth_middleware;
 pub fn create_router() -> Router<AppState> {
     println!("Creating router...");
     // Create API routes with /api prefix
-    let api_routes = Router::new()
-        .route("/auth/register", post(register_handler))
-        .route("/auth/login", post(login_handler))
-        .route("/test-api", get(|| async { "API test works" }))
+    let auth_routes = Router::new()
         .route("/submitters", get(submitters::get_submitters))
         .route("/submitters/:id", get(submitters::get_submitter))
         .route("/submitters/:id", put(submitters::update_submitter))
-        //.route("/submitters/:id", delete(submitters::delete_submitter_handler))
-        .merge(templates::create_template_router())
-        .merge(submissions::create_submission_router());
+        .route("/submitters/:id", delete(submitters::delete_submitter))
+        .merge(submissions::create_submission_router())
+        .layer(middleware::from_fn(auth_middleware));
+
+    let public_routes = Router::new()
+        .route("/auth/register", post(register_handler))
+        .route("/auth/login", post(login_handler))
+        .route("/test-api", get(|| async { "API test works" }))
+        .merge(templates::create_template_router()); // Template router has its own public/auth separation
+
+    let api_routes = public_routes.merge(auth_routes);
     println!("About to merge submitter router");
     println!("API routes created");
 

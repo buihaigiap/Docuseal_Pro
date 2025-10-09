@@ -91,7 +91,7 @@ try {
 Write-Host ""
 Write-Host "[Step 3] Uploading PDF file..." -ForegroundColor Yellow
 
-$pdfPath = "/home/giap/giap/Docuseal_Pro/fixed_test.pdf"
+$pdfPath = "/workspaces/Docuseal_Pro/fixed_test.pdf"
 if (-not (Test-Path $pdfPath)) {
     Write-Host "Error fixed_test.pdf not found at $pdfPath" -ForegroundColor Red
     exit
@@ -270,9 +270,9 @@ Write-Host "  3. witness_signature (ID: $field3Id) - Bottom of page" -Foreground
 
 # Save field IDs to file for signing script
 $fieldIds = @($field1Id, $field2Id, $field3Id)
-$fieldIds | Out-File -FilePath "/home/giap/giap/Docuseal_Pro/field_ids.txt" -Encoding UTF8
+$fieldIds | Out-File -FilePath "/workspaces/Docuseal_Pro/field_ids.txt" -Encoding UTF8
 Write-Host ""
-Write-Host "Field IDs saved to: /home/giap/giap/Docuseal_Pro/field_ids.txt" -ForegroundColor Cyan
+Write-Host "Field IDs saved to: /workspaces/Docuseal_Pro/field_ids.txt" -ForegroundColor Cyan
 
 # Step 5: Create Submission and Send Email
 Write-Host ""
@@ -317,8 +317,8 @@ try {
             Write-Host "  - buihaigiap0102@gmail.com" -ForegroundColor Gray
             
             # Save all tokens to file (one per line)
-            $tokens | Out-File -FilePath "/home/giap/giap/Docuseal_Pro/submitter_token.txt" -Encoding UTF8
-            Write-Host "Tokens saved to: /home/giap/giap/Docuseal_Pro/submitter_token.txt" -ForegroundColor Cyan
+            $tokens | Out-File -FilePath "/workspaces/Docuseal_Pro/submitter_token.txt" -Encoding UTF8
+            Write-Host "Tokens saved to: /workspaces/Docuseal_Pro/submitter_token.txt" -ForegroundColor Cyan
         }
     } else {
         Write-Host "Error Submission creation failed!" -ForegroundColor Red
