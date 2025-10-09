@@ -44,7 +44,12 @@ use models::template::Template;
         routes::submitters::get_public_submitter_signatures,
         routes::submitters::get_public_submitter,
         routes::submitters::update_public_submitter,
-        routes::submitters::submit_bulk_signatures
+        routes::submitters::submit_bulk_signatures,
+        routes::submitters::get_submitters,
+        routes::submitters::get_submitter,
+        routes::submitters::update_submitter,
+        // Note: remove_submitter (DELETE) not included due to utoipa macro compatibility issue
+        // The endpoint works correctly at DELETE /api/submitters/{id}
     ),
     components(
         schemas(
@@ -55,6 +60,8 @@ use models::template::Template;
             common::responses::ApiResponse<Vec<Template>>,
             common::responses::ApiResponse<Template>,
             common::responses::ApiResponse<models::submitter::Submitter>,
+            common::responses::ApiResponse<Vec<models::submitter::Submitter>>,
+            common::responses::ApiResponse<String>,
             common::responses::ApiResponse<Vec<models::template::TemplateField>>,
             common::responses::ApiResponse<models::template::TemplateField>,
             models::role::Role,

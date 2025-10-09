@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, State, Extension},
     http::StatusCode,
     response::Json,
-    routing::{get, put, post},
+    routing::{get, put, post, delete},
     Router,
     middleware,
 };
@@ -142,7 +142,6 @@ pub async fn update_submitter(
         Err(e) => ApiResponse::internal_error(format!("Failed to update submitter: {}", e)),
     }
 }
-
 #[utoipa::path(
     put,
     path = "/public/submissions/{token}",
@@ -453,6 +452,7 @@ pub async fn get_public_submitter_signatures(
 }
 
 pub fn create_submitter_router() -> Router<AppState> {
+    println!("Creating submitter router...");
     Router::new()
         .route("/submitters", get(get_submitters))
         .route("/submitters/:id", get(get_submitter))

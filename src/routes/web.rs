@@ -2,7 +2,7 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::Json,
-    routing::{get, post, put},
+    routing::{get, post, put, delete},
     Router,
     middleware,
 };
@@ -27,23 +27,32 @@ use crate::routes::submitters;
 use crate::common::jwt::auth_middleware;
 
 pub fn create_router() -> Router<AppState> {
+    println!("Creating router...");
     // Create API routes with /api prefix
     let api_routes = Router::new()
         .route("/auth/register", post(register_handler))
         .route("/auth/login", post(login_handler))
+        .route("/test-api", get(|| async { "API test works" }))
+        .route("/submitters", get(submitters::get_submitters))
+        .route("/submitters/:id", get(submitters::get_submitter))
+        .route("/submitters/:id", put(submitters::update_submitter))
+        //.route("/submitters/:id", delete(submitters::delete_submitter_handler))
         .merge(templates::create_template_router())
-        .merge(submissions::create_submission_router())
-    .merge(submitters::create_submitter_router());
+        .merge(submissions::create_submission_router());
+    println!("About to merge submitter router");
+    println!("API routes created");
 
     // Combine API routes with other routes
-    Router::new()
+    let final_router = Router::new()
         .nest("/api", api_routes)
         .route("/health", get(health_check))
         .route("/test", get(|| async { "Test route works" }))
         .route("/public/submissions/:token", get(submitters::get_public_submitter).put(submitters::update_public_submitter))
         .route("/public/submissions/:token/fields", get(submitters::get_public_submitter_fields))
         .route("/public/submissions/:token/signatures", get(submitters::get_public_submitter_signatures))
-        .route("/public/signatures/bulk/:token", post(submitters::submit_bulk_signatures))
+        .route("/public/signatures/bulk/:token", post(submitters::submit_bulk_signatures));
+    println!("Final router created");
+    final_router
 }
 
 #[utoipa::path(

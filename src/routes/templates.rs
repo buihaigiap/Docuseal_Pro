@@ -51,6 +51,12 @@ fn get_content_type_from_filename(filename: &str) -> &'static str {
         "image/png"
     } else if filename_lower.ends_with(".gif") {
         "image/gif"
+    } else if filename_lower.ends_with(".webp") {
+        "image/webp"
+    } else if filename_lower.ends_with(".bmp") {
+        "image/bmp"
+    } else if filename_lower.ends_with(".tiff") || filename_lower.ends_with(".tif") {
+        "image/tiff"
     } else {
         "application/octet-stream"
     }
@@ -61,7 +67,8 @@ use crate::models::template::{
     Template, UpdateTemplateRequest, CloneTemplateRequest,
     CreateTemplateFromHtmlRequest, MergeTemplatesRequest,
     TemplateField, FieldPosition, SuggestedPosition,
-    CreateTemplateFieldRequest, UpdateTemplateFieldRequest
+    CreateTemplateFieldRequest, UpdateTemplateFieldRequest,
+    FileUploadResponse, CreateTemplateFromFileRequest
 };
 use crate::database::connection::DbPool;
 use crate::database::models::{CreateTemplate, CreateTemplateField};
@@ -154,12 +161,15 @@ pub fn create_template_router() -> Router<AppState> {
         .route("/templates/html", post(create_template_from_html))
         .route("/templates/pdf", post(create_template_from_pdf))
         .route("/templates/docx", post(create_template_from_docx))
+        .route("/templates/from-file", post(create_template_from_file))
         .route("/templates/merge", post(merge_templates))
         // Template Fields routes
         .route("/templates/:template_id/fields", get(get_template_fields))
         .route("/templates/:template_id/fields", post(create_template_field))
         .route("/templates/:template_id/fields/:field_id", put(update_template_field))
         .route("/templates/:template_id/fields/:field_id", delete(delete_template_field))
+        // File upload must come before wildcard route
+        .route("/files/upload", post(upload_file))
         .route("/files/*key", get(download_file))
         .layer(middleware::from_fn(auth_middleware));
 
@@ -1115,5 +1125,176 @@ pub async fn delete_template_field(
         Ok(true) => ApiResponse::success(serde_json::json!({"deleted": true}), "Template field deleted successfully".to_string()),
         Ok(false) => ApiResponse::not_found("Template field not found".to_string()),
         Err(e) => ApiResponse::internal_error(format!("Failed to delete template field: {}", e)),
+    }
+}
+
+// ===== FILE UPLOAD ENDPOINT =====
+
+#[utoipa::path(
+    post,
+    path = "/api/files/upload",
+    request_body = FileUploadRequest,
+    responses(
+        (status = 201, description = "File uploaded successfully", body = ApiResponse<FileUploadResponse>),
+        (status = 400, description = "Bad request - No file provided or invalid file type", body = ApiResponse<FileUploadResponse>),
+        (status = 500, description = "Internal server error", body = ApiResponse<FileUploadResponse>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "files"
+)]
+pub async fn upload_file(
+    State(state): State<AppState>,
+    Extension(user_id): Extension<i64>,
+    mut multipart: Multipart,
+) -> (StatusCode, Json<ApiResponse<FileUploadResponse>>) {
+    let _pool = &*state.lock().await;
+
+    // Initialize storage service
+    let storage = match StorageService::new().await {
+        Ok(storage) => storage,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to initialize storage: {}", e)),
+    };
+
+    let mut file_data = Vec::new();
+    let mut filename = String::new();
+    let mut content_type = String::new();
+
+    // Parse multipart form data
+    while let Some(field) = multipart.next_field().await.unwrap_or(None) {
+        let field_name = field.name().unwrap_or("").to_string();
+
+        match field_name.as_str() {
+            "file" => {
+                filename = field.file_name().unwrap_or("uploaded_file").to_string();
+                
+                // Determine content type from filename
+                content_type = get_content_type_from_filename(&filename).to_string();
+                
+                file_data = field.bytes().await.unwrap_or_default().to_vec();
+            }
+            _ => {}
+        }
+    }
+
+    if file_data.is_empty() {
+        return ApiResponse::bad_request("File is required".to_string());
+    }
+
+    // Validate file type - only allow PDF, DOCX, and images
+    let allowed_types = [
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/msword",
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "image/bmp",
+        "image/tiff"
+    ];
+
+    if !allowed_types.contains(&content_type.as_str()) {
+        return ApiResponse::bad_request(format!("File type not allowed. Supported types: PDF, DOCX, DOC, JPG, PNG, GIF, WEBP, BMP, TIFF. Detected type: {}", content_type));
+    }
+
+    // Upload file to storage
+    let file_key = match storage.upload_file(file_data.clone(), &filename, &content_type).await {
+        Ok(key) => key,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to upload file: {}", e)),
+    };
+
+    // Determine file type category
+    let file_type = if content_type == "application/pdf" {
+        "pdf".to_string()
+    } else if content_type.starts_with("application/vnd.openxmlformats-officedocument.wordprocessingml") || content_type == "application/msword" {
+        "document".to_string()
+    } else if content_type.starts_with("image/") {
+        "image".to_string()
+    } else {
+        "unknown".to_string()
+    };
+
+    // Generate file URL (this could be a direct S3 URL or API endpoint)
+    let file_url = format!("/api/files/{}", file_key);
+
+    // Create response
+    let upload_response = FileUploadResponse {
+        id: file_key.clone(),
+        filename: filename.clone(),
+        file_type,
+        file_size: file_data.len() as i64,
+        url: file_url,
+        content_type,
+        uploaded_at: chrono::Utc::now(),
+    };
+
+    ApiResponse::created(upload_response, "File uploaded successfully".to_string())
+}
+
+// ===== CREATE TEMPLATE FROM UPLOADED FILE =====
+
+#[utoipa::path(
+    post,
+    path = "/api/templates/from-file",
+    request_body = CreateTemplateFromFileRequest,
+    responses(
+        (status = 201, description = "Template created from uploaded file", body = ApiResponse<Template>),
+        (status = 400, description = "Bad request - Invalid file ID", body = ApiResponse<Template>),
+        (status = 404, description = "File not found", body = ApiResponse<Template>),
+        (status = 500, description = "Internal server error", body = ApiResponse<Template>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "templates"
+)]
+pub async fn create_template_from_file(
+    State(state): State<AppState>,
+    Extension(user_id): Extension<i64>,
+    Json(payload): Json<CreateTemplateFromFileRequest>,
+) -> (StatusCode, Json<ApiResponse<Template>>) {
+    let pool = &*state.lock().await;
+
+    // Initialize storage service to verify file exists
+    let storage = match StorageService::new().await {
+        Ok(storage) => storage,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to initialize storage: {}", e)),
+    };
+
+    // Check if file exists in storage
+    let file_exists = match storage.file_exists(&payload.file_id).await {
+        Ok(exists) => exists,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to check file existence: {}", e)),
+    };
+
+    if !file_exists {
+        return ApiResponse::not_found("File not found in storage".to_string());
+    }
+
+    // Determine content type from file extension
+    let content_type = get_content_type_from_filename(&payload.file_id);
+    
+    // Generate unique slug
+    let slug = format!("file-{}-{}", payload.name.to_lowercase().replace(" ", "-"), chrono::Utc::now().timestamp());
+
+    // Create template in database
+    let create_template = CreateTemplate {
+        name: payload.name.clone(),
+        slug: slug.clone(),
+        user_id: user_id,
+        documents: Some(serde_json::json!([{
+            "filename": payload.file_id.split('/').last().unwrap_or(&payload.file_id),
+            "content_type": content_type,
+            "size": 0, // TODO: Get actual file size
+            "url": payload.file_id.clone()
+        }])),
+    };
+
+    match TemplateQueries::create_template(pool, create_template).await {
+        Ok(db_template) => {
+            match convert_db_template_to_template_with_fields(db_template, pool).await {
+                Ok(template) => ApiResponse::created(template, "Template created from file successfully".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to load template fields: {}", e))
+            }
+        }
+        Err(e) => ApiResponse::internal_error(format!("Failed to create template: {}", e))
     }
 }

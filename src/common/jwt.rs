@@ -7,7 +7,7 @@ use crate::models::role::Role;
 pub struct Claims {
     pub sub: i64, // user id
     pub email: String,
-    pub role: Role,
+    pub role: String, // Changed from Role to String for JWT compatibility
     pub exp: usize, // expiration time
 }
 
@@ -17,10 +17,16 @@ pub fn generate_jwt(user_id: i64, email: &str, role: &Role, secret: &str) -> Res
         .expect("valid timestamp")
         .timestamp() as usize;
 
+    let role_str = match role {
+        Role::Admin => "Admin",
+        Role::TeamMember => "TeamMember", 
+        Role::Recipient => "Recipient",
+    };
+
     let claims = Claims {
         sub: user_id,
         email: email.to_owned(),
-        role: role.clone(),
+        role: role_str.to_string(),
         exp: expiration,
     };
 
@@ -54,18 +60,37 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> Result<Respons
 
     let token = match auth_header {
         Some(token) => token,
-        None => return Err(StatusCode::UNAUTHORIZED),
+        None => {
+            println!("No authorization header");
+            return Err(StatusCode::UNAUTHORIZED);
+        }
     };
 
-    let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "your-secret-key".to_string());
+    let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "your-super-secret-jwt-key-change-this-in-production".to_string());
+    println!("Using secret: {}", secret);
+    println!("Token: {}", token);
     let claims = match verify_jwt(token, &secret) {
-        Ok(claims) => claims,
-        Err(_) => return Err(StatusCode::UNAUTHORIZED),
+        Ok(claims) => {
+            println!("JWT verified successfully: {:?}", claims);
+            claims
+        },
+        Err(e) => {
+            println!("JWT verification failed: {:?}", e);
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    };
+
+    // Convert role string to Role enum
+    let role = match claims.role.as_str() {
+        "Admin" => Role::Admin,
+        "TeamMember" => Role::TeamMember,
+        "Recipient" => Role::Recipient,
+        _ => return Err(StatusCode::UNAUTHORIZED),
     };
 
     // Add user_id and role to request extensions
     request.extensions_mut().insert(claims.sub);
-    request.extensions_mut().insert(claims.role);
+    request.extensions_mut().insert(role);
 
     Ok(next.run(request).await)
 }

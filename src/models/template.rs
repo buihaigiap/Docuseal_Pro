@@ -139,3 +139,20 @@ pub struct MergeTemplatesRequest {
 pub struct CreateTemplateFieldsRequest {
     pub fields: Vec<CreateTemplateFieldRequest>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct FileUploadResponse {
+    pub id: String,
+    pub filename: String,
+    pub file_type: String,
+    pub file_size: i64,
+    pub url: String,
+    pub content_type: String,
+    pub uploaded_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateTemplateFromFileRequest {
+    pub file_id: String,
+    pub name: String,
+}

@@ -87,9 +87,9 @@ try {
     exit
 }
 
-# Step 3: Upload PDF and Create Template
+# Step 3: Upload PDF file
 Write-Host ""
-Write-Host "[Step 3] Creating template from PDF..." -ForegroundColor Yellow
+Write-Host "[Step 3] Uploading PDF file..." -ForegroundColor Yellow
 
 $pdfPath = "/home/giap/giap/Docuseal_Pro/fixed_test.pdf"
 if (-not (Test-Path $pdfPath)) {
@@ -97,32 +97,68 @@ if (-not (Test-Path $pdfPath)) {
     exit
 }
 
-$templateName = "Contract Template $timestamp"
-
 Write-Host "Uploading PDF..." -ForegroundColor Gray
 
 try {
     # Use curl for reliable binary upload
     $curlArgs = @(
         '-X', 'POST',
-        "$baseUrl/api/templates/pdf",
+        "$baseUrl/api/files/upload",
         '-H', "Authorization: Bearer $token",
-        '-F', "pdf=@$pdfPath",
-        '-F', "name=$templateName",
+        '-F', "file=@$pdfPath",
         '-s'  # Silent mode
     )
     
     $curlOutput = & curl @curlArgs 2>$null
-    $createTemplateResult = $curlOutput | ConvertFrom-Json
+    $uploadResult = $curlOutput | ConvertFrom-Json
     
-    if ($createTemplateResult -and $createTemplateResult.data.id) {
-        $templateId = $createTemplateResult.data.id
+    if ($uploadResult -and $uploadResult.data.id) {
+        $fileId = $uploadResult.data.id
+        $fileName = $uploadResult.data.filename
+        $fileUrl = $uploadResult.data.url
+        Write-Host "Success File uploaded successfully!" -ForegroundColor Green
+        Write-Host "File ID: $fileId" -ForegroundColor Gray
+        Write-Host "File Name: $fileName" -ForegroundColor Gray
+        Write-Host "File URL: $fileUrl" -ForegroundColor Gray
+        Write-Host "File Type: $($uploadResult.data.file_type)" -ForegroundColor Gray
+        Write-Host "File Size: $($uploadResult.data.file_size) bytes" -ForegroundColor Gray
+    } else {
+        Write-Host "Error File upload failed!" -ForegroundColor Red
+        Write-Host "Response: $curlOutput" -ForegroundColor Red
+        exit
+    }
+} catch {
+    Write-Host "Error uploading file: $($_.Exception.Message)" -ForegroundColor Red
+    exit
+}
+
+# Step 4: Create Template from uploaded file
+Write-Host ""
+Write-Host "[Step 4] Creating template from uploaded file..." -ForegroundColor Yellow
+
+$templateName = "Contract Template $timestamp"
+
+$createTemplateBody = @{
+    file_id = $fileId
+    name = $templateName
+} | ConvertTo-Json
+
+$headers = @{
+    "Authorization" = "Bearer $token"
+    "Content-Type" = "application/json"
+}
+
+try {
+    $createTemplateResponse = Invoke-RestMethod -Uri "$baseUrl/api/templates/from-file" -Method POST -Headers $headers -Body $createTemplateBody
+    
+    if ($createTemplateResponse -and $createTemplateResponse.data.id) {
+        $templateId = $createTemplateResponse.data.id
         Write-Host "Success Template created successfully!" -ForegroundColor Green
         Write-Host "Template ID: $templateId" -ForegroundColor Gray
-        Write-Host "Template Name: $($createTemplateResult.data.name)" -ForegroundColor Gray
+        Write-Host "Template Name: $($createTemplateResponse.data.name)" -ForegroundColor Gray
     } else {
         Write-Host "Error Template creation failed!" -ForegroundColor Red
-        Write-Host "Response: $curlOutput" -ForegroundColor Red
+        Write-Host "Response: $($createTemplateResponse | ConvertTo-Json)" -ForegroundColor Red
         exit
     }
 } catch {
@@ -130,9 +166,9 @@ try {
     exit
 }
 
-# Step 4: Create Template Fields with Positions (Bulk)
+# Step 5: Create Template Fields with Positions (Bulk)
 Write-Host ""
-Write-Host "[Step 4] Creating signature fields with positions..." -ForegroundColor Yellow
+Write-Host "[Step 5] Creating signature fields with positions..." -ForegroundColor Yellow
 
 $headers = @{
     "Authorization" = "Bearer $token"
