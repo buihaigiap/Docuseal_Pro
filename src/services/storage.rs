@@ -164,4 +164,15 @@ impl StorageService {
             }
         }
     }
+
+    pub fn get_public_url(&self, key: &str) -> String {
+        if self.storage_type == "local" {
+            format!("/api/files/{}", key)
+        } else {
+            let endpoint = std::env::var("STORAGE_ENDPOINT")
+                .unwrap_or_else(|_| "http://localhost:9000".to_string());
+            let bucket = self.bucket.as_ref().unwrap();
+            format!("{}/{}/{}", endpoint, bucket, key)
+        }
+    }
 }

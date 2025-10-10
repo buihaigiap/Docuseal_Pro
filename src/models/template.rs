@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use utoipa::ToSchema;
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Template {
@@ -48,7 +49,7 @@ pub struct TemplateField {
     pub required: bool,
     pub display_order: i32,
     pub position: Option<FieldPosition>,
-    pub options: Option<Vec<String>>, // for select/radio fields
+    pub options: Option<Value>, // for select/radio fields
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -90,7 +91,7 @@ pub struct CreateTemplateFieldRequest {
     pub required: bool,
     pub display_order: Option<i32>,
     pub position: Option<FieldPosition>,
-    pub options: Option<Vec<String>>,
+    pub options: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -100,7 +101,7 @@ pub struct UpdateTemplateFieldRequest {
     pub required: Option<bool>,
     pub display_order: Option<i32>,
     pub position: Option<FieldPosition>,
-    pub options: Option<Vec<String>>,
+    pub options: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

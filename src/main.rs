@@ -37,6 +37,7 @@ use models::template::Template;
         routes::templates::preview_file,
         routes::templates::get_template_fields,
         routes::templates::create_template_field,
+        routes::templates::upload_template_field_file,
         routes::templates::update_template_field,
         routes::templates::delete_template_field,
         routes::submissions::create_submission,

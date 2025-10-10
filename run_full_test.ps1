@@ -91,7 +91,7 @@ try {
 Write-Host ""
 Write-Host "[Step 3] Uploading PDF file..." -ForegroundColor Yellow
 
-$pdfPath = "/workspaces/Docuseal_Pro/fixed_test.pdf"
+$pdfPath = "./fixed_test.pdf"
 if (-not (Test-Path $pdfPath)) {
     Write-Host "Error fixed_test.pdf not found at $pdfPath" -ForegroundColor Red
     exit
@@ -131,6 +131,16 @@ try {
     Write-Host "Error uploading file: $($_.Exception.Message)" -ForegroundColor Red
     exit
 }
+
+# Create test image file for image field
+Write-Host ""
+Write-Host "Creating test image file..." -ForegroundColor Gray
+$testImagePath = "./test_image.png"
+# Create a simple 1x1 pixel PNG as base64 (minimal valid PNG)
+$pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+$pngBytes = [System.Convert]::FromBase64String($pngBase64)
+[System.IO.File]::WriteAllBytes($testImagePath, $pngBytes)
+Write-Host "Success Test image created at: $testImagePath" -ForegroundColor Green
 
 # Step 4: Create Template from uploaded file
 Write-Host ""
@@ -240,6 +250,19 @@ $bulkFieldsBody = @{
                 height = 60.0
                 page = 0
             }
+        },
+        @{
+            name = "buyer_photo"
+            field_type = "image"
+            required = $false
+            display_order = 4
+            position = @{
+                x = 300.0
+                y = 100.0
+                width = 150.0
+                height = 100.0
+                page = 0
+            }
         }
     )
 } | ConvertTo-Json -Depth 10
@@ -253,10 +276,12 @@ try {
     $field1Id = $createdFields[0].id
     $field2Id = $createdFields[1].id
     $field3Id = $createdFields[2].id
+    $field4Id = $createdFields[3].id
     
     Write-Host "Success Field 1 created: buyer_signature (page 0, x:50, y:100)" -ForegroundColor Green
     Write-Host "Success Field 2 created: seller_signature (page 0, x:50, y:300)" -ForegroundColor Green
     Write-Host "Success Field 3 created: witness_signature (page 0, x:50, y:500)" -ForegroundColor Green
+    Write-Host "Success Field 4 created: buyer_photo (page 0, x:300, y:100)" -ForegroundColor Green
 } catch {
     Write-Host "Error Failed to create fields: $($_.Exception.Message)" -ForegroundColor Red
     exit
@@ -267,12 +292,13 @@ Write-Host "Summary of created fields:" -ForegroundColor Cyan
 Write-Host "  1. buyer_signature (ID: $field1Id) - Top of page" -ForegroundColor Gray
 Write-Host "  2. seller_signature (ID: $field2Id) - Middle of page" -ForegroundColor Gray
 Write-Host "  3. witness_signature (ID: $field3Id) - Bottom of page" -ForegroundColor Gray
+Write-Host "  4. buyer_photo (ID: $field4Id) - Top right (image field)" -ForegroundColor Gray
 
 # Save field IDs to file for signing script
-$fieldIds = @($field1Id, $field2Id, $field3Id)
-$fieldIds | Out-File -FilePath "/workspaces/Docuseal_Pro/field_ids.txt" -Encoding UTF8
+$fieldIds = @($field1Id, $field2Id, $field3Id, $field4Id)
+$fieldIds | Out-File -FilePath "./field_ids.txt" -Encoding UTF8
 Write-Host ""
-Write-Host "Field IDs saved to: /workspaces/Docuseal_Pro/field_ids.txt" -ForegroundColor Cyan
+Write-Host "Field IDs saved to: ./field_ids.txt" -ForegroundColor Cyan
 
 # Step 5: Create Submission and Send Email
 Write-Host ""
@@ -317,8 +343,8 @@ try {
             Write-Host "  - buihaigiap0102@gmail.com" -ForegroundColor Gray
             
             # Save all tokens to file (one per line)
-            $tokens | Out-File -FilePath "/workspaces/Docuseal_Pro/submitter_token.txt" -Encoding UTF8
-            Write-Host "Tokens saved to: /workspaces/Docuseal_Pro/submitter_token.txt" -ForegroundColor Cyan
+            $tokens | Out-File -FilePath "./submitter_token.txt" -Encoding UTF8
+            Write-Host "Tokens saved to: ./submitter_token.txt" -ForegroundColor Cyan
         }
     } else {
         Write-Host "Error Submission creation failed!" -ForegroundColor Red
@@ -364,7 +390,7 @@ Write-Host "Success User registered: $testEmail" -ForegroundColor Green
 Write-Host "Success User logged in" -ForegroundColor Green
 Write-Host "Success Template created (ID: $templateId)" -ForegroundColor Green
 Write-Host "Success PDF uploaded to S3/MinIO" -ForegroundColor Green
-Write-Host "Success 3 signature fields created with positions" -ForegroundColor Green
+Write-Host "Success 4 signature and image fields created with positions" -ForegroundColor Green
 Write-Host "Success Submission created (ID: $submissionId)" -ForegroundColor Green
 Write-Host "Success Emails sent to 2 different Gmail addresses:" -ForegroundColor Green
 Write-Host "  - buihaigiap0101@gmail.com" -ForegroundColor Gray

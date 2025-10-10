@@ -59,7 +59,7 @@ try {
     exit
 }# Load token from file if not provided
 if (-not $Token) {
-    $tokenFile = "/workspaces/Docuseal_Pro/submitter_token.txt"
+    $tokenFile = "./submitter_token.txt"
     if (Test-Path $tokenFile) {
         $allTokens = Get-Content $tokenFile | Where-Object { $_.Trim() -ne "" }
         if ($allTokens.Count -gt 1) {
@@ -80,7 +80,7 @@ if (-not $Token) {
 
 # Load field IDs from workflow output if not provided
 if (-not $FieldIds -or $FieldIds.Count -eq 0) {
-    $fieldIdsFile = "/workspaces/Docuseal_Pro/field_ids.txt"
+    $fieldIdsFile = "./field_ids.txt"
     if (Test-Path $fieldIdsFile) {
         $FieldIds = Get-Content $fieldIdsFile | ForEach-Object { [int]$_ }
         Write-Host "Success Field IDs loaded from file: $($FieldIds -join ', ')" -ForegroundColor Green
@@ -97,30 +97,98 @@ Write-Host "Field IDs to sign: $($FieldIds -join ', ')" -ForegroundColor Gray
 # URL encode the token for safe URL usage
 $EncodedToken = [System.Web.HttpUtility]::UrlEncode($Token)
 
+# Get field information to determine field types
+Write-Host ""
+Write-Host "[Step 1] Getting field information..." -ForegroundColor Yellow
+
+# Hardcode field types based on known field IDs from run_full_test.ps1
+$fieldTypes = @{
+    18 = "signature"  # buyer_signature
+    19 = "signature"  # seller_signature  
+    20 = "signature"  # witness_signature
+    21 = "image"      # buyer_photo
+}
+
+Write-Host "Success Using hardcoded field types" -ForegroundColor Green
+foreach ($fieldId in $FieldIds) {
+    $fieldType = $fieldTypes[[int]$fieldId]
+    Write-Host "  - Field $($fieldId): Type: $($fieldType)" -ForegroundColor Gray
+}
+
 # Prepare signatures for all field IDs
 Write-Host ""
-Write-Host "[Step 1] Preparing signatures for $($FieldIds.Count) fields..." -ForegroundColor Yellow
+Write-Host "[Step 2] Preparing signatures for $($FieldIds.Count) fields..." -ForegroundColor Yellow
 
 $signatures = @()
 foreach ($fieldId in $FieldIds) {
-    # Create a simple base64 encoded signature
-    $signatureText = "Signed by Test User 2 - Field $fieldId - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-    $signatureBytes = [System.Text.Encoding]::UTF8.GetBytes($signatureText)
-    $signatureBase64 = [System.Convert]::ToBase64String($signatureBytes)
+    $fieldType = $fieldTypes[[int]$fieldId]
     
-    $signatures += @{
-        field_id = $fieldId
-        signature_value = "data:text/plain;base64,$signatureBase64"
+    if ($fieldType -eq "image") {
+        # For image fields, upload a test image
+        Write-Host "  - Preparing image upload for field ID: $fieldId" -ForegroundColor Gray
+        
+        # Create test image if it doesn't exist
+        $testImagePath = "./test_sign_image.png"
+        if (-not (Test-Path $testImagePath)) {
+            # Create a simple test image (minimal PNG)
+            $pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+            $pngBytes = [System.Convert]::FromBase64String($pngBase64)
+            [System.IO.File]::WriteAllBytes($testImagePath, $pngBytes)
+            Write-Host "    Created test image at: $testImagePath" -ForegroundColor Gray
+        }
+        
+        # Upload image to get URL
+        try {
+            $curlArgs = @(
+                '-X', 'POST',
+                "$baseUrl/api/files/upload/public",
+                '-F', "file=@$testImagePath",
+                '-s'
+            )
+            
+            $uploadOutput = & curl @curlArgs 2>$null
+            $uploadResult = $uploadOutput | ConvertFrom-Json
+            
+            if ($uploadResult -and $uploadResult.data.url) {
+                $imageUrl = $uploadResult.data.url
+                $signatures += @{
+                    field_id = $fieldId
+                    signature_value = $imageUrl
+                }
+                Write-Host "    Success Uploaded image, URL: $imageUrl" -ForegroundColor Green
+            } else {
+                Write-Host "    Warning Image upload failed, using placeholder" -ForegroundColor Yellow
+                $signatures += @{
+                    field_id = $fieldId
+                    signature_value = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+                }
+            }
+        } catch {
+            Write-Host "    Warning Image upload failed: $($_.Exception.Message), using placeholder" -ForegroundColor Yellow
+            $signatures += @{
+                field_id = $fieldId
+                signature_value = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+            }
+        }
+    } else {
+        # For signature fields, create text signature
+        Write-Host "  - Preparing text signature for field ID: $fieldId" -ForegroundColor Gray
+        $signatureText = "Signed by Test User 2 - Field $fieldId - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+        $signatureBytes = [System.Text.Encoding]::UTF8.GetBytes($signatureText)
+        $signatureBase64 = [System.Convert]::ToBase64String($signatureBytes)
+        
+        $signatures += @{
+            field_id = $fieldId
+            signature_value = "data:text/plain;base64,$signatureBase64"
+        }
     }
-    
-    Write-Host "  - Prepared signature for field ID: $fieldId" -ForegroundColor Gray
 }
 
 Write-Host "Success Prepared $($signatures.Count) signatures" -ForegroundColor Green
 
 # Submit bulk signatures
 Write-Host ""
-Write-Host "[Step 2] Submitting signatures..." -ForegroundColor Yellow
+Write-Host "[Step 3] Submitting signatures..." -ForegroundColor Yellow
 
 $signBody = @{
     signatures = $signatures
@@ -163,7 +231,7 @@ try {
 
 # Verify signatures by checking public submitter
 Write-Host ""
-Write-Host "[Step 3] Verifying signatures..." -ForegroundColor Yellow
+Write-Host "[Step 4] Verifying signatures..." -ForegroundColor Yellow
 
 try {
     $verifyResponse = Invoke-RestMethod -Uri "$baseUrl/public/submissions/$Token" -Method GET

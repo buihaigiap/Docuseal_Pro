@@ -15,6 +15,7 @@ use tokio::sync::Mutex;
 use serde_json;
 use pdf_extract::extract_text_from_mem;
 use base64;
+use aws_config;
 // use docx_rs::DocxFile;
 
 // fn extract_text_from_file(key: &str, data: &[u8]) -> Result<String, String> {
@@ -77,7 +78,7 @@ use crate::database::queries::TemplateQueries;
 use crate::services::storage::StorageService;
 use crate::common::jwt::auth_middleware;
 
-pub type AppState = Arc<Mutex<DbPool>>;
+pub type AppState = Arc<Mutex<sqlx::PgPool>>;
 
 #[utoipa::path(
     get,
@@ -149,7 +150,8 @@ pub async fn get_template_full_info(
 pub fn create_template_router() -> Router<AppState> {
     // Public routes (no authentication required)
     let public_routes = Router::new()
-        .route("/files/preview/*key", get(preview_file));
+        .route("/files/preview/*key", get(preview_file))
+        .route("/files/upload/public", post(upload_file_public));
 
     // Authenticated routes
     let auth_routes = Router::new()
@@ -168,6 +170,7 @@ pub fn create_template_router() -> Router<AppState> {
         // Template Fields routes
         .route("/templates/:template_id/fields", get(get_template_fields))
         .route("/templates/:template_id/fields", post(create_template_field))
+        .route("/templates/:template_id/fields/upload", post(upload_template_field_file))
         .route("/templates/:template_id/fields/:field_id", put(update_template_field))
         .route("/templates/:template_id/fields/:field_id", delete(delete_template_field))
         // File upload must come before wildcard route
@@ -418,7 +421,7 @@ pub async fn create_template(
                         required: field_req.required,
                         display_order: field_req.display_order.unwrap_or(0),
                         position: field_req.position.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
-                        options: field_req.options.map(|o| serde_json::to_value(o).unwrap_or(serde_json::Value::Null)),
+                        options: field_req.options,
                         metadata: None,
                     };
 
@@ -810,7 +813,7 @@ pub async fn convert_db_template_to_template_with_fields(
             required: db_field.required,
             display_order: db_field.display_order,
             position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
-            options: db_field.options.and_then(|v| serde_json::from_value(v).ok()),
+            options: db_field.options,
             created_at: db_field.created_at,
             updated_at: db_field.updated_at,
         })
@@ -1012,7 +1015,7 @@ pub async fn get_template_fields(
                     required: db_field.required,
                     display_order: db_field.display_order,
                     position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
-                    options: db_field.options.and_then(|v| serde_json::from_value(v).ok()),
+                    options: db_field.options,
                     created_at: db_field.created_at,
                     updated_at: db_field.updated_at,
                 })
@@ -1089,7 +1092,7 @@ pub async fn create_template_field(
             required: field_req.required,
             display_order: field_req.display_order.unwrap_or(0),
             position: field_req.position.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
-            options: field_req.options.map(|o| serde_json::to_value(o).unwrap_or(serde_json::Value::Null)),
+            options: field_req.options,
             metadata: None,
         };
 
@@ -1103,7 +1106,7 @@ pub async fn create_template_field(
                     required: db_field.required,
                     display_order: db_field.display_order,
                     position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
-                    options: db_field.options.and_then(|v| serde_json::from_value(v).ok()),
+                    options: db_field.options,
                     created_at: db_field.created_at,
                     updated_at: db_field.updated_at,
                 };
@@ -1114,6 +1117,153 @@ pub async fn create_template_field(
     }
 
     ApiResponse::created(created_fields, "Template fields created successfully".to_string())
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/templates/{template_id}/fields/upload",
+    params(
+        ("template_id" = i64, Path, description = "Template ID")
+    ),
+    request_body = String,
+    responses(
+        (status = 201, description = "Field created successfully", body = TemplateField),
+        (status = 400, description = "Bad request"),
+        (status = 404, description = "Template not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "template_fields"
+)]
+pub async fn upload_template_field_file(
+    State(state): State<AppState>,
+    Path(template_id): Path<i64>,
+    Extension(user_id): Extension<i64>,
+    mut multipart: Multipart,
+) -> (StatusCode, Json<ApiResponse<TemplateField>>) {
+    let pool = &*state.lock().await;
+
+    // Initialize S3 client
+    let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .region(aws_config::Region::new("us-east-1"))
+        .endpoint_url("http://localhost:9000")
+        .load()
+        .await;
+    let s3_client = aws_sdk_s3::Client::new(&config);
+
+    // Verify template belongs to user
+    match TemplateQueries::get_template_by_id(pool, template_id).await {
+        Ok(Some(db_template)) => {
+            if db_template.user_id != user_id {
+                return ApiResponse::not_found("Template not found".to_string());
+            }
+        }
+        Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to verify template: {}", e)),
+    }
+
+    let mut name = None;
+    let mut field_type = None;
+    let mut required = None;
+    let mut display_order = None;
+    let mut position = None;
+    let mut options = None;
+    let mut file_data = None;
+    let mut filename = None;
+
+    while let Some(field) = multipart.next_field().await.unwrap() {
+        let field_name = field.name().unwrap().to_string();
+        let file_name = field.file_name().map(|s| s.to_string());
+        let field_data = field.bytes().await.unwrap();
+
+        match field_name.as_str() {
+            "name" => name = Some(String::from_utf8(field_data.to_vec()).unwrap()),
+            "field_type" => field_type = Some(String::from_utf8(field_data.to_vec()).unwrap()),
+            "required" => required = Some(String::from_utf8(field_data.to_vec()).unwrap() == "true"),
+            "display_order" => display_order = Some(String::from_utf8(field_data.to_vec()).unwrap().parse::<i32>().unwrap_or(0)),
+            "position" => position = Some(String::from_utf8(field_data.to_vec()).unwrap()),
+            "options" => options = Some(String::from_utf8(field_data.to_vec()).unwrap()),
+            "file" => {
+                file_data = Some(field_data.to_vec());
+                if let Some(f) = file_name {
+                    filename = Some(f);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let name = if let Some(n) = name { n } else { return ApiResponse::bad_request("name is required".to_string()); };
+    let field_type = if let Some(ft) = field_type { ft } else { return ApiResponse::bad_request("field_type is required".to_string()); };
+    let required = required.unwrap_or(false);
+    let display_order = display_order.unwrap_or(0);
+
+    // Only allow image and file types for upload
+    if field_type != "image" && field_type != "file" {
+        return ApiResponse::bad_request("Only image and file field types are supported for upload".to_string());
+    }
+
+    let file_data = if let Some(fd) = file_data { fd } else { return ApiResponse::bad_request("file is required".to_string()); };
+    let filename = if let Some(f) = filename { f } else { return ApiResponse::bad_request("filename is required".to_string()); };
+
+    // Upload to S3
+    let timestamp = chrono::Utc::now().timestamp();
+    let s3_key = format!("template_fields/{}_{}", timestamp, filename);
+
+    let content_type = get_content_type_from_filename(&filename);
+
+    match s3_client
+        .put_object()
+        .bucket("docuseal") // Replace with your bucket name
+        .key(&s3_key)
+        .body(file_data.into())
+        .content_type(content_type)
+        .send()
+        .await
+    {
+        Ok(_) => {
+            let s3_url = format!("https://docuseal.s3.amazonaws.com/{}", s3_key); // Replace with your S3 URL
+
+            // Create options with URL
+            let mut options_value = serde_json::Value::Object(serde_json::Map::new());
+            if let Some(opts) = options {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&opts) {
+                    options_value = parsed;
+                }
+            }
+            options_value["url"] = serde_json::Value::String(s3_url.clone());
+
+            let create_field = CreateTemplateField {
+                template_id,
+                name,
+                field_type,
+                required,
+                display_order,
+                position: position.map(|p| serde_json::from_str(&p).unwrap_or(serde_json::Value::Null)),
+                options: Some(options_value),
+                metadata: None,
+            };
+
+            match crate::database::queries::TemplateFieldQueries::create_template_field(pool, create_field).await {
+                Ok(db_field) => {
+                    let template_field = TemplateField {
+                        id: db_field.id,
+                        template_id: db_field.template_id,
+                        name: db_field.name,
+                        field_type: db_field.field_type,
+                        required: db_field.required,
+                        display_order: db_field.display_order,
+                        position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
+                        options: db_field.options,
+                        created_at: db_field.created_at,
+                        updated_at: db_field.updated_at,
+                    };
+                    ApiResponse::created(template_field, "Template field created successfully".to_string())
+                }
+                Err(e) => ApiResponse::internal_error(format!("Failed to create template field: {}", e)),
+            }
+        }
+        Err(e) => ApiResponse::internal_error(format!("Failed to upload file to S3: {}", e)),
+    }
 }
 
 #[utoipa::path(
@@ -1158,7 +1308,7 @@ pub async fn update_template_field(
         required: payload.required.unwrap_or(false),
         display_order: payload.display_order.unwrap_or(0),
         position: payload.position.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
-        options: payload.options.map(|o| serde_json::to_value(o).unwrap_or(serde_json::Value::Null)),
+        options: payload.options,
         metadata: None,
     };
 
@@ -1172,7 +1322,7 @@ pub async fn update_template_field(
                 required: db_field.required,
                 display_order: db_field.display_order,
                 position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
-                options: db_field.options.and_then(|v| serde_json::from_value(v).ok()),
+                options: db_field.options,
                 created_at: db_field.created_at,
                 updated_at: db_field.updated_at,
             };
@@ -1224,7 +1374,92 @@ pub async fn delete_template_field(
     }
 }
 
-// ===== FILE UPLOAD ENDPOINT =====
+// ===== PUBLIC FILE UPLOAD ENDPOINT (for signing) =====
+
+#[utoipa::path(
+    post,
+    path = "/api/files/upload/public",
+    request_body = FileUploadRequest,
+    responses(
+        (status = 201, description = "File uploaded successfully", body = ApiResponse<FileUploadResponse>),
+        (status = 400, description = "Bad request - No file provided or invalid file type", body = ApiResponse<FileUploadResponse>),
+        (status = 500, description = "Internal server error", body = ApiResponse<FileUploadResponse>)
+    ),
+    tag = "files"
+)]
+pub async fn upload_file_public(
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> (StatusCode, Json<ApiResponse<FileUploadResponse>>) {
+    let _pool = &*state.lock().await;
+
+    // Initialize storage service
+    let storage = match StorageService::new().await {
+        Ok(storage) => storage,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to initialize storage: {}", e)),
+    };
+
+    let mut file_data = Vec::new();
+    let mut filename = String::new();
+    let mut content_type = String::new();
+
+    // Parse multipart form data
+    while let Some(field) = multipart.next_field().await.unwrap_or(None) {
+        let field_name = field.name().unwrap_or("").to_string();
+
+        match field_name.as_str() {
+            "file" => {
+                filename = field.file_name().unwrap_or("uploaded_file").to_string();
+                
+                // Determine content type from filename
+                content_type = get_content_type_from_filename(&filename).to_string();
+                
+                file_data = field.bytes().await.unwrap_or_default().to_vec();
+            }
+            _ => {}
+        }
+    }
+
+    if file_data.is_empty() {
+        return ApiResponse::bad_request("File is required".to_string());
+    }
+
+    // Validate file type - allow images for signing
+    let allowed_types = [
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "image/bmp",
+        "image/tiff"
+    ];
+
+    if !allowed_types.contains(&content_type.as_str()) {
+        return ApiResponse::bad_request(format!("File type not allowed. Supported types: JPG, PNG, GIF, WEBP, BMP, TIFF. Detected type: {}", content_type));
+    }
+
+    // Upload file to storage
+    let file_key = match storage.upload_file(file_data.clone(), &filename, &content_type).await {
+        Ok(key) => key,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to upload file: {}", e)),
+    };
+
+    // Generate file URL (direct S3 URL)
+    let file_url = storage.get_public_url(&file_key);
+
+    // Create response
+    let upload_response = FileUploadResponse {
+        id: file_key.clone(),
+        filename: filename.clone(),
+        file_type: "image".to_string(),
+        file_size: file_data.len() as i64,
+        url: file_url,
+        content_type,
+        uploaded_at: chrono::Utc::now(),
+    };
+
+    ApiResponse::created(upload_response, "File uploaded successfully".to_string())
+}
 
 #[utoipa::path(
     post,
@@ -1310,8 +1545,8 @@ pub async fn upload_file(
         "unknown".to_string()
     };
 
-    // Generate file URL (this could be a direct S3 URL or API endpoint)
-    let file_url = format!("/api/files/{}", file_key);
+    // Generate file URL (direct S3 URL)
+    let file_url = storage.get_public_url(&file_key);
 
     // Create response
     let upload_response = FileUploadResponse {
