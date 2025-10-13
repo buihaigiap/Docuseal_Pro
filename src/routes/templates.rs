@@ -59,6 +59,16 @@ fn get_content_type_from_filename(filename: &str) -> &'static str {
         "image/bmp"
     } else if filename_lower.ends_with(".tiff") || filename_lower.ends_with(".tif") {
         "image/tiff"
+    } else if filename_lower.ends_with(".json") {
+        "application/json"
+    } else if filename_lower.ends_with(".csv") {
+        "text/csv"
+    } else if filename_lower.ends_with(".xml") {
+        "application/xml"
+    } else if filename_lower.ends_with(".xlsx") {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    } else if filename_lower.ends_with(".xls") {
+        "application/vnd.ms-excel"
     } else {
         "application/octet-stream"
     }
@@ -1382,7 +1392,7 @@ pub async fn delete_template_field(
     request_body = FileUploadRequest,
     responses(
         (status = 201, description = "File uploaded successfully", body = ApiResponse<FileUploadResponse>),
-        (status = 400, description = "Bad request - No file provided or invalid file type", body = ApiResponse<FileUploadResponse>),
+        (status = 400, description = "Bad request - No file provided or invalid file type. Supported types: Images (JPG, PNG, GIF, WEBP, BMP, TIFF), Documents (PDF, DOCX, DOC, TXT, HTML, XLSX, XLS), Data (JSON, CSV, XML)", body = ApiResponse<FileUploadResponse>),
         (status = 500, description = "Internal server error", body = ApiResponse<FileUploadResponse>)
     ),
     tag = "files"
@@ -1424,24 +1434,61 @@ pub async fn upload_file_public(
         return ApiResponse::bad_request("File is required".to_string());
     }
 
-    // Validate file type - allow images for signing
+    // Validate file type - allow multiple file types including images, documents, and PDFs
     let allowed_types = [
+        // Images
         "image/jpeg",
-        "image/png",
+        "image/png", 
         "image/gif",
         "image/webp",
         "image/bmp",
-        "image/tiff"
+        "image/tiff",
+        // Documents
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // DOCX
+        "application/msword", // DOC
+        "text/plain", // TXT
+        "text/html", // HTML
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // XLSX
+        "application/vnd.ms-excel", // XLS
+        // Other common types
+        "application/json",
+        "text/csv",
+        "application/xml",
+        "text/xml"
     ];
 
     if !allowed_types.contains(&content_type.as_str()) {
-        return ApiResponse::bad_request(format!("File type not allowed. Supported types: JPG, PNG, GIF, WEBP, BMP, TIFF. Detected type: {}", content_type));
+        return ApiResponse::bad_request(format!("File type not allowed. Supported types: Images (JPG, PNG, GIF, WEBP, BMP, TIFF), Documents (PDF, DOCX, DOC, TXT, HTML, XLSX, XLS), Data (JSON, CSV, XML). Detected type: {}", content_type));
     }
 
     // Upload file to storage
     let file_key = match storage.upload_file(file_data.clone(), &filename, &content_type).await {
         Ok(key) => key,
         Err(e) => return ApiResponse::internal_error(format!("Failed to upload file: {}", e)),
+    };
+
+    // Determine file type category
+    let file_type = if content_type.starts_with("image/") {
+        "image".to_string()
+    } else if content_type == "application/pdf" {
+        "pdf".to_string()
+    } else if content_type.starts_with("application/vnd.openxmlformats-officedocument.wordprocessingml") || content_type == "application/msword" {
+        "document".to_string()
+    } else if content_type.starts_with("application/vnd.openxmlformats-officedocument.spreadsheetml") || content_type == "application/vnd.ms-excel" {
+        "spreadsheet".to_string()
+    } else if content_type == "text/plain" {
+        "text".to_string()
+    } else if content_type == "text/html" {
+        "html".to_string()
+    } else if content_type == "application/json" {
+        "json".to_string()
+    } else if content_type == "text/csv" {
+        "csv".to_string()
+    } else if content_type.contains("xml") {
+        "xml".to_string()
+    } else {
+        "file".to_string()
     };
 
     // Generate file URL (direct S3 URL)
@@ -1451,7 +1498,7 @@ pub async fn upload_file_public(
     let upload_response = FileUploadResponse {
         id: file_key.clone(),
         filename: filename.clone(),
-        file_type: "image".to_string(),
+        file_type,
         file_size: file_data.len() as i64,
         url: file_url,
         content_type,

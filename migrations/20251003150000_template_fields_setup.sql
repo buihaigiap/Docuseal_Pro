@@ -40,6 +40,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_template_fields_updated_at ON template_fields;
 CREATE TRIGGER trigger_template_fields_updated_at
     BEFORE UPDATE ON template_fields
     FOR EACH ROW
