@@ -209,7 +209,7 @@ try {
     Write-Host "Warning: Could not check existing fields: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
-# Create all fields in bulk
+# Create all fields in bulk with partner information
 $bulkFieldsBody = @{
     fields = @(
         @{
@@ -217,6 +217,7 @@ $bulkFieldsBody = @{
             field_type = "signature"
             required = $true
             display_order = 1
+            partner = "Buyer"  # Partner information
             position = @{
                 x = 50.0
                 y = 100.0
@@ -230,6 +231,7 @@ $bulkFieldsBody = @{
             field_type = "signature"
             required = $true
             display_order = 2
+            partner = "Seller"  # Partner information
             position = @{
                 x = 50.0
                 y = 300.0
@@ -243,6 +245,7 @@ $bulkFieldsBody = @{
             field_type = "signature"
             required = $true
             display_order = 3
+            partner = "Witness"  # Partner information
             position = @{
                 x = 50.0
                 y = 500.0
@@ -256,11 +259,40 @@ $bulkFieldsBody = @{
             field_type = "image"
             required = $false
             display_order = 4
+            partner = "Buyer"  # Same partner as buyer signature
             position = @{
                 x = 300.0
                 y = 100.0
                 width = 150.0
                 height = 100.0
+                page = 0
+            }
+        },
+        @{
+            name = "seller_company_stamp"
+            field_type = "image"
+            required = $false
+            display_order = 5
+            partner = "Seller"  # Seller's company stamp
+            position = @{
+                x = 300.0
+                y = 300.0
+                width = 150.0
+                height = 100.0
+                page = 0
+            }
+        },
+        @{
+            name = "contract_date"
+            field_type = "date"
+            required = $true
+            display_order = 0
+            # No partner - this is a general field
+            position = @{
+                x = 400.0
+                y = 50.0
+                width = 120.0
+                height = 30.0
                 page = 0
             }
         }
@@ -271,17 +303,37 @@ try {
     $bulkFieldsResponse = Invoke-RestMethod -Uri "$baseUrl/api/templates/$templateId/fields" -Method POST -Headers $headers -Body $bulkFieldsBody
     Write-Host "Success Bulk fields created successfully!" -ForegroundColor Green
     
-    # Extract field IDs from response
+    # Extract field IDs from response and display partner information
     $createdFields = $bulkFieldsResponse.data
-    $field1Id = $createdFields[0].id
-    $field2Id = $createdFields[1].id
-    $field3Id = $createdFields[2].id
-    $field4Id = $createdFields[3].id
+    $field1Id = $createdFields[0].id  # buyer_signature
+    $field2Id = $createdFields[1].id  # seller_signature
+    $field3Id = $createdFields[2].id  # witness_signature
+    $field4Id = $createdFields[3].id  # buyer_photo
+    $field5Id = $createdFields[4].id  # seller_company_stamp
+    $field6Id = $createdFields[5].id  # contract_date
     
-    Write-Host "Success Field 1 created: buyer_signature (page 0, x:50, y:100)" -ForegroundColor Green
-    Write-Host "Success Field 2 created: seller_signature (page 0, x:50, y:300)" -ForegroundColor Green
-    Write-Host "Success Field 3 created: witness_signature (page 0, x:50, y:500)" -ForegroundColor Green
-    Write-Host "Success Field 4 created: buyer_photo (page 0, x:300, y:100)" -ForegroundColor Green
+    Write-Host "Success Multi-Partner Fields Created:" -ForegroundColor Green
+    Write-Host "  - Buyer Fields:" -ForegroundColor Cyan
+    Write-Host "    * buyer_signature (ID: $field1Id) - Partner: Buyer" -ForegroundColor Gray
+    Write-Host "    * buyer_photo (ID: $field4Id) - Partner: Buyer" -ForegroundColor Gray
+    Write-Host "  - Seller Fields:" -ForegroundColor Cyan
+    Write-Host "    * seller_signature (ID: $field2Id) - Partner: Seller" -ForegroundColor Gray
+    Write-Host "    * seller_company_stamp (ID: $field5Id) - Partner: Seller" -ForegroundColor Gray
+    Write-Host "  - Witness Fields:" -ForegroundColor Cyan
+    Write-Host "    * witness_signature (ID: $field3Id) - Partner: Witness" -ForegroundColor Gray
+    Write-Host "  - General Fields:" -ForegroundColor Cyan
+    Write-Host "    * contract_date (ID: $field6Id) - No Partner" -ForegroundColor Gray
+    
+    # Display fields grouped by partner
+    Write-Host ""
+    Write-Host "Fields by Partner:" -ForegroundColor Yellow
+    foreach ($field in $createdFields) {
+        if ($field.partner) {
+            Write-Host "  [$($field.partner)] $($field.name) ($($field.field_type)) - Required: $($field.required)" -ForegroundColor White
+        } else {
+            Write-Host "  [General] $($field.name) ($($field.field_type)) - Required: $($field.required)" -ForegroundColor Gray
+        }
+    }
 } catch {
     Write-Host "Error Failed to create fields: $($_.Exception.Message)" -ForegroundColor Red
     exit
@@ -295,25 +347,32 @@ Write-Host "  3. witness_signature (ID: $field3Id) - Bottom of page" -Foreground
 Write-Host "  4. buyer_photo (ID: $field4Id) - Top right (image field)" -ForegroundColor Gray
 
 # Save field IDs to file for signing script
-$fieldIds = @($field1Id, $field2Id, $field3Id, $field4Id)
-$fieldIds | Out-File -FilePath "./field_ids.txt" -Encoding UTF8
+$allFieldIds = @($field1Id, $field2Id, $field3Id, $field4Id, $field5Id, $field6Id)
+$allFieldIds | Out-File -FilePath "./field_ids.txt" -Encoding UTF8
 Write-Host ""
-Write-Host "Field IDs saved to: ./field_ids.txt" -ForegroundColor Cyan
+Write-Host "All Field IDs saved to: ./field_ids.txt" -ForegroundColor Cyan
 
-# Step 5: Create Submission and Send Email
+# Step 6: Create Multi-Partner Submission and Send Emails
 Write-Host ""
-Write-Host "[Step 5] Creating submission and sending emails to 2 different Gmail addresses..." -ForegroundColor Yellow
+Write-Host "[Step 6] Creating multi-partner submission with role-based assignments..." -ForegroundColor Yellow
 
 $submissionBody = @{
     template_id = $templateId
     submitters = @(
         @{
-            name = "Bui Hai Giap"
+            name = "Bui Hai Giap (Buyer)"
             email = "buihaigiap0101@gmail.com"
+            role = "Buyer"  # Role matches partner field
         },
         @{
-            name = "Test User 2"
+            name = "Seller Company Rep"
             email = "buihaigiap0102@gmail.com"
+            role = "Seller"  # Role matches partner field
+        },
+        @{
+            name = "Legal Witness"
+            email = "buihaigiap0103@gmail.com"
+            role = "Witness"  # Role matches partner field
         }
     )
 } | ConvertTo-Json
@@ -327,24 +386,35 @@ try {
         Write-Host "Submission ID: $submissionId" -ForegroundColor Gray
         
         if ($submissionResponse.data.submitters -and $submissionResponse.data.submitters.Count -gt 0) {
-            Write-Host "Submitters created:" -ForegroundColor Cyan
+            Write-Host "Multi-Partner Submitters Created:" -ForegroundColor Cyan
             $tokens = @()
             
             for ($i = 0; $i -lt $submissionResponse.data.submitters.Count; $i++) {
                 $submitter = $submissionResponse.data.submitters[$i]
                 $tokens += $submitter.token
-                Write-Host "  $($i+1). $($submitter.name) - $($submitter.email)" -ForegroundColor Gray
+                $role = if ($submitter.role) { $submitter.role } else { "General" }
+                Write-Host "  $($i+1). [$role] $($submitter.name) - $($submitter.email)" -ForegroundColor White
                 Write-Host "     Token: $($submitter.token)" -ForegroundColor Cyan
+                Write-Host "     Status: $($submitter.status)" -ForegroundColor Gray
             }
             
             Write-Host ""
-            Write-Host "Emails sent to:" -ForegroundColor Green
-            Write-Host "  - buihaigiap0101@gmail.com" -ForegroundColor Gray
-            Write-Host "  - buihaigiap0102@gmail.com" -ForegroundColor Gray
+            Write-Host "Partner-Based Email Notifications Sent:" -ForegroundColor Green
+            Write-Host "  🏢 Buyer: buihaigiap0101@gmail.com (responsible for buyer fields)" -ForegroundColor Gray
+            Write-Host "  🏭 Seller: buihaigiap0102@gmail.com (responsible for seller fields)" -ForegroundColor Gray
+            Write-Host "  👨‍💼 Witness: buihaigiap0103@gmail.com (responsible for witness fields)" -ForegroundColor Gray
+            
+            Write-Host ""
+            Write-Host "Signing Workflow:" -ForegroundColor Yellow
+            Write-Host "  1. Each partner receives an email with their specific signing link" -ForegroundColor Gray
+            Write-Host "  2. Buyer will only see and sign buyer-related fields" -ForegroundColor Gray
+            Write-Host "  3. Seller will only see and sign seller-related fields" -ForegroundColor Gray
+            Write-Host "  4. Witness will only see and sign witness-related fields" -ForegroundColor Gray
+            Write-Host "  5. General fields (like date) can be filled by any partner" -ForegroundColor Gray
             
             # Save all tokens to file (one per line)
             $tokens | Out-File -FilePath "./submitter_token.txt" -Encoding UTF8
-            Write-Host "Tokens saved to: ./submitter_token.txt" -ForegroundColor Cyan
+            Write-Host "All tokens saved to: ./submitter_token.txt" -ForegroundColor Cyan
         }
     } else {
         Write-Host "Error Submission creation failed!" -ForegroundColor Red

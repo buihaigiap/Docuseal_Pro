@@ -433,6 +433,7 @@ pub async fn create_template(
                         position: field_req.position.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
                         options: field_req.options,
                         metadata: None,
+                        partner: field_req.partner,
                     };
 
                     if let Err(e) = crate::database::queries::TemplateFieldQueries::create_template_field(pool, create_field).await {
@@ -824,6 +825,7 @@ pub async fn convert_db_template_to_template_with_fields(
             display_order: db_field.display_order,
             position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
             options: db_field.options,
+            partner: db_field.partner,
             created_at: db_field.created_at,
             updated_at: db_field.updated_at,
         })
@@ -1026,6 +1028,7 @@ pub async fn get_template_fields(
                     display_order: db_field.display_order,
                     position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
                     options: db_field.options,
+                    partner: db_field.partner,
                     created_at: db_field.created_at,
                     updated_at: db_field.updated_at,
                 })
@@ -1104,6 +1107,7 @@ pub async fn create_template_field(
             position: field_req.position.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
             options: field_req.options,
             metadata: None,
+            partner: field_req.partner,
         };
 
         match crate::database::queries::TemplateFieldQueries::create_template_field(pool, create_field).await {
@@ -1117,6 +1121,7 @@ pub async fn create_template_field(
                     display_order: db_field.display_order,
                     position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
                     options: db_field.options,
+                    partner: db_field.partner,
                     created_at: db_field.created_at,
                     updated_at: db_field.updated_at,
                 };
@@ -1251,6 +1256,7 @@ pub async fn upload_template_field_file(
                 position: position.map(|p| serde_json::from_str(&p).unwrap_or(serde_json::Value::Null)),
                 options: Some(options_value),
                 metadata: None,
+                partner: None, // No partner specified in file upload
             };
 
             match crate::database::queries::TemplateFieldQueries::create_template_field(pool, create_field).await {
@@ -1264,6 +1270,7 @@ pub async fn upload_template_field_file(
                         display_order: db_field.display_order,
                         position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
                         options: db_field.options,
+                        partner: db_field.partner,
                         created_at: db_field.created_at,
                         updated_at: db_field.updated_at,
                     };
@@ -1320,6 +1327,7 @@ pub async fn update_template_field(
         position: payload.position.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
         options: payload.options,
         metadata: None,
+        partner: payload.partner,
     };
 
     match crate::database::queries::TemplateFieldQueries::update_template_field(pool, field_id, update_field).await {
@@ -1333,6 +1341,7 @@ pub async fn update_template_field(
                 display_order: db_field.display_order,
                 position: db_field.position.and_then(|v| serde_json::from_value(v).ok()),
                 options: db_field.options,
+                partner: db_field.partner,
                 created_at: db_field.created_at,
                 updated_at: db_field.updated_at,
             };

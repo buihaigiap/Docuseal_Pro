@@ -297,6 +297,12 @@ pub async fn submit_bulk_signatures(
                         if field.template_id != db_submitter.template_id {
                             return ApiResponse::bad_request(format!("Field {} does not belong to this template", signature_item.field_id));
                         }
+                        // Check if submitter is allowed to sign this field based on partner
+                        if let Some(ref partner) = field.partner {
+                            if partner != &db_submitter.name && partner != &db_submitter.email {
+                                return ApiResponse::bad_request(format!("Field {} is not assigned to this submitter", signature_item.field_id));
+                            }
+                        }
                     }
                     Ok(None) => return ApiResponse::bad_request(format!("Field {} not found", signature_item.field_id)),
                     Err(e) => return ApiResponse::internal_error(format!("Failed to validate field {}: {}", signature_item.field_id, e)),
@@ -387,7 +393,22 @@ pub async fn get_public_submitter_fields(
                                 user_id: template.user_id,
                                 document,
                             };
-                            let fields = template.template_fields.clone().unwrap_or_default();
+                            let all_fields = template.template_fields.clone().unwrap_or_default();
+                            // Filter fields based on partner matching submitter's name or email
+                            println!("DEBUG: Submitter name: {}, email: {}", db_submitter.name, db_submitter.email);
+                            let fields: Vec<crate::models::template::TemplateField> = all_fields.into_iter()
+                                .filter(|field| {
+                                    if let Some(ref partner) = field.partner {
+                                        let matches = partner == &db_submitter.name || partner == &db_submitter.email;
+                                        println!("DEBUG: Field {} partner '{}' matches: {}", field.name, partner, matches);
+                                        matches
+                                    } else {
+                                        println!("DEBUG: Field {} has no partner, allowing", field.name);
+                                        true // Allow fields without partner for all submitters
+                                    }
+                                })
+                                .collect();
+                            println!("DEBUG: Filtered fields count: {}", fields.len());
                             let response = crate::models::submitter::PublicSubmitterFieldsResponse {
                                 template_info,
                                 template_fields: fields,

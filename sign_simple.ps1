@@ -48,6 +48,16 @@ try {
     Write-Host "Name: $($submitterResponse.data.submitter.name)" -ForegroundColor Gray
     Write-Host "Email: $($submitterResponse.data.submitter.email)" -ForegroundColor Gray
     Write-Host "Status: $($submitterResponse.data.submitter.status)" -ForegroundColor Gray
+    
+    # Check if submitter has a role (partner)
+    if ($submitterResponse.data.submitter.role) {
+        $submitterRole = $submitterResponse.data.submitter.role
+        Write-Host "Partner Role: $submitterRole" -ForegroundColor Cyan
+        Write-Host "This submitter is responsible for fields assigned to: $submitterRole" -ForegroundColor Yellow
+    } else {
+        $submitterRole = $null
+        Write-Host "Partner Role: General (can access all fields)" -ForegroundColor Cyan
+    }
 } catch {
     Write-Host "Error Failed to get submitter: $($_.Exception.Message)" -ForegroundColor Red
     if ($_.Exception.Response) {
@@ -91,15 +101,76 @@ if (-not $FieldIds -or $FieldIds.Count -eq 0) {
     }
 }
 
+# Step 2: Filter fields based on partner role
+Write-Host ""
+Write-Host "[Step 2] Filtering fields based on partner role..." -ForegroundColor Yellow
+
+# Get template fields information to check partner assignments
+$templateId = $submitterResponse.data.template.id
+Write-Host "Template ID: $templateId" -ForegroundColor Gray
+
+# In a real implementation, you would call the API to get template fields
+# For now, we'll simulate the field-to-partner mapping
+$fieldPartnerMapping = @{
+    # These would come from the API in a real scenario
+    1 = "Buyer"      # buyer_signature
+    2 = "Seller"     # seller_signature  
+    3 = "Witness"    # witness_signature
+    4 = "Buyer"      # buyer_photo
+    5 = "Seller"     # seller_company_stamp
+    6 = $null        # contract_date (general field)
+}
+
+# Filter field IDs based on submitter's role
+$eligibleFieldIds = @()
+$skippedFields = @()
+
+foreach ($fieldId in $FieldIds) {
+    $fieldPartner = $fieldPartnerMapping[[int]$fieldId]
+    
+    if ($submitterRole -eq $null) {
+        # General submitter can access all fields
+        $eligibleFieldIds += $fieldId
+        Write-Host "  ✓ Field $($fieldId): Accessible (General role)" -ForegroundColor Green
+    } elseif ($fieldPartner -eq $null) {
+        # General fields can be accessed by any partner
+        $eligibleFieldIds += $fieldId
+        Write-Host "  ✓ Field $($fieldId): Accessible (General field)" -ForegroundColor Green
+    } elseif ($fieldPartner -eq $submitterRole) {
+        # Field assigned to this partner
+        $eligibleFieldIds += $fieldId
+        Write-Host "  ✓ Field $($fieldId): Accessible ($fieldPartner field)" -ForegroundColor Green
+    } else {
+        # Field assigned to a different partner
+        $skippedFields += $fieldId
+        Write-Host "  ✗ Field $($fieldId): Skipped (assigned to $fieldPartner, not $submitterRole)" -ForegroundColor Yellow
+    }
+}
+
+if ($skippedFields.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Partner-based filtering results:" -ForegroundColor Cyan
+    Write-Host "  - Fields this partner can sign: $($eligibleFieldIds -join ', ')" -ForegroundColor Green
+    Write-Host "  - Fields assigned to other partners: $($skippedFields -join ', ')" -ForegroundColor Yellow
+}
+
+if ($eligibleFieldIds.Count -eq 0) {
+    Write-Host "Error No fields available for this partner to sign!" -ForegroundColor Red
+    exit
+}
+
+# Update FieldIds to only include eligible fields
+$FieldIds = $eligibleFieldIds
+
 Write-Host "Token: $($Token.Substring(0, 20))..." -ForegroundColor Gray
-Write-Host "Field IDs to sign: $($FieldIds -join ', ')" -ForegroundColor Gray
+Write-Host "Eligible Field IDs to sign: $($FieldIds -join ', ')" -ForegroundColor Gray
 
 # URL encode the token for safe URL usage
 $EncodedToken = [System.Web.HttpUtility]::UrlEncode($Token)
 
 # Get field information to determine field types
 Write-Host ""
-Write-Host "[Step 1] Getting field information..." -ForegroundColor Yellow
+Write-Host "[Step 3] Getting field information..." -ForegroundColor Yellow
 
 # Hardcode field types based on known field IDs from run_full_test.ps1
 $fieldTypes = @{
@@ -117,7 +188,7 @@ foreach ($fieldId in $FieldIds) {
 
 # Prepare signatures for all field IDs
 Write-Host ""
-Write-Host "[Step 2] Preparing signatures for $($FieldIds.Count) fields..." -ForegroundColor Yellow
+Write-Host "[Step 4] Preparing signatures for $($FieldIds.Count) eligible fields..." -ForegroundColor Yellow
 
 $signatures = @()
 foreach ($fieldId in $FieldIds) {
@@ -231,25 +302,32 @@ try {
 
 # Verify signatures by checking public submitter
 Write-Host ""
-Write-Host "[Step 4] Verifying signatures..." -ForegroundColor Yellow
+Write-Host "[Step 5] Verifying signatures..." -ForegroundColor Yellow
 
 try {
     $verifyResponse = Invoke-RestMethod -Uri "$baseUrl/public/submissions/$Token" -Method GET
     if ($verifyResponse.data.status -eq "completed") {
-        Write-Host "Success Signatures verified!" -ForegroundColor Green
+        Write-Host "Success Partner-based signatures verified!" -ForegroundColor Green
         Write-Host "Submitter status: $($verifyResponse.data.status)" -ForegroundColor Gray
         Write-Host "Signed at: $($verifyResponse.data.signed_at)" -ForegroundColor Gray
+        Write-Host "Partner role: $($submitterRole ?? 'General')" -ForegroundColor Cyan
         
         $sigCount = $verifyResponse.data.signature_positions.Count
         Write-Host "Number of signatures: $sigCount" -ForegroundColor Gray
         
         if ($sigCount -gt 0) {
             Write-Host ""
-            Write-Host "Signature details:" -ForegroundColor Cyan
+            Write-Host "Signature details for this partner:" -ForegroundColor Cyan
             foreach ($sig in $verifyResponse.data.signature_positions) {
                 Write-Host "  - Field: $($sig.field_name) (ID: $($sig.field_id))" -ForegroundColor Gray
             }
         }
+        
+        Write-Host ""
+        Write-Host "Multi-Partner Signing Status:" -ForegroundColor Yellow
+        Write-Host "  ✓ This partner ($($submitterRole ?? 'General')) has completed their part" -ForegroundColor Green
+        Write-Host "  ⏳ Other partners may still need to sign their assigned fields" -ForegroundColor Gray
+        Write-Host "  📄 Document will be fully executed when all partners complete signing" -ForegroundColor Gray
     } else {
         Write-Host "Warning Submitter status is not completed: $($verifyResponse.data.status)" -ForegroundColor Yellow
     }
@@ -260,9 +338,23 @@ try {
 # Summary
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "SIGNING COMPLETE!" -ForegroundColor Cyan
+Write-Host "PARTNER SIGNING COMPLETE!" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Success Document signed successfully" -ForegroundColor Green
+Write-Host "Success Multi-partner document signing completed for this partner" -ForegroundColor Green
+Write-Host ""
+Write-Host "Partner Summary:" -ForegroundColor Yellow
+Write-Host "  👤 Signer: $($submitterResponse.data.submitter.name)" -ForegroundColor White
+Write-Host "  🏷️  Role: $($submitterRole ?? 'General')" -ForegroundColor White
+Write-Host "  📧 Email: $($submitterResponse.data.submitter.email)" -ForegroundColor White
+Write-Host "  ✍️  Fields Signed: $($FieldIds.Count)" -ForegroundColor White
+Write-Host ""
+Write-Host "Next Steps:" -ForegroundColor Cyan
+Write-Host "  1. Other partners will receive separate signing invitations" -ForegroundColor Gray
+Write-Host "  2. Each partner can only access their assigned fields" -ForegroundColor Gray
+Write-Host "  3. Document becomes fully executed when all partners sign" -ForegroundColor Gray
+Write-Host "  4. All parties will receive completion notifications" -ForegroundColor Gray
+Write-Host ""
+Write-Host "🎉 Partner-based digital signing workflow completed successfully!" -ForegroundColor Green
 Write-Host "Success $($signatures.Count) signature fields completed" -ForegroundColor Green
 Write-Host "Success Submitter status updated to 'completed'" -ForegroundColor Green
 Write-Host ""

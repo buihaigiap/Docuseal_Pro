@@ -36,6 +36,7 @@ pub struct DbTemplateField {
     pub position: Option<serde_json::Value>,
     pub options: Option<serde_json::Value>,
     pub metadata: Option<serde_json::Value>,
+    pub partner: Option<String>, // Which partner/signer this field belongs to
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
@@ -52,6 +53,7 @@ pub struct CreateTemplateField {
     pub position: Option<serde_json::Value>,
     pub options: Option<serde_json::Value>,
     pub metadata: Option<serde_json::Value>,
+    pub partner: Option<String>, // Which partner/signer this field belongs to
 }
 
 // Database-specific template model

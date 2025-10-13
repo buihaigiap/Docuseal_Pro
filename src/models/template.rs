@@ -50,6 +50,7 @@ pub struct TemplateField {
     pub display_order: i32,
     pub position: Option<FieldPosition>,
     pub options: Option<Value>, // for select/radio fields
+    pub partner: Option<String>, // Which partner/signer this field belongs to
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -92,6 +93,7 @@ pub struct CreateTemplateFieldRequest {
     pub display_order: Option<i32>,
     pub position: Option<FieldPosition>,
     pub options: Option<Value>,
+    pub partner: Option<String>, // Which partner/signer this field belongs to
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -102,6 +104,7 @@ pub struct UpdateTemplateFieldRequest {
     pub display_order: Option<i32>,
     pub position: Option<FieldPosition>,
     pub options: Option<Value>,
+    pub partner: Option<String>, // Which partner/signer this field belongs to
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

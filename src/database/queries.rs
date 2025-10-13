@@ -241,11 +241,11 @@ impl TemplateFieldQueries {
             r#"
             INSERT INTO template_fields (
                 template_id, name, field_type, required, display_order,
-                position, options, metadata, created_at, updated_at
+                position, options, metadata, partner, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id, template_id, name, field_type, required, display_order,
-                     position, options, metadata, created_at, updated_at, deleted_at
+                     position, options, metadata, partner, created_at, updated_at, deleted_at
             "#
         )
         .bind(field_data.template_id)
@@ -256,6 +256,7 @@ impl TemplateFieldQueries {
         .bind(&field_data.position)
         .bind(&field_data.options)
         .bind(&field_data.metadata)
+        .bind(&field_data.partner)
         .bind(now)
         .bind(now)
         .fetch_one(pool)
@@ -271,6 +272,7 @@ impl TemplateFieldQueries {
             position: row.try_get("position")?,
             options: row.try_get("options")?,
             metadata: row.try_get("metadata")?,
+            partner: row.try_get("partner")?,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
             deleted_at: row.try_get("deleted_at")?,
@@ -311,10 +313,10 @@ impl TemplateFieldQueries {
             r#"
             UPDATE template_fields SET
                 name = $2, field_type = $3, required = $4, display_order = $5,
-                position = $6, options = $7, metadata = $8, updated_at = $9
+                position = $6, options = $7, metadata = $8, partner = $9, updated_at = $10
             WHERE id = $1 AND deleted_at IS NULL
             RETURNING id, template_id, name, field_type, required, display_order,
-                     position, options, metadata, created_at, updated_at, deleted_at
+                     position, options, metadata, partner, created_at, updated_at, deleted_at
             "#
         )
         .bind(field_id)
@@ -325,6 +327,7 @@ impl TemplateFieldQueries {
         .bind(&field_data.position)
         .bind(&field_data.options)
         .bind(&field_data.metadata)
+        .bind(&field_data.partner)
         .bind(now)
         .fetch_optional(pool)
         .await?;
@@ -340,6 +343,7 @@ impl TemplateFieldQueries {
                 position: row.try_get("position")?,
                 options: row.try_get("options")?,
                 metadata: row.try_get("metadata")?,
+                partner: row.try_get("partner")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
                 deleted_at: row.try_get("deleted_at")?,
@@ -364,11 +368,11 @@ impl TemplateFieldQueries {
             r#"
             INSERT INTO template_fields (
                 template_id, name, field_type, required, display_order,
-                position, options, metadata, created_at, updated_at
+                position, options, metadata, partner, created_at, updated_at
             )
             SELECT
                 $2 as template_id, name, field_type, required, display_order,
-                position, options, metadata, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                position, options, metadata, partner, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             FROM template_fields
             WHERE template_id = $1 AND deleted_at IS NULL
             "#
