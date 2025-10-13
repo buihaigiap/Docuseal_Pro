@@ -41,7 +41,6 @@ pub fn create_router() -> Router<AppState> {
     let public_routes = Router::new()
         .route("/auth/register", post(register_handler))
         .route("/auth/login", post(login_handler))
-        .route("/test-api", get(|| async { "API test works" }))
         .merge(templates::create_template_router()); // Template router has its own public/auth separation
 
     let api_routes = public_routes.merge(auth_routes);
@@ -52,7 +51,6 @@ pub fn create_router() -> Router<AppState> {
     let final_router = Router::new()
         .nest("/api", api_routes)
         .route("/health", get(health_check))
-        .route("/test", get(|| async { "Test route works" }))
         .route("/public/submissions/:token", get(submitters::get_public_submitter).put(submitters::update_public_submitter))
         .route("/public/submissions/:token/fields", get(submitters::get_public_submitter_fields))
         .route("/public/submissions/:token/signatures", get(submitters::get_public_submitter_signatures))
