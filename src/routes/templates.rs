@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State, Request},
+    extract::{Path, State},
     http::{StatusCode, header},
     response::{Json, Response},
     routing::{get, post, put, delete},
@@ -8,12 +8,11 @@ use axum::{
     Extension,
     middleware,
 };
-use chrono::Utc;
+use std::collections::HashMap;
 use axum_extra::extract::Multipart;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use serde_json;
-use pdf_extract::extract_text_from_mem;
 use base64;
 use aws_config;
 // use docx_rs::DocxFile;
@@ -141,10 +140,45 @@ pub async fn get_template_full_info(
                         updated_at: db_sub.updated_at,
                     }).collect::<Vec<_>>();
 
+                    // Group submitters by creation time proximity (within 1 minute)
+                    let mut time_groups: HashMap<String, Vec<crate::models::submitter::Submitter>> = HashMap::new();
+
+                    for submitter in submitters {
+                        // Group by minute timestamp (floor to nearest minute)
+                        let timestamp = submitter.created_at.timestamp();
+                        let minute_key = (timestamp / 600).to_string(); // Group by minute
+                        time_groups.entry(minute_key).or_insert_with(Vec::new).push(submitter);
+                    }
+
+                    // Build signatures array
+                    let mut signatures = Vec::new();
+
+                    // Add signature groups
+                    for (_key, parties) in time_groups {
+                        let sig_type = if parties.len() > 1 { "bulk" } else { "single" };
+
+                        let overall_status = if parties.iter().all(|s| s.status == "completed" || s.status == "signed") {
+                            "completed"
+                        } else if parties.iter().any(|s| s.status == "completed" || s.status == "signed") {
+                            "partial"
+                        } else {
+                            "pending"
+                        };
+
+                        let signed_count = parties.iter().filter(|s| s.status == "completed" || s.status == "signed").count();
+
+                        signatures.push(serde_json::json!({
+                            "type": sig_type,
+                            "parties": parties,
+                            "overall_status": overall_status,
+                            "total_parties": parties.len(),
+                            "signed_parties": signed_count
+                        }));
+                    }
+
                     let data = serde_json::json!({
                         "template": template,
-                        "submitters": submitters,
-                        "total_submitters": submitters.len()
+                        "signatures": signatures
                     });
 
                     ApiResponse::success(data, "Template full information retrieved successfully".to_string())

@@ -7,7 +7,7 @@ use axum::{
     middleware,
 };
 use crate::common::responses::ApiResponse;
-use crate::database::queries::{SubmitterQueries, TemplateFieldQueries};
+use crate::database::queries::{SubmitterQueries, TemplateFieldQueries, UserQueries};
 use crate::common::jwt::auth_middleware;
 use crate::common::authorization::require_admin_or_team_member;
 
@@ -93,6 +93,31 @@ pub async fn get_submitter(
         }
         Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
         Err(e) => ApiResponse::internal_error(format!("Failed to get submitter: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/me",
+    responses(
+        (status = 200, description = "Current user retrieved successfully", body = ApiResponse<crate::models::user::User>),
+        (status = 404, description = "User not found", body = ApiResponse<crate::models::user::User>)
+    ),
+    security(("bearer_auth" = []))
+)]
+pub async fn get_me(
+    State(state): State<AppState>,
+    Extension(user_id): Extension<i64>,
+) -> (StatusCode, Json<ApiResponse<crate::models::user::User>>) {
+    let pool = &*state.lock().await;
+
+    match UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(db_user)) => {
+            let user = crate::models::user::User::from(db_user);
+            ApiResponse::success(user, "Current user retrieved successfully".to_string())
+        }
+        Ok(None) => ApiResponse::not_found("User not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to get user: {}", e)),
     }
 }
 
@@ -466,39 +491,67 @@ pub async fn get_public_submitter_signatures(
                             let fields = crate::database::queries::TemplateFieldQueries::get_all_template_fields(pool, template_id).await
                                 .unwrap_or_default();
                             
-                            // Enrich bulk_signatures with field information
-                            let enriched_signatures = if let Some(signatures) = &db_submitter.bulk_signatures {
-                                if let Some(signatures_array) = signatures.as_array() {
-                                    let mut enriched = Vec::new();
-                                    for sig in signatures_array {
-                                        if let Some(field_id) = sig.get("field_id").and_then(|v| v.as_i64()) {
-                                            // Find the corresponding field
-                                            if let Some(field) = fields.iter().find(|f| f.id == field_id) {
-                                                let mut enriched_sig = sig.clone();
-                                                if let Some(obj) = enriched_sig.as_object_mut() {
-                                                    obj.insert("field_info".to_string(), serde_json::to_value(field).unwrap_or(serde_json::Value::Null));
+                            // Get all submitters for this template
+                            match SubmitterQueries::get_submitters_by_template(pool, template_id).await {
+                                Ok(all_submitters) => {
+                                    // Group submitters by creation time proximity (within 1 minute)
+                                    let mut time_groups: std::collections::HashMap<String, Vec<crate::database::models::DbSubmitter>> = std::collections::HashMap::new();
+
+                                    for submitter in &all_submitters {
+                                        // Group by minute timestamp (floor to nearest minute)
+                                        let timestamp = submitter.created_at.timestamp();
+                                        let minute_key = (timestamp / 60).to_string(); // Group by minute
+                                        time_groups.entry(minute_key).or_insert_with(Vec::new).push(submitter.clone());
+                                    }
+
+                                    // Find the group that contains the current submitter
+                                    let current_group = time_groups.into_iter()
+                                        .find(|(_, group)| group.iter().any(|s| s.id == db_submitter.id))
+                                        .map(|(_, group)| group)
+                                        .unwrap_or_else(|| vec![db_submitter.clone()]);
+
+                                    // Collect all bulk_signatures from submitters in the same group
+                                    let mut all_signatures = Vec::new();
+                                    
+                                    for submitter in current_group {
+                                        if let Some(signatures) = &submitter.bulk_signatures {
+                                            if let Some(signatures_array) = signatures.as_array() {
+                                                for sig in signatures_array {
+                                                    let mut enriched_sig = sig.clone();
+                                                    // Add submitter info to each signature
+                                                    if let Some(obj) = enriched_sig.as_object_mut() {
+                                                        obj.insert("submitter_name".to_string(), serde_json::Value::String(submitter.name.clone()));
+                                                        obj.insert("submitter_email".to_string(), serde_json::Value::String(submitter.email.clone()));
+                                                        obj.insert("submitter_id".to_string(), serde_json::Value::Number(submitter.id.into()));
+                                                        obj.insert("signed_at".to_string(), serde_json::Value::String(submitter.signed_at.map(|dt| dt.to_rfc3339()).unwrap_or_default()));
+                                                        
+                                                        // Enrich with field information
+                                                        if let Some(field_id) = sig.get("field_id").and_then(|v| v.as_i64()) {
+                                                            if let Some(field) = fields.iter().find(|f| f.id == field_id) {
+                                                                obj.insert("field_info".to_string(), serde_json::to_value(field).unwrap_or(serde_json::Value::Null));
+                                                            }
+                                                        }
+                                                    }
+                                                    all_signatures.push(enriched_sig);
                                                 }
-                                                enriched.push(enriched_sig);
-                                            } else {
-                                                enriched.push(sig.clone());
                                             }
-                                        } else {
-                                            enriched.push(sig.clone());
                                         }
                                     }
-                                    Some(serde_json::Value::Array(enriched))
-                                } else {
-                                    db_submitter.bulk_signatures
+                                    
+                                    let bulk_signatures = if all_signatures.is_empty() {
+                                        None
+                                    } else {
+                                        Some(serde_json::Value::Array(all_signatures))
+                                    };
+                                    
+                                    let response = crate::models::submitter::PublicSubmitterSignaturesResponse {
+                                        template_info,
+                                        bulk_signatures,
+                                    };
+                                    ApiResponse::success(response, "All signatures retrieved successfully".to_string())
                                 }
-                            } else {
-                                db_submitter.bulk_signatures
-                            };
-                            
-                            let response = crate::models::submitter::PublicSubmitterSignaturesResponse {
-                                template_info,
-                                bulk_signatures: enriched_signatures,
-                            };
-                            ApiResponse::success(response, "Signatures retrieved successfully".to_string())
+                                Err(e) => ApiResponse::internal_error(format!("Failed to get submitters: {}", e)),
+                            }
                         }
                         Err(e) => ApiResponse::internal_error(format!("Failed to load template: {}", e)),
                     }
@@ -515,6 +568,7 @@ pub async fn get_public_submitter_signatures(
 pub fn create_submitter_router() -> Router<AppState> {
     println!("Creating submitter router...");
     Router::new()
+        .route("/me", get(get_me))
         .route("/submitters", get(get_submitters))
         .route("/submitters/:id", get(get_submitter))
         .route("/submitters/:id", put(update_submitter))

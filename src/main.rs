@@ -49,7 +49,8 @@ use models::template::Template;
         routes::submitters::get_submitters,
         routes::submitters::get_submitter,
         routes::submitters::update_submitter,
-        routes::submitters::delete_submitter
+        routes::submitters::delete_submitter,
+        routes::submitters::get_me
     ),
     components(
         schemas(

@@ -58,6 +58,28 @@ impl UserQueries {
             None => Ok(None),
         }
     }
+
+    pub async fn get_user_by_id(pool: &PgPool, id: i64) -> Result<Option<DbUser>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT id, name, email, password_hash, role, created_at, updated_at FROM users WHERE id = $1"
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(DbUser {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                email: row.try_get("email")?,
+                password_hash: row.try_get("password_hash")?,
+                role: row.try_get("role")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })),
+            None => Ok(None),
+        }
+    }
 }
 
 pub struct TemplateQueries;

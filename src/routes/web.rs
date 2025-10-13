@@ -30,6 +30,7 @@ pub fn create_router() -> Router<AppState> {
     println!("Creating router...");
     // Create API routes with /api prefix
     let auth_routes = Router::new()
+        .route("/me", get(submitters::get_me))
         .route("/submitters", get(submitters::get_submitters))
         .route("/submitters/:id", get(submitters::get_submitter))
         .route("/submitters/:id", put(submitters::update_submitter))
