@@ -324,7 +324,10 @@ pub async fn submit_bulk_signatures(
                         }
                         // Check if submitter is allowed to sign this field based on partner
                         if let Some(ref partner) = field.partner {
-                            if partner != &db_submitter.name && partner != &db_submitter.email {
+                            let allowed = partner == &db_submitter.name || 
+                                         partner == &db_submitter.email || 
+                                         db_submitter.name.contains(&format!("({})", partner));
+                            if !allowed {
                                 return ApiResponse::bad_request(format!("Field {} is not assigned to this submitter", signature_item.field_id));
                             }
                         }

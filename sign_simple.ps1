@@ -45,13 +45,14 @@ try {
     $encodedToken = [uri]::EscapeDataString($Token)
     $submitterResponse = Invoke-RestMethod -Uri "$baseUrl/public/submissions/$encodedToken" -Method GET
     Write-Host "Success Submitter found!" -ForegroundColor Green
-    Write-Host "Name: $($submitterResponse.data.submitter.name)" -ForegroundColor Gray
-    Write-Host "Email: $($submitterResponse.data.submitter.email)" -ForegroundColor Gray
-    Write-Host "Status: $($submitterResponse.data.submitter.status)" -ForegroundColor Gray
+    Write-Host "Name: $($submitterResponse.data.name)" -ForegroundColor Gray
+    Write-Host "Email: $($submitterResponse.data.email)" -ForegroundColor Gray
+    Write-Host "Status: $($submitterResponse.data.status)" -ForegroundColor Gray
     
-    # Check if submitter has a role (partner)
-    if ($submitterResponse.data.submitter.role) {
-        $submitterRole = $submitterResponse.data.submitter.role
+    # Extract role from name (e.g., "Bui Hai Giap (Buyer)" -> "Buyer")
+    $submitterName = $submitterResponse.data.name
+    if ($submitterName -match '\((.*?)\)') {
+        $submitterRole = $matches[1]
         Write-Host "Partner Role: $submitterRole" -ForegroundColor Cyan
         Write-Host "This submitter is responsible for fields assigned to: $submitterRole" -ForegroundColor Yellow
     } else {
@@ -61,9 +62,7 @@ try {
 } catch {
     Write-Host "Error Failed to get submitter: $($_.Exception.Message)" -ForegroundColor Red
     if ($_.Exception.Response) {
-        $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
-        $reader.BaseStream.Position = 0
-        $responseBody = $reader.ReadToEnd()
+        $responseBody = $_.Exception.Response.Content.ReadAsStringAsync().Result
         Write-Host "Response: $responseBody" -ForegroundColor Red
     }
     exit
@@ -112,7 +111,6 @@ Write-Host "Template ID: $templateId" -ForegroundColor Gray
 # In a real implementation, you would call the API to get template fields
 # For now, we'll simulate the field-to-partner mapping
 $fieldPartnerMapping = @{
-    # These would come from the API in a real scenario
     1 = "Buyer"      # buyer_signature
     2 = "Seller"     # seller_signature  
     3 = "Witness"    # witness_signature
@@ -174,10 +172,12 @@ Write-Host "[Step 3] Getting field information..." -ForegroundColor Yellow
 
 # Hardcode field types based on known field IDs from run_full_test.ps1
 $fieldTypes = @{
-    18 = "signature"  # buyer_signature
-    19 = "signature"  # seller_signature  
-    20 = "signature"  # witness_signature
-    21 = "image"      # buyer_photo
+    1 = "signature"  # buyer_signature
+    2 = "signature"  # seller_signature  
+    3 = "signature"  # witness_signature
+    4 = "image"      # buyer_photo
+    5 = "image"      # seller_company_stamp
+    6 = "date"       # contract_date
 }
 
 Write-Host "Success Using hardcoded field types" -ForegroundColor Green
@@ -242,15 +242,25 @@ foreach ($fieldId in $FieldIds) {
             }
         }
     } else {
-        # For signature fields, create text signature
-        Write-Host "  - Preparing text signature for field ID: $fieldId" -ForegroundColor Gray
-        $signatureText = "Signed by Test User 2 - Field $fieldId - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-        $signatureBytes = [System.Text.Encoding]::UTF8.GetBytes($signatureText)
-        $signatureBase64 = [System.Convert]::ToBase64String($signatureBytes)
-        
-        $signatures += @{
-            field_id = $fieldId
-            signature_value = "data:text/plain;base64,$signatureBase64"
+        if ($fieldType -eq "date") {
+            # For date fields, use a date string
+            Write-Host "  - Preparing date for field ID: $fieldId" -ForegroundColor Gray
+            $dateValue = Get-Date -Format 'yyyy-MM-dd'
+            $signatures += @{
+                field_id = $fieldId
+                signature_value = $dateValue
+            }
+        } else {
+            # For signature fields, create text signature
+            Write-Host "  - Preparing text signature for field ID: $fieldId" -ForegroundColor Gray
+            $signatureText = "Signed by Test User 2 - Field $fieldId - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+            $signatureBytes = [System.Text.Encoding]::UTF8.GetBytes($signatureText)
+            $signatureBase64 = [System.Convert]::ToBase64String($signatureBytes)
+            
+            $signatures += @{
+                field_id = $fieldId
+                signature_value = "data:text/plain;base64,$signatureBase64"
+            }
         }
     }
 }
@@ -291,12 +301,6 @@ try {
     }
 } catch {
     Write-Host "Error Failed to submit signatures: $($_.Exception.Message)" -ForegroundColor Red
-    if ($_.Exception.Response) {
-        $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
-        $reader.BaseStream.Position = 0
-        $responseBody = $reader.ReadToEnd()
-        Write-Host "Response: $responseBody" -ForegroundColor Red
-    }
     exit
 }
 
@@ -343,9 +347,9 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Success Multi-partner document signing completed for this partner" -ForegroundColor Green
 Write-Host ""
 Write-Host "Partner Summary:" -ForegroundColor Yellow
-Write-Host "  👤 Signer: $($submitterResponse.data.submitter.name)" -ForegroundColor White
+Write-Host "  👤 Signer: $($submitterResponse.data.name)" -ForegroundColor White
 Write-Host "  🏷️  Role: $($submitterRole ?? 'General')" -ForegroundColor White
-Write-Host "  📧 Email: $($submitterResponse.data.submitter.email)" -ForegroundColor White
+Write-Host "  📧 Email: $($submitterResponse.data.email)" -ForegroundColor White
 Write-Host "  ✍️  Fields Signed: $($FieldIds.Count)" -ForegroundColor White
 Write-Host ""
 Write-Host "Next Steps:" -ForegroundColor Cyan

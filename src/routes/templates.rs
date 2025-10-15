@@ -146,7 +146,7 @@ pub async fn get_template_full_info(
                     for submitter in submitters {
                         // Group by minute timestamp (floor to nearest minute)
                         let timestamp = submitter.created_at.timestamp();
-                        let minute_key = (timestamp / 600).to_string(); // Group by minute
+                        let minute_key = (timestamp / 60).to_string(); // Group by minute
                         time_groups.entry(minute_key).or_insert_with(Vec::new).push(submitter);
                     }
 
