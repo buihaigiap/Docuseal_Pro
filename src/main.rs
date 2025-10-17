@@ -51,6 +51,8 @@ use models::template::Template;
         routes::submitters::update_submitter,
         routes::submitters::delete_submitter,
         routes::submitters::get_me
+        // routes::subscription::get_subscription_status,
+        // routes::subscription::get_payment_link
     ),
     components(
         schemas(
@@ -72,6 +74,10 @@ use models::template::Template;
             models::template::TemplateField,
             models::submitter::PublicSubmitterFieldsResponse,
             models::submitter::PublicSubmitterSignaturesResponse
+            // models::user::UserSubscriptionStatus,
+            // models::user::CreatePaymentRequest,
+            // routes::subscription::SubscriptionStatusResponse,
+            // routes::subscription::PaymentLinkResponse
         )
     ),
     tags(
@@ -80,6 +86,7 @@ use models::template::Template;
         (name = "template_fields", description = "Template field management endpoints"),
         (name = "submissions", description = "Document submission endpoints"),
         (name = "submitters", description = "Submitter management endpoints")
+        // (name = "subscription", description = "Subscription and billing endpoints")
     ),
     security(("bearer_auth" = [])),
 )]

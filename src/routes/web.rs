@@ -24,6 +24,8 @@ pub type AppState = Arc<Mutex<DbPool>>;
 use crate::routes::templates;
 use crate::routes::submissions;
 use crate::routes::submitters;
+// use crate::routes::subscription;
+use crate::routes::stripe_webhook;
 use crate::common::jwt::auth_middleware;
 
 pub fn create_router() -> Router<AppState> {
@@ -35,12 +37,15 @@ pub fn create_router() -> Router<AppState> {
         .route("/submitters/:id", get(submitters::get_submitter))
         .route("/submitters/:id", put(submitters::update_submitter))
         .route("/submitters/:id", delete(submitters::delete_submitter))
+        // .route("/subscription/status", get(subscription::get_subscription_status))
+        // .route("/subscription/payment-link", get(subscription::get_payment_link))
         .merge(submissions::create_submission_router())
         .layer(middleware::from_fn(auth_middleware));
 
     let public_routes = Router::new()
         .route("/auth/register", post(register_handler))
         .route("/auth/login", post(login_handler))
+        .route("/stripe/webhook", post(stripe_webhook::stripe_webhook_handler))
         .merge(templates::create_template_router()); // Template router has its own public/auth separation
 
     let api_routes = public_routes.merge(auth_routes);

@@ -17,6 +17,7 @@ use crate::models::submitter::Submitter;
 use crate::database::connection::DbPool;
 use crate::database::models::CreateSubmitter;
 use crate::database::queries::{SubmitterQueries, TemplateQueries};
+// use crate::routes::subscription::{can_user_submit, increment_usage_count};
 use crate::routes::templates::convert_db_template_to_template;
 use crate::common::jwt::auth_middleware;
 use crate::common::authorization::require_admin_or_team_member;
@@ -43,6 +44,35 @@ pub async fn create_submission(
 ) -> (StatusCode, Json<ApiResponse<Submission>>) {
 
     let pool = &*state.lock().await;
+
+    // TODO: 🔒 Check if user can submit (usage limit check) - disabled for now
+    /*
+    match can_user_submit(pool, user_id).await {
+        Ok(false) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(ApiResponse {
+                    success: false,
+                    message: "Usage limit exceeded. Please upgrade to premium to continue submitting documents.".to_string(),
+                    data: None,
+                }),
+            );
+        },
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse {
+                    success: false,
+                    message: format!("Failed to check usage limits: {}", e),
+                    data: None,
+                }),
+            );
+        },
+        Ok(true) => {
+            // User can submit, continue
+        }
+    }
+    */
 
     // Check if template exists
     match TemplateQueries::get_template_by_id(pool, payload.template_id).await {
@@ -109,6 +139,14 @@ pub async fn create_submission(
                 updated_at: chrono::Utc::now(),
                 expires_at: payload.expires_at,
             };
+
+            // TODO: 📊 Increment usage count for free users after successful submission - disabled for now
+            /*
+            if let Err(e) = increment_usage_count(pool, user_id).await {
+                eprintln!("Warning: Failed to increment usage count for user {}: {}", user_id, e);
+                // Don't fail the request, just log the warning
+            }
+            */
 
             ApiResponse::success(submission, "Submission created successfully".to_string())
         }

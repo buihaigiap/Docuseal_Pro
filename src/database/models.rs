@@ -11,6 +11,9 @@ pub struct DbUser {
     pub email: String,
     pub password_hash: String,
     pub role: Role,
+    pub subscription_status: String, // free, premium
+    pub subscription_expires_at: Option<DateTime<Utc>>,
+    pub free_usage_count: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -113,5 +116,34 @@ pub struct DbSignatureData {
     pub signed_at: DateTime<Utc>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+}
+
+// Payment Records - simplified
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DbPaymentRecord {
+    pub id: i64,
+    pub user_id: i64,
+    pub stripe_session_id: Option<String>,
+    pub stripe_payment_intent_id: Option<String>,
+    pub amount_cents: i32,
+    pub currency: String,
+    pub status: String, // pending, completed, failed, refunded
+    pub stripe_price_id: Option<String>, // Stripe Price ID từ webhook
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// Create payment record request - simplified
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePaymentRecord {
+    pub user_id: i64,
+    pub stripe_session_id: Option<String>,
+    pub stripe_payment_intent_id: Option<String>,
+    pub amount_cents: i32,
+    pub currency: String,
+    pub status: String,
+    pub stripe_price_id: Option<String>,
+    pub metadata: Option<serde_json::Value>,
 }
 

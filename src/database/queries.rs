@@ -1,12 +1,41 @@
 use sqlx::{PgPool, Row};
 use chrono::{Utc, DateTime};
 
-use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbSubmitter, CreateSubmitter, DbSignatureData, DbTemplateField, CreateTemplateField};
-use crate::models::signature::{CreateSignaturePosition, CreateSignatureData};
+use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData};
+use crate::models::role::Role;
 
+// Structured query implementations for better organization
 pub struct UserQueries;
+pub struct TemplateQueries;
+pub struct TemplateFieldQueries;
+pub struct SubmitterQueries;
 
 impl UserQueries {
+    pub async fn get_user_by_id(pool: &PgPool, id: i64) -> Result<Option<DbUser>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT id, name, email, password_hash, role, subscription_status, subscription_expires_at, free_usage_count, created_at, updated_at FROM users WHERE id = $1"
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(DbUser {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                email: row.try_get("email")?,
+                password_hash: row.try_get("password_hash")?,
+                role: Role::from_string(&row.try_get::<String, _>("role")?),
+                subscription_status: row.try_get("subscription_status")?,
+                subscription_expires_at: row.try_get("subscription_expires_at")?,
+                free_usage_count: row.try_get("free_usage_count")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })),
+            None => Ok(None),
+        }
+    }
+
     pub async fn create_user(pool: &PgPool, user_data: CreateUser) -> Result<DbUser, sqlx::Error> {
         let now = Utc::now();
 
@@ -14,7 +43,8 @@ impl UserQueries {
             r#"
             INSERT INTO users (name, email, password_hash, role, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id, name, email, password_hash, role, created_at, updated_at
+            RETURNING id, name, email, password_hash, role, subscription_status, 
+                     subscription_expires_at, free_usage_count, created_at, updated_at
             "#
         )
         .bind(&user_data.name)
@@ -32,6 +62,9 @@ impl UserQueries {
             email: row.try_get("email")?,
             password_hash: row.try_get("password_hash")?,
             role: row.try_get("role")?,
+            subscription_status: row.try_get("subscription_status")?,
+            subscription_expires_at: row.try_get("subscription_expires_at")?,
+            free_usage_count: row.try_get("free_usage_count")?,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
         })
@@ -39,7 +72,7 @@ impl UserQueries {
 
     pub async fn get_user_by_email(pool: &PgPool, email: &str) -> Result<Option<DbUser>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, email, password_hash, role, created_at, updated_at FROM users WHERE email = $1"
+            "SELECT id, name, email, password_hash, role, subscription_status, subscription_expires_at, free_usage_count, created_at, updated_at FROM users WHERE email = $1"
         )
         .bind(email)
         .fetch_optional(pool)
@@ -52,6 +85,9 @@ impl UserQueries {
                 email: row.try_get("email")?,
                 password_hash: row.try_get("password_hash")?,
                 role: row.try_get("role")?,
+                subscription_status: row.try_get("subscription_status")?,
+                subscription_expires_at: row.try_get("subscription_expires_at")?,
+                free_usage_count: row.try_get("free_usage_count")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             })),
@@ -59,30 +95,7 @@ impl UserQueries {
         }
     }
 
-    pub async fn get_user_by_id(pool: &PgPool, id: i64) -> Result<Option<DbUser>, sqlx::Error> {
-        let row = sqlx::query(
-            "SELECT id, name, email, password_hash, role, created_at, updated_at FROM users WHERE id = $1"
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
-
-        match row {
-            Some(row) => Ok(Some(DbUser {
-                id: row.try_get("id")?,
-                name: row.try_get("name")?,
-                email: row.try_get("email")?,
-                password_hash: row.try_get("password_hash")?,
-                role: row.try_get("role")?,
-                created_at: row.try_get("created_at")?,
-                updated_at: row.try_get("updated_at")?,
-            })),
-            None => Ok(None),
-        }
-    }
 }
-
-pub struct TemplateQueries;
 
 impl TemplateQueries {
     pub async fn create_template(pool: &PgPool, template_data: CreateTemplate) -> Result<DbTemplate, sqlx::Error> {
@@ -253,8 +266,6 @@ impl TemplateQueries {
     }
 }
 
-pub struct TemplateFieldQueries;
-
 impl TemplateFieldQueries {
     pub async fn create_template_field(pool: &PgPool, field_data: CreateTemplateField) -> Result<DbTemplateField, sqlx::Error> {
         let now = Utc::now();
@@ -418,8 +429,6 @@ impl TemplateFieldQueries {
         .await
     }
 }
-
-pub struct SubmitterQueries;
 
 impl SubmitterQueries {
     pub async fn create_submitter(pool: &PgPool, submitter_data: CreateSubmitter) -> Result<DbSubmitter, sqlx::Error> {
@@ -771,5 +780,118 @@ impl SignatureQueries {
         } else {
             Ok(None)
         }
+    }
+}
+
+// Simplified subscription-related queries
+pub struct SubscriptionQueries;
+
+impl SubscriptionQueries {
+    // Create payment record
+    pub async fn create_payment_record(pool: &PgPool, payment_data: CreatePaymentRecord) -> Result<DbPaymentRecord, sqlx::Error> {
+        let now = Utc::now();
+
+        let row = sqlx::query_as::<_, DbPaymentRecord>(
+            r#"
+            INSERT INTO payment_records (user_id, stripe_session_id, stripe_payment_intent_id, amount_cents, currency, status, stripe_price_id, metadata, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING *
+            "#
+        )
+        .bind(&payment_data.user_id)
+        .bind(&payment_data.stripe_session_id)
+        .bind(&payment_data.stripe_payment_intent_id)
+        .bind(&payment_data.amount_cents)
+        .bind(&payment_data.currency)
+        .bind(&payment_data.status)
+        .bind(&payment_data.stripe_price_id)
+        .bind(&payment_data.metadata)
+        .bind(now)
+        .bind(now)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    // Update payment record status
+    pub async fn update_payment_status(pool: &PgPool, payment_id: i64, status: &str) -> Result<(), sqlx::Error> {
+        let now = Utc::now();
+
+        sqlx::query(
+            "UPDATE payment_records SET status = $1, updated_at = $2 WHERE id = $3"
+        )
+        .bind(status)
+        .bind(now)
+        .bind(payment_id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    // Update user subscription status sau khi thanh toán thành công
+    pub async fn update_user_subscription_status(pool: &PgPool, user_id: i64, status: &str, expires_at: Option<DateTime<Utc>>) -> Result<(), sqlx::Error> {
+        let now = Utc::now();
+
+        sqlx::query(
+            "UPDATE users SET subscription_status = $1, subscription_expires_at = $2, updated_at = $3 WHERE id = $4"
+        )
+        .bind(status)
+        .bind(expires_at)
+        .bind(now)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    // Increment user free usage count
+    pub async fn increment_user_usage(pool: &PgPool, user_id: i64) -> Result<i32, sqlx::Error> {
+        let row = sqlx::query(
+            "UPDATE users SET free_usage_count = free_usage_count + 1, updated_at = NOW() WHERE id = $1 RETURNING free_usage_count"
+        )
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(row.try_get("free_usage_count")?)
+    }
+
+    // Get user subscription status
+    pub async fn get_user_subscription_status(pool: &PgPool, user_id: i64) -> Result<Option<DbUser>, sqlx::Error> {
+        let row = sqlx::query_as::<_, DbUser>(
+            "SELECT * FROM users WHERE id = $1"
+        )
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    // Find payment record by stripe session ID
+    pub async fn find_payment_by_stripe_session(pool: &PgPool, session_id: &str) -> Result<Option<DbPaymentRecord>, sqlx::Error> {
+        let row = sqlx::query_as::<_, DbPaymentRecord>(
+            "SELECT * FROM payment_records WHERE stripe_session_id = $1"
+        )
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    // Find user by email for webhook processing
+    pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<DbUser>, sqlx::Error> {
+        let row = sqlx::query_as::<_, DbUser>(
+            "SELECT * FROM users WHERE email = $1"
+        )
+        .bind(email)
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(row)
     }
 }

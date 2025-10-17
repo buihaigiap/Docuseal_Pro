@@ -14,3 +14,14 @@ impl Default for Role {
         Role::TeamMember
     }
 }
+
+impl Role {
+    pub fn from_string(s: &str) -> Self {
+        match s {
+            "Admin" => Role::Admin,
+            "TeamMember" => Role::TeamMember,
+            "Recipient" => Role::Recipient,
+            _ => Role::TeamMember, // Default fallback
+        }
+    }
+}
