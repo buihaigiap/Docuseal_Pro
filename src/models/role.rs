@@ -2,10 +2,14 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, sqlx::Type, PartialEq)]
-#[sqlx(type_name = "user_role", rename_all = "snake_case")]
+#[sqlx(type_name = "user_role")]
+#[serde(rename_all = "snake_case")]
 pub enum Role {
+    #[sqlx(rename = "admin")]
     Admin,
+    #[sqlx(rename = "team_member")]
     TeamMember,
+    #[sqlx(rename = "recipient")]
     Recipient,
 }
 

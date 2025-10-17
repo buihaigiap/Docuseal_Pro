@@ -25,7 +25,7 @@ impl UserQueries {
                 name: row.try_get("name")?,
                 email: row.try_get("email")?,
                 password_hash: row.try_get("password_hash")?,
-                role: Role::from_string(&row.try_get::<String, _>("role")?),
+                role: row.try_get("role")?,
                 subscription_status: row.try_get("subscription_status")?,
                 subscription_expires_at: row.try_get("subscription_expires_at")?,
                 free_usage_count: row.try_get("free_usage_count")?,
