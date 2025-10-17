@@ -124,11 +124,9 @@ pub struct DbPaymentRecord {
     pub id: i64,
     pub user_id: i64,
     pub stripe_session_id: Option<String>,
-    pub stripe_payment_intent_id: Option<String>,
     pub amount_cents: i32,
     pub currency: String,
     pub status: String, // pending, completed, failed, refunded
-    pub stripe_price_id: Option<String>, // Stripe Price ID từ webhook
     pub metadata: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -139,11 +137,21 @@ pub struct DbPaymentRecord {
 pub struct CreatePaymentRecord {
     pub user_id: i64,
     pub stripe_session_id: Option<String>,
-    pub stripe_payment_intent_id: Option<String>,
     pub amount_cents: i32,
     pub currency: String,
     pub status: String,
-    pub stripe_price_id: Option<String>,
     pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct DbSubscriptionPlan {
+    pub id: i64,
+    pub name: String,
+    pub price_cents: i32,
+    pub duration_months: i32,
+    pub max_submissions: Option<i32>,
+    pub active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 

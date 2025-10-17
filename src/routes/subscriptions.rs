@@ -27,45 +27,9 @@ pub struct PaginationQuery {
     limit: Option<u32>,
 }
 
-/// Get all available subscription plans
-pub async fn get_subscription_plans(
-    State(state): State<AppState>,
-    Query(query): Query<PaginationQuery>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    match SubscriptionQueries::get_subscription_plans(&state.pool).await {
-        Ok(db_plans) => {
-            let plans: Vec<SubscriptionPlan> = db_plans
-                .into_iter()
-                .map(|plan| SubscriptionPlan {
-                    id: plan.id,
-                    name: plan.name,
-                    price_cents: plan.price_cents,
-                    price_display: format!("${:.2}", plan.price_cents as f64 / 100.0),
-                    duration_months: plan.duration_months,
-                    max_submissions: plan.max_submissions,
-                    stripe_price_id: plan.stripe_price_id,
-                    active: plan.active,
-                })
-                .collect();
-
-            Ok(Json(json!({
-                "plans": plans,
-                "total": plans.len()
-            })))
-        }
-        Err(e) => {
-            eprintln!("Error fetching subscription plans: {:?}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Failed to fetch subscription plans"})),
-            ))
-        }
-    }
-}
-
 /// Get current user's subscription status
 pub async fn get_user_subscription_status(
-    State(state): State<AppState>,
+    State(state): State<>AppState,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Json<UserSubscriptionStatus>, (StatusCode, Json<Value>)> {
     match SubscriptionQueries::get_user_subscription_status(&state.pool, user.id).await {
@@ -127,12 +91,12 @@ pub async fn create_payment_session(
     let payment_data = CreatePaymentRecord {
         user_id: user.id,
         stripe_session_id: None, // Will be updated after session creation
-        stripe_payment_intent_id: None,
         amount_cents: plan.price_cents,
         currency: "USD".to_string(),
-        subscription_plan_id: Some(plan.id),
+        status: "pending".to_string(),
         metadata: Some(json!({
             "plan_name": plan.name,
+            "plan_id": plan.id,
             "user_email": user.email
         })),
     };

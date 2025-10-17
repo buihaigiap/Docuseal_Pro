@@ -26,7 +26,7 @@ pub async fn get_submitters(
     State(state): State<AppState>,
     Extension(user_id): Extension<i64>,
 ) -> (StatusCode, Json<ApiResponse<Vec<crate::models::submitter::Submitter>>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Get submitters directly for this user
     match SubmitterQueries::get_submitters_by_user(pool, user_id).await {
@@ -72,7 +72,7 @@ pub async fn get_submitter(
     State(state): State<AppState>,
     Path(submitter_id): Path<i64>,
 ) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     match SubmitterQueries::get_submitter_by_id(pool, submitter_id).await {
         Ok(Some(db_submitter)) => {
@@ -109,7 +109,7 @@ pub async fn get_me(
     State(state): State<AppState>,
     Extension(user_id): Extension<i64>,
 ) -> (StatusCode, Json<ApiResponse<crate::models::user::User>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     match UserQueries::get_user_by_id(pool, user_id).await {
         Ok(Some(db_user)) => {
@@ -139,7 +139,7 @@ pub async fn update_submitter(
     Path(submitter_id): Path<i64>,
     Json(payload): Json<crate::models::submitter::UpdateSubmitterRequest>,
 ) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     match SubmitterQueries::update_submitter(pool, submitter_id, payload.status.as_deref()).await {
         Ok(Some(db_submitter)) => {
@@ -181,7 +181,7 @@ pub async fn delete_submitter(
     Path(submitter_id): Path<i64>,
     Extension(user_id): Extension<i64>,
 ) -> (StatusCode, Json<ApiResponse<String>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // First, verify the submitter exists and belongs to this user
     match SubmitterQueries::get_submitter_by_id(pool, submitter_id).await {
@@ -224,7 +224,7 @@ pub async fn update_public_submitter(
     Path(token): Path<String>,
     Json(payload): Json<crate::models::submitter::PublicUpdateSubmitterRequest>,
 ) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     match SubmitterQueries::get_submitter_by_token(pool, &token).await {
         Ok(Some(db_submitter)) => {
@@ -269,7 +269,7 @@ pub async fn get_public_submitter(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     match SubmitterQueries::get_submitter_by_token(pool, &token).await {
         Ok(Some(db_submitter)) => {
@@ -310,7 +310,7 @@ pub async fn submit_bulk_signatures(
     Path(token): Path<String>,
     Json(payload): Json<crate::models::signature::BulkSignatureRequest>,
 ) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     match SubmitterQueries::get_submitter_by_token(pool, &token).await {
         Ok(Some(db_submitter)) => {
@@ -401,7 +401,7 @@ pub async fn get_public_submitter_fields(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> (StatusCode, Json<ApiResponse<crate::models::submitter::PublicSubmitterFieldsResponse>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     match SubmitterQueries::get_submitter_by_token(pool, &token).await {
         Ok(Some(db_submitter)) => {
@@ -470,7 +470,7 @@ pub async fn get_public_submitter_signatures(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> (StatusCode, Json<ApiResponse<crate::models::submitter::PublicSubmitterSignaturesResponse>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     match SubmitterQueries::get_submitter_by_token(pool, &token).await {
         Ok(Some(db_submitter)) => {

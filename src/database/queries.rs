@@ -1,7 +1,7 @@
 use sqlx::{PgPool, Row};
 use chrono::{Utc, DateTime};
 
-use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData};
+use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan};
 use crate::models::role::Role;
 
 // Structured query implementations for better organization
@@ -793,18 +793,16 @@ impl SubscriptionQueries {
 
         let row = sqlx::query_as::<_, DbPaymentRecord>(
             r#"
-            INSERT INTO payment_records (user_id, stripe_session_id, stripe_payment_intent_id, amount_cents, currency, status, stripe_price_id, metadata, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO payment_records (user_id, stripe_session_id, amount_cents, currency, status, metadata, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
             "#
         )
         .bind(&payment_data.user_id)
         .bind(&payment_data.stripe_session_id)
-        .bind(&payment_data.stripe_payment_intent_id)
         .bind(&payment_data.amount_cents)
         .bind(&payment_data.currency)
         .bind(&payment_data.status)
-        .bind(&payment_data.stripe_price_id)
         .bind(&payment_data.metadata)
         .bind(now)
         .bind(now)
@@ -814,21 +812,6 @@ impl SubscriptionQueries {
         Ok(row)
     }
 
-    // Update payment record status
-    pub async fn update_payment_status(pool: &PgPool, payment_id: i64, status: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now();
-
-        sqlx::query(
-            "UPDATE payment_records SET status = $1, updated_at = $2 WHERE id = $3"
-        )
-        .bind(status)
-        .bind(now)
-        .bind(payment_id)
-        .execute(pool)
-        .await?;
-
-        Ok(())
-    }
 
     // Update user subscription status sau khi thanh toán thành công
     pub async fn update_user_subscription_status(pool: &PgPool, user_id: i64, status: &str, expires_at: Option<DateTime<Utc>>) -> Result<(), sqlx::Error> {
@@ -871,27 +854,5 @@ impl SubscriptionQueries {
         Ok(row)
     }
 
-    // Find payment record by stripe session ID
-    pub async fn find_payment_by_stripe_session(pool: &PgPool, session_id: &str) -> Result<Option<DbPaymentRecord>, sqlx::Error> {
-        let row = sqlx::query_as::<_, DbPaymentRecord>(
-            "SELECT * FROM payment_records WHERE stripe_session_id = $1"
-        )
-        .bind(session_id)
-        .fetch_optional(pool)
-        .await?;
 
-        Ok(row)
-    }
-
-    // Find user by email for webhook processing
-    pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<DbUser>, sqlx::Error> {
-        let row = sqlx::query_as::<_, DbUser>(
-            "SELECT * FROM users WHERE email = $1"
-        )
-        .bind(email)
-        .fetch_optional(pool)
-        .await?;
-
-        Ok(row)
-    }
 }

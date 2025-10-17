@@ -85,7 +85,7 @@ pub async fn get_subscription_status(
     State(state): State<AppState>,
     claims: Claims,
 ) -> Result<Json<SubscriptionStatusResponse>, (StatusCode, String)> {
-    let pool = &*state.lock().await;
+    let pool = &*state.lock().awaitstate.lock().await.db_pool;
     let user = SubscriptionQueries::get_user_subscription_status(pool, claims.user_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?

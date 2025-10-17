@@ -19,7 +19,15 @@ use crate::database::models::CreateUser;
 use crate::database::queries::UserQueries;
 use crate::common::jwt::generate_jwt;
 
-pub type AppState = Arc<Mutex<DbPool>>;
+use crate::services::queue::PaymentQueue;
+
+#[derive(Clone)]
+pub struct AppStateData {
+    pub db_pool: DbPool,
+    pub payment_queue: PaymentQueue,
+}
+
+pub type AppState = Arc<Mutex<AppStateData>>;
 
 use crate::routes::templates;
 use crate::routes::submissions;
@@ -78,7 +86,7 @@ pub async fn register_handler(
     State(state): State<AppState>,
     Json(payload): Json<RegisterRequest>,
 ) -> (StatusCode, Json<ApiResponse<User>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Check if user already exists
     if let Ok(Some(_)) = UserQueries::get_user_by_email(pool, &payload.email).await {
@@ -122,7 +130,7 @@ pub async fn login_handler(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> (StatusCode, Json<ApiResponse<LoginResponse>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Get user from database
     match UserQueries::get_user_by_email(pool, &payload.email).await {

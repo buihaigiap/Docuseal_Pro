@@ -87,7 +87,7 @@ use crate::database::queries::TemplateQueries;
 use crate::services::storage::StorageService;
 use crate::common::jwt::auth_middleware;
 
-pub type AppState = Arc<Mutex<sqlx::PgPool>>;
+use crate::routes::web::AppState;
 
 #[utoipa::path(
     get,
@@ -108,7 +108,7 @@ pub async fn get_template_full_info(
     Path(template_id): Path<i64>,
     Extension(user_id): Extension<i64>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Verify template belongs to user
     match TemplateQueries::get_template_by_id(pool, template_id).await {
@@ -240,7 +240,7 @@ pub async fn get_templates(
     State(state): State<AppState>,
     Extension(user_id): Extension<i64>,
 ) -> (StatusCode, Json<ApiResponse<Vec<Template>>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     match TemplateQueries::get_all_templates(pool, user_id).await {
         Ok(db_templates) => {
@@ -274,7 +274,7 @@ pub async fn get_template(
     Path(id): Path<i64>,
     Extension(user_id): Extension<i64>,
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     match TemplateQueries::get_template_by_id(pool, id).await {
         Ok(Some(db_template)) => {
@@ -313,7 +313,7 @@ pub async fn update_template(
     Extension(user_id): Extension<i64>,
     Json(payload): Json<UpdateTemplateRequest>,
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Update template (fields are managed separately via template_fields endpoints)
     match TemplateQueries::update_template(pool, id, user_id, payload.name.as_deref()).await {
@@ -347,7 +347,7 @@ pub async fn delete_template(
     Path(id): Path<i64>,
     Extension(user_id): Extension<i64>,
 ) -> (StatusCode, Json<ApiResponse<String>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     match TemplateQueries::delete_template(pool, id, user_id).await {
         Ok(true) => ApiResponse::success("Template deleted successfully".to_string(), "Template deleted successfully".to_string()),
@@ -377,7 +377,7 @@ pub async fn clone_template(
     Extension(user_id): Extension<i64>,
     Json(payload): Json<CloneTemplateRequest>,
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Generate a unique slug for the cloned template
     let slug = format!("{}-clone-{}", payload.name.to_lowercase().replace(" ", "-"), chrono::Utc::now().timestamp());
@@ -414,7 +414,7 @@ pub async fn create_template(
     Extension(user_id): Extension<i64>,
     Json(payload): Json<CreateTemplateRequest>,
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Decode base64 document
     let document_data = match base64::decode(&payload.document) {
@@ -512,7 +512,7 @@ pub async fn create_template_from_html(
     Extension(user_id): Extension<i64>,
     Json(payload): Json<CreateTemplateFromHtmlRequest>,
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Initialize storage service
     let storage = match StorageService::new().await {
@@ -585,7 +585,7 @@ pub async fn create_template_from_pdf(
     Extension(user_id): Extension<i64>,
     mut multipart: Multipart,
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Initialize storage service
     let storage = match StorageService::new().await {
@@ -680,7 +680,7 @@ pub async fn create_template_from_docx(
     Extension(user_id): Extension<i64>,
     mut multipart: Multipart,
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Initialize storage service
     let storage = match StorageService::new().await {
@@ -1037,7 +1037,7 @@ pub async fn get_template_fields(
     Path(template_id): Path<i64>,
     Extension(user_id): Extension<i64>,
 ) -> (StatusCode, Json<ApiResponse<Vec<TemplateField>>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Verify template belongs to user
     match TemplateQueries::get_template_by_id(pool, template_id).await {
@@ -1095,7 +1095,7 @@ pub async fn create_template_field(
     Extension(user_id): Extension<i64>,
     Json(payload): Json<serde_json::Value>,
 ) -> (StatusCode, Json<ApiResponse<Vec<TemplateField>>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Verify template belongs to user
     match TemplateQueries::get_template_by_id(pool, template_id).await {
@@ -1189,7 +1189,7 @@ pub async fn upload_template_field_file(
     Extension(user_id): Extension<i64>,
     mut multipart: Multipart,
 ) -> (StatusCode, Json<ApiResponse<TemplateField>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Initialize S3 client
     let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
@@ -1339,7 +1339,7 @@ pub async fn update_template_field(
     Extension(user_id): Extension<i64>,
     Json(payload): Json<UpdateTemplateFieldRequest>,
 ) -> (StatusCode, Json<ApiResponse<TemplateField>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Verify template belongs to user
     match TemplateQueries::get_template_by_id(pool, template_id).await {
@@ -1407,7 +1407,7 @@ pub async fn delete_template_field(
     Path((template_id, field_id)): Path<(i64, i64)>,
     Extension(user_id): Extension<i64>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Verify template belongs to user
     match TemplateQueries::get_template_by_id(pool, template_id).await {
@@ -1444,7 +1444,7 @@ pub async fn upload_file_public(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> (StatusCode, Json<ApiResponse<FileUploadResponse>>) {
-    let _pool = &*state.lock().await;
+    let _pool = &state.lock().await.db_pool;
 
     // Initialize storage service
     let storage = match StorageService::new().await {
@@ -1568,7 +1568,7 @@ pub async fn upload_file(
     Extension(user_id): Extension<i64>,
     mut multipart: Multipart,
 ) -> (StatusCode, Json<ApiResponse<FileUploadResponse>>) {
-    let _pool = &*state.lock().await;
+    let _pool = &state.lock().await.db_pool;
 
     // Initialize storage service
     let storage = match StorageService::new().await {
@@ -1672,7 +1672,7 @@ pub async fn create_template_from_file(
     Extension(user_id): Extension<i64>,
     Json(payload): Json<CreateTemplateFromFileRequest>,
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // Initialize storage service to verify file exists
     let storage = match StorageService::new().await {

@@ -3,6 +3,7 @@ use bytes::Bytes;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use serde_json::Value;
+use chrono::{Utc, Duration};
 
 use crate::{
     database::{queries::SubscriptionQueries, models::CreatePaymentRecord},
@@ -103,45 +104,61 @@ pub async fn stripe_webhook_handler(
                     println!("💰 Payment success for {email}, amount: {amount} USD, client_ref: {client_ref}, link: {payment_link}");
 
                     // Xử lý DB
+                    println!("🔍 Parsing client_ref: '{}'", client_ref);
                     if let Ok(user_id) = client_ref.parse::<i64>() {
+                        println!("✅ Parsed user_id: {}", user_id);
+                        let db_pool = &state.lock().await.db_pool;
+                        println!("✅ Got db_pool");
+                        
+                        let session_id = session.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        println!("🔍 Stripe session_id: {:?}", session_id);
+                        
                         let data = CreatePaymentRecord {
                             user_id,
-                            stripe_session_id: session.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                            stripe_payment_intent_id: session.get("payment_intent").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                            stripe_session_id: session_id,
                             amount_cents: (amount * 100.0) as i32,
                             currency: "USD".to_string(),
                             status: "completed".to_string(),
-                            stripe_price_id: None,
                             metadata: Some(serde_json::json!({
                                 "email": email,
                                 "client_reference_id": client_ref,
                                 "payment_link": payment_link
                             })),
                         };
-                        if let Ok(record) = SubscriptionQueries::create_payment_record(&*state.lock().await, data).await {
+                        
+                        if let Ok(record) = SubscriptionQueries::create_payment_record(db_pool, data).await {
                             println!("💾 Created payment record {}", record.id);
+                            
+                            // ✅ Update subscription status và expires_at cho user
+                            let expires_at = Utc::now() + Duration::days(30);
+                            println!("🔍 Calling update_user_subscription_status for user_id: {}", user_id);
+                            if let Err(e) = SubscriptionQueries::update_user_subscription_status(
+                                db_pool,
+                                user_id,
+                                "premium",
+                                Some(expires_at)
+                            ).await {
+                                eprintln!("❌ Failed to update subscription status: {}", e);
+                            } else {
+                                println!("✅ Updated subscription status to premium, expires at: {}", expires_at);
+                            }
+                        } else {
+                            // Vẫn update subscription status dù payment record đã tồn tại
+                            let expires_at = Utc::now() + Duration::days(30);
+                            println!("🔍 Calling update_user_subscription_status for user_id: {}", user_id);
+                            if let Err(e) = SubscriptionQueries::update_user_subscription_status(
+                                db_pool,
+                                user_id,
+                                "premium",
+                                Some(expires_at)
+                            ).await {
+                                eprintln!("❌ Failed to update subscription status: {}", e);
+                            } else {
+                                println!("✅ Updated subscription status to premium, expires at: {}", expires_at);
+                            }
                         }
-                    }
-
-                    // Xử lý DB
-                    if let Ok(user_id) = client_ref.parse::<i64>() {
-                        let data = CreatePaymentRecord {
-                            user_id,
-                            stripe_session_id: session.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                            stripe_payment_intent_id: session.get("payment_intent").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                            amount_cents: (amount * 100.0) as i32,
-                            currency: "USD".to_string(),
-                            status: "completed".to_string(),
-                            stripe_price_id: None,
-                            metadata: Some(serde_json::json!({
-                                "email": email,
-                                "client_reference_id": client_ref,
-                                "payment_link": payment_link
-                            })),
-                        };
-                        if let Ok(record) = SubscriptionQueries::create_payment_record(&*state.lock().await, data).await {
-                            println!("💾 Created payment record {}", record.id);
-                        }
+                    } else {
+                        eprintln!("❌ Failed to parse client_ref as user_id: '{}'", client_ref);
                     }
                 }
             },

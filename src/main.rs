@@ -13,8 +13,9 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 use utoipa::openapi::security::{HttpAuthScheme, Http, SecurityScheme};
 
-use routes::web::{create_router, AppState};
+use routes::web::{create_router, AppState, AppStateData};
 use database::connection::establish_connection;
+use services::queue::PaymentQueue;
 use models::user::User;
 use models::template::Template;
 
@@ -118,7 +119,18 @@ async fn main() {
     println!("✅ Database migrations completed successfully");
 
     // Initialize services
-    let app_state: AppState = Arc::new(Mutex::new(pool));
+    let db_pool_arc = Arc::new(Mutex::new(pool.clone()));
+    let payment_queue = PaymentQueue::new(db_pool_arc);
+    let app_state_data = AppStateData {
+        db_pool: pool,
+        payment_queue: payment_queue.clone(),
+    };
+    let app_state: AppState = Arc::new(Mutex::new(app_state_data));
+
+    // Start the payment queue processor
+    tokio::spawn(async move {
+        payment_queue.process_parallel(5).await; // Xử lý tối đa 5 payment cùng lúc
+    });
 
     // Create API routes
     let api_routes = create_router();

@@ -23,7 +23,7 @@ use crate::common::jwt::auth_middleware;
 use crate::common::authorization::require_admin_or_team_member;
 use crate::services::email::EmailService;
 
-pub type AppState = Arc<Mutex<DbPool>>;
+use crate::routes::web::AppState;
 
 #[utoipa::path(
     post,
@@ -43,7 +43,7 @@ pub async fn create_submission(
     Json(payload): Json<CreateSubmissionRequest>,
 ) -> (StatusCode, Json<ApiResponse<Submission>>) {
 
-    let pool = &*state.lock().await;
+    let pool = &state.lock().await.db_pool;
 
     // TODO: 🔒 Check if user can submit (usage limit check) - disabled for now
     /*
