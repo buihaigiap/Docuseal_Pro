@@ -59,11 +59,11 @@ pub async fn get_payment_link(
     
     // Tạo URL với client_reference_id để identify user trong webhook
     let payment_url = format!("https://buy.stripe.com/{}?client_reference_id={}", 
-        payment_link, claims.user_id);
+        payment_link, claims.sub);
 
     Ok(Json(PaymentLinkResponse {
         payment_url,
-        user_id: claims.user_id,
+        user_id: claims.sub,
     }))
 }
 
@@ -85,8 +85,8 @@ pub async fn get_subscription_status(
     State(state): State<AppState>,
     claims: Claims,
 ) -> Result<Json<SubscriptionStatusResponse>, (StatusCode, String)> {
-    let pool = &*state.lock().awaitstate.lock().await.db_pool;
-    let user = SubscriptionQueries::get_user_subscription_status(pool, claims.user_id)
+    let pool = &state.lock().await.db_pool;
+    let user = SubscriptionQueries::get_user_subscription_status(pool, claims.sub)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
         .ok_or((StatusCode::NOT_FOUND, "User not found".to_string()))?;
@@ -125,6 +125,15 @@ pub async fn increment_usage_count(
     user_id: i64,
 ) -> Result<i32, sqlx::Error> {
     SubscriptionQueries::increment_user_usage(pool, user_id).await
+}
+
+/// Increment usage count by specific amount
+pub async fn increment_usage_count_by(
+    pool: &sqlx::PgPool,
+    user_id: i64,
+    count: i32,
+) -> Result<i32, sqlx::Error> {
+    SubscriptionQueries::increment_user_usage_by(pool, user_id, count).await
 }
 
 /// Check if user can submit document

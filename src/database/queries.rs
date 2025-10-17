@@ -842,6 +842,18 @@ impl SubscriptionQueries {
         Ok(row.try_get("free_usage_count")?)
     }
 
+    pub async fn increment_user_usage_by(pool: &PgPool, user_id: i64, count: i32) -> Result<i32, sqlx::Error> {
+        let row = sqlx::query(
+            "UPDATE users SET free_usage_count = free_usage_count + $2, updated_at = NOW() WHERE id = $1 RETURNING free_usage_count"
+        )
+        .bind(user_id)
+        .bind(count)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(row.try_get("free_usage_count")?)
+    }
+
     // Get user subscription status
     pub async fn get_user_subscription_status(pool: &PgPool, user_id: i64) -> Result<Option<DbUser>, sqlx::Error> {
         let row = sqlx::query_as::<_, DbUser>(

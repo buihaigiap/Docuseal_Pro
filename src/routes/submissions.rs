@@ -17,7 +17,7 @@ use crate::models::submitter::Submitter;
 use crate::database::connection::DbPool;
 use crate::database::models::CreateSubmitter;
 use crate::database::queries::{SubmitterQueries, TemplateQueries};
-// use crate::routes::subscription::{can_user_submit, increment_usage_count};
+use crate::routes::subscription::{can_user_submit, increment_usage_count_by};
 use crate::routes::templates::convert_db_template_to_template;
 use crate::common::jwt::auth_middleware;
 use crate::common::authorization::require_admin_or_team_member;
@@ -45,40 +45,25 @@ pub async fn create_submission(
 
     let pool = &state.lock().await.db_pool;
 
-    // TODO: 🔒 Check if user can submit (usage limit check) - disabled for now
-    /*
+    // Check if user can submit (usage limit check)
     match can_user_submit(pool, user_id).await {
         Ok(false) => {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(ApiResponse {
-                    success: false,
-                    message: "Usage limit exceeded. Please upgrade to premium to continue submitting documents.".to_string(),
-                    data: None,
-                }),
-            );
+            return ApiResponse::forbidden("Bạn đã hết lượt gửi email miễn phí (10 email). Vui lòng nâng cấp lên gói Premium để tiếp tục gửi tài liệu.".to_string());
         },
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse {
-                    success: false,
-                    message: format!("Failed to check usage limits: {}", e),
-                    data: None,
-                }),
-            );
+            return ApiResponse::internal_error(format!("Failed to check usage limits: {}", e));
         },
         Ok(true) => {
             // User can submit, continue
         }
     }
-    */
 
     // Check if template exists
     match TemplateQueries::get_template_by_id(pool, payload.template_id).await {
         Ok(Some(db_template)) => {
             // In merged schema, we create submitters directly without a separate submission record
             let mut created_submitters = Vec::new();
+            let mut emails_sent_count = 0;
 
             for submitter in &payload.submitters {
                 let token = generate_token();
@@ -118,6 +103,9 @@ pub async fn create_submission(
                                 &token,
                             ).await {
                                 eprintln!("Failed to send email to {}: {}", submitter.email, e);
+                            } else {
+                                // Email gửi thành công, tăng đếm
+                                emails_sent_count += 1;
                             }
                         }
                     }
@@ -140,13 +128,13 @@ pub async fn create_submission(
                 expires_at: payload.expires_at,
             };
 
-            // TODO: 📊 Increment usage count for free users after successful submission - disabled for now
-            /*
-            if let Err(e) = increment_usage_count(pool, user_id).await {
-                eprintln!("Warning: Failed to increment usage count for user {}: {}", user_id, e);
-                // Don't fail the request, just log the warning
+            // Increment usage count cho số email đã gửi thành công
+            if emails_sent_count > 0 {
+                if let Err(e) = increment_usage_count_by(pool, user_id, emails_sent_count).await {
+                    eprintln!("Warning: Failed to increment usage count for user {} by {}: {}", user_id, emails_sent_count, e);
+                    // Don't fail the request, just log the warning
+                }
             }
-            */
 
             ApiResponse::success(submission, "Submission created successfully".to_string())
         }
