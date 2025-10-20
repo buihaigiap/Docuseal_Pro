@@ -379,22 +379,32 @@ pub async fn clone_template(
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
     let pool = &state.lock().await.db_pool;
 
-    // Generate a unique slug for the cloned template
-    let slug = format!("{}-clone-{}", payload.name.to_lowercase().replace(" ", "-"), chrono::Utc::now().timestamp());
+    // First get the original template to get its name
+    match TemplateQueries::get_template_by_id(pool, id).await {
+        Ok(Some(original_template)) => {
+            // Generate new name: original name + " (Clone)"
+            let new_name = format!("{} (Clone)", original_template.name);
+            
+            // Generate a unique slug for the cloned template
+            let slug = format!("{}-clone-{}", new_name.to_lowercase().replace(" ", "-").replace("(", "").replace(")", ""), chrono::Utc::now().timestamp());
 
-    match TemplateQueries::clone_template(pool, id, user_id, &payload.name, &slug).await {
-        Ok(Some(db_template)) => {
-            // Clone template fields from original template
-            use crate::database::queries::TemplateFieldQueries;
-            let _ = TemplateFieldQueries::clone_template_fields(pool, id, db_template.id).await;
+            match TemplateQueries::clone_template(pool, id, user_id, &new_name, &slug).await {
+                Ok(Some(db_template)) => {
+                    // Clone template fields from original template
+                    use crate::database::queries::TemplateFieldQueries;
+                    let _ = TemplateFieldQueries::clone_template_fields(pool, id, db_template.id).await;
 
-            match convert_db_template_to_template_with_fields(db_template, pool).await {
-                Ok(template) => ApiResponse::created(template, "Template cloned successfully".to_string()),
-                Err(e) => ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
+                    match convert_db_template_to_template_with_fields(db_template, pool).await {
+                        Ok(template) => ApiResponse::created(template, "Template cloned successfully".to_string()),
+                        Err(e) => ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
+                    }
+                }
+                Ok(None) => ApiResponse::not_found("Original template not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to clone template: {}", e)),
             }
         }
         Ok(None) => ApiResponse::not_found("Original template not found".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Failed to clone template: {}", e)),
+        Err(e) => ApiResponse::internal_error(format!("Failed to get original template: {}", e)),
     }
 }
 

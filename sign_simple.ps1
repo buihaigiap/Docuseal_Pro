@@ -89,13 +89,14 @@ if (-not $Token) {
 
 # Load field IDs from workflow output if not provided
 if (-not $FieldIds -or $FieldIds.Count -eq 0) {
-    $fieldIdsFile = "./field_ids.txt"
-    if (Test-Path $fieldIdsFile) {
-        $FieldIds = Get-Content $fieldIdsFile | ForEach-Object { [int]$_ }
-        Write-Host "Success Field IDs loaded from file: $($FieldIds -join ', ')" -ForegroundColor Green
-    } else {
-        Write-Host "Error No field IDs provided or found in file!" -ForegroundColor Red
-        Write-Host "Usage: .\sign_simple.ps1 -FieldIds @(1,2,3)" -ForegroundColor Yellow
+    # Get fields from API instead of file
+    try {
+        $fieldsResponse = Invoke-RestMethod -Uri "$baseUrl/public/submissions/$encodedToken/fields" -Method GET
+        $fields = $fieldsResponse.data.template_fields
+        $FieldIds = $fields | ForEach-Object { $_.id }
+        Write-Host "Success Field IDs loaded from API: $($FieldIds -join ', ')" -ForegroundColor Green
+    } catch {
+        Write-Host "Error Failed to get fields from API: $($_.Exception.Message)" -ForegroundColor Red
         exit
     }
 }
@@ -105,51 +106,16 @@ Write-Host ""
 Write-Host "[Step 2] Filtering fields based on partner role..." -ForegroundColor Yellow
 
 # Get template fields information to check partner assignments
-$templateId = $submitterResponse.data.template.id
+$templateId = $submitterResponse.data.template_id
 Write-Host "Template ID: $templateId" -ForegroundColor Gray
 
-# In a real implementation, you would call the API to get template fields
-# For now, we'll simulate the field-to-partner mapping
-$fieldPartnerMapping = @{
-    1 = "Buyer"      # buyer_signature
-    2 = "Seller"     # seller_signature  
-    3 = "Witness"    # witness_signature
-    4 = "Buyer"      # buyer_photo
-    5 = "Seller"     # seller_company_stamp
-    6 = $null        # contract_date (general field)
-}
-
-# Filter field IDs based on submitter's role
-$eligibleFieldIds = @()
+# Fields are already filtered by the API based on partner
+$eligibleFieldIds = $FieldIds
 $skippedFields = @()
 
+Write-Host "Fields already filtered by API for this submitter" -ForegroundColor Green
 foreach ($fieldId in $FieldIds) {
-    $fieldPartner = $fieldPartnerMapping[[int]$fieldId]
-    
-    if ($submitterRole -eq $null) {
-        # General submitter can access all fields
-        $eligibleFieldIds += $fieldId
-        Write-Host "  ✓ Field $($fieldId): Accessible (General role)" -ForegroundColor Green
-    } elseif ($fieldPartner -eq $null) {
-        # General fields can be accessed by any partner
-        $eligibleFieldIds += $fieldId
-        Write-Host "  ✓ Field $($fieldId): Accessible (General field)" -ForegroundColor Green
-    } elseif ($fieldPartner -eq $submitterRole) {
-        # Field assigned to this partner
-        $eligibleFieldIds += $fieldId
-        Write-Host "  ✓ Field $($fieldId): Accessible ($fieldPartner field)" -ForegroundColor Green
-    } else {
-        # Field assigned to a different partner
-        $skippedFields += $fieldId
-        Write-Host "  ✗ Field $($fieldId): Skipped (assigned to $fieldPartner, not $submitterRole)" -ForegroundColor Yellow
-    }
-}
-
-if ($skippedFields.Count -gt 0) {
-    Write-Host ""
-    Write-Host "Partner-based filtering results:" -ForegroundColor Cyan
-    Write-Host "  - Fields this partner can sign: $($eligibleFieldIds -join ', ')" -ForegroundColor Green
-    Write-Host "  - Fields assigned to other partners: $($skippedFields -join ', ')" -ForegroundColor Yellow
+    Write-Host "  ✓ Field $($fieldId): Accessible" -ForegroundColor Green
 }
 
 if ($eligibleFieldIds.Count -eq 0) {
@@ -170,20 +136,21 @@ $EncodedToken = [System.Web.HttpUtility]::UrlEncode($Token)
 Write-Host ""
 Write-Host "[Step 3] Getting field information..." -ForegroundColor Yellow
 
-# Hardcode field types based on known field IDs from run_full_test.ps1
-$fieldTypes = @{
-    1 = "signature"  # buyer_signature
-    2 = "signature"  # seller_signature  
-    3 = "signature"  # witness_signature
-    4 = "image"      # buyer_photo
-    5 = "image"      # seller_company_stamp
-    6 = "date"       # contract_date
-}
-
-Write-Host "Success Using hardcoded field types" -ForegroundColor Green
-foreach ($fieldId in $FieldIds) {
-    $fieldType = $fieldTypes[[int]$fieldId]
-    Write-Host "  - Field $($fieldId): Type: $($fieldType)" -ForegroundColor Gray
+# Get fields from API to get types
+try {
+    $fieldsResponse = Invoke-RestMethod -Uri "$baseUrl/public/submissions/$encodedToken/fields" -Method GET
+    $fields = $fieldsResponse.data.template_fields
+    $fieldTypes = @{}
+    foreach ($field in $fields) {
+        $fieldTypes[[int]$field.id] = $field.field_type
+    }
+    Write-Host "Success Field types loaded from API" -ForegroundColor Green
+    foreach ($field in $fields) {
+        Write-Host "  - Field $($field.id): Type: $($field.field_type)" -ForegroundColor Gray
+    }
+} catch {
+    Write-Host "Error Failed to get field types: $($_.Exception.Message)" -ForegroundColor Red
+    exit
 }
 
 # Prepare signatures for all field IDs

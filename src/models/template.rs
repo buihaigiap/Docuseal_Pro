@@ -109,7 +109,8 @@ pub struct UpdateTemplateFieldRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CloneTemplateRequest {
-    pub name: String,
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
