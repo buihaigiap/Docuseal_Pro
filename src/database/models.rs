@@ -59,6 +59,25 @@ pub struct CreateTemplateField {
     pub partner: Option<String>, // Which partner/signer this field belongs to
 }
 
+// Database-specific template folder model
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DbTemplateFolder {
+    pub id: i64,
+    pub name: String,
+    pub user_id: i64,
+    pub parent_folder_id: Option<i64>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// Create template folder request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTemplateFolder {
+    pub name: String,
+    pub user_id: i64,
+    pub parent_folder_id: Option<i64>,
+}
+
 // Database-specific template model
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DbTemplate {
@@ -66,6 +85,7 @@ pub struct DbTemplate {
     pub name: String,
     pub slug: String,
     pub user_id: i64,
+    pub folder_id: Option<i64>,
     pub documents: Option<serde_json::Value>, // JSONB field
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -77,6 +97,7 @@ pub struct CreateTemplate {
     pub name: String,
     pub slug: String,
     pub user_id: i64,
+    pub folder_id: Option<i64>,
     pub documents: Option<serde_json::Value>,
 }
 

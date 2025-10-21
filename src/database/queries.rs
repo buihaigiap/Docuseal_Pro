@@ -1,12 +1,13 @@
 use sqlx::{PgPool, Row};
 use chrono::{Utc, DateTime};
 
-use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan};
+use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan, DbTemplateFolder, CreateTemplateFolder};
 use crate::models::role::Role;
 
 // Structured query implementations for better organization
 pub struct UserQueries;
 pub struct TemplateQueries;
+pub struct TemplateFolderQueries;
 pub struct TemplateFieldQueries;
 pub struct SubmitterQueries;
 
@@ -103,14 +104,15 @@ impl TemplateQueries {
 
         let row = sqlx::query(
             r#"
-            INSERT INTO templates (name, slug, user_id, documents, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id, name, slug, user_id, documents, created_at, updated_at
+            INSERT INTO templates (name, slug, user_id, folder_id, documents, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id, name, slug, user_id, folder_id, documents, created_at, updated_at
             "#
         )
         .bind(&template_data.name)
         .bind(&template_data.slug)
         .bind(&template_data.user_id)
+        .bind(&template_data.folder_id)
         .bind(&template_data.documents)
         .bind(now)
         .bind(now)
@@ -122,16 +124,17 @@ impl TemplateQueries {
             name: row.get(1),
             slug: row.get(2),
             user_id: row.get(3),
+            folder_id: row.get(4),
             // fields: None, // Removed - now stored in template_fields table
-            documents: row.get(4),
-            created_at: row.get(5),
-            updated_at: row.get(6),
+            documents: row.get(5),
+            created_at: row.get(6),
+            updated_at: row.get(7),
         })
     }
 
     pub async fn get_template_by_id(pool: &PgPool, id: i64) -> Result<Option<DbTemplate>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, slug, user_id, documents, created_at, updated_at FROM templates WHERE id = $1"
+            "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at FROM templates WHERE id = $1"
         )
         .bind(id)
         .fetch_optional(pool)
@@ -143,6 +146,7 @@ impl TemplateQueries {
                 name: row.try_get("name")?,
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
+                folder_id: row.try_get("folder_id")?,
                 // fields: None, // Removed - now stored in template_fields table
                 documents: row.try_get("documents")?,
                 created_at: row.try_get("created_at")?,
@@ -154,7 +158,7 @@ impl TemplateQueries {
 
     pub async fn get_template_by_slug(pool: &PgPool, slug: &str) -> Result<Option<DbTemplate>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, slug, user_id, documents, created_at, updated_at FROM templates WHERE slug = $1"
+            "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at FROM templates WHERE slug = $1"
         )
         .bind(slug)
         .fetch_optional(pool)
@@ -166,6 +170,7 @@ impl TemplateQueries {
                 name: row.try_get("name")?,
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
+                folder_id: row.try_get("folder_id")?,
                 // fields: None, // Removed - now stored in template_fields table
                 documents: row.try_get("documents")?,
                 created_at: row.try_get("created_at")?,
@@ -177,7 +182,7 @@ impl TemplateQueries {
 
     pub async fn get_all_templates(pool: &PgPool, user_id: i64) -> Result<Vec<DbTemplate>, sqlx::Error> {
         let rows = sqlx::query(
-            "SELECT id, name, slug, user_id, documents, created_at, updated_at FROM templates WHERE user_id = $1 ORDER BY created_at DESC "
+            "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at FROM templates WHERE user_id = $1 AND folder_id IS NULL ORDER BY created_at DESC "
         )
         .bind(user_id)
         .fetch_all(pool)
@@ -190,6 +195,7 @@ impl TemplateQueries {
                 name: row.try_get("name")?,
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
+                folder_id: row.try_get("folder_id")?,
                 // fields: None, // Removed - now stored in template_fields table
                 documents: row.try_get("documents")?,
                 created_at: row.try_get("created_at")?,
@@ -207,7 +213,7 @@ impl TemplateQueries {
             UPDATE templates
             SET name = COALESCE($3, name), updated_at = $4
             WHERE id = $1 AND user_id = $2
-            RETURNING id, name, slug, user_id, documents, created_at, updated_at
+            RETURNING id, name, slug, user_id, folder_id, documents, created_at, updated_at
             "#
         )
         .bind(id)
@@ -223,6 +229,7 @@ impl TemplateQueries {
                 name: row.try_get("name")?,
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
+                folder_id: row.try_get("folder_id")?,
                 // fields: None, // Removed - now stored in template_fields table
                 documents: row.try_get("documents")?,
                 created_at: row.try_get("created_at")?,
@@ -255,6 +262,7 @@ impl TemplateQueries {
                 name: new_name.to_string(),
                 slug: new_slug.to_string(),
                 user_id: user_id,
+                folder_id: original.folder_id,
                 // fields: None, // Removed - will be cloned separately via TemplateFieldQueries
                 documents: original.documents,
             };
@@ -263,6 +271,228 @@ impl TemplateQueries {
         } else {
             Ok(None)
         }
+    }
+}
+
+impl TemplateFolderQueries {
+    pub async fn create_folder(pool: &PgPool, folder_data: CreateTemplateFolder) -> Result<DbTemplateFolder, sqlx::Error> {
+        let now = Utc::now();
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO template_folders (name, user_id, parent_folder_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, name, user_id, parent_folder_id, created_at, updated_at
+            "#
+        )
+        .bind(&folder_data.name)
+        .bind(folder_data.user_id)
+        .bind(folder_data.parent_folder_id)
+        .bind(now)
+        .bind(now)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(DbTemplateFolder {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            user_id: row.try_get("user_id")?,
+            parent_folder_id: row.try_get("parent_folder_id")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+
+    pub async fn get_folder_by_id(pool: &PgPool, id: i64, user_id: i64) -> Result<Option<DbTemplateFolder>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT id, name, user_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE id = $1 AND user_id = $2"
+        )
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(DbTemplateFolder {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                user_id: row.try_get("user_id")?,
+                parent_folder_id: row.try_get("parent_folder_id")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn get_folders_by_user(pool: &PgPool, user_id: i64) -> Result<Vec<DbTemplateFolder>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT id, name, user_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE user_id = $1 ORDER BY name ASC"
+        )
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut folders = Vec::new();
+        for row in rows {
+            folders.push(DbTemplateFolder {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                user_id: row.try_get("user_id")?,
+                parent_folder_id: row.try_get("parent_folder_id")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            });
+        }
+        Ok(folders)
+    }
+
+    pub async fn get_folders_by_parent(pool: &PgPool, user_id: i64, parent_id: Option<i64>) -> Result<Vec<DbTemplateFolder>, sqlx::Error> {
+        let rows = if let Some(parent_id) = parent_id {
+            sqlx::query(
+                "SELECT id, name, user_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE user_id = $1 AND parent_folder_id = $2 ORDER BY name ASC"
+            )
+            .bind(user_id)
+            .bind(parent_id)
+            .fetch_all(pool)
+            .await?
+        } else {
+            sqlx::query(
+                "SELECT id, name, user_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE user_id = $1 AND parent_folder_id IS NULL ORDER BY name ASC"
+            )
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?
+        };
+
+        let mut folders = Vec::new();
+        for row in rows {
+            folders.push(DbTemplateFolder {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                user_id: row.try_get("user_id")?,
+                parent_folder_id: row.try_get("parent_folder_id")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            });
+        }
+        Ok(folders)
+    }
+
+    pub async fn get_templates_in_folder(pool: &PgPool, user_id: i64, folder_id: Option<i64>) -> Result<Vec<DbTemplate>, sqlx::Error> {
+        let rows = if let Some(folder_id) = folder_id {
+            sqlx::query(
+                "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at FROM templates WHERE user_id = $1 AND folder_id = $2 ORDER BY created_at DESC"
+            )
+            .bind(user_id)
+            .bind(folder_id)
+            .fetch_all(pool)
+            .await?
+        } else {
+            sqlx::query(
+                "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at FROM templates WHERE user_id = $1 AND folder_id IS NULL ORDER BY created_at DESC"
+            )
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?
+        };
+
+        let mut templates = Vec::new();
+        for row in rows {
+            templates.push(DbTemplate {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                slug: row.try_get("slug")?,
+                user_id: row.try_get("user_id")?,
+                folder_id: row.try_get("folder_id")?,
+                documents: row.try_get("documents")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            });
+        }
+        Ok(templates)
+    }
+
+    pub async fn update_folder(pool: &PgPool, id: i64, user_id: i64, name: Option<&str>, parent_folder_id: Option<Option<i64>>) -> Result<Option<DbTemplateFolder>, sqlx::Error> {
+        let now = Utc::now();
+
+        let row = sqlx::query(
+            r#"
+            UPDATE template_folders
+            SET name = COALESCE($3, name),
+                parent_folder_id = COALESCE($4, parent_folder_id),
+                updated_at = $5
+            WHERE id = $1 AND user_id = $2
+            RETURNING id, name, user_id, parent_folder_id, created_at, updated_at
+            "#
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(name)
+        .bind(parent_folder_id)
+        .bind(now)
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(DbTemplateFolder {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                user_id: row.try_get("user_id")?,
+                parent_folder_id: row.try_get("parent_folder_id")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn delete_folder(pool: &PgPool, id: i64, user_id: i64) -> Result<bool, sqlx::Error> {
+        // First, move all templates in this folder to root (no folder)
+        sqlx::query("UPDATE templates SET folder_id = NULL WHERE folder_id = $1 AND user_id = $2")
+            .bind(id)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+
+        // Move child folders to parent folder (or root if no parent)
+        let parent_folder_id: Option<i64> = sqlx::query_scalar(
+            "SELECT parent_folder_id FROM template_folders WHERE id = $1 AND user_id = $2"
+        )
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+        .flatten();
+
+        sqlx::query("UPDATE template_folders SET parent_folder_id = $1 WHERE parent_folder_id = $2 AND user_id = $3")
+            .bind(parent_folder_id)
+            .bind(id)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+
+        // Delete the folder
+        let result = sqlx::query("DELETE FROM template_folders WHERE id = $1 AND user_id = $2")
+            .bind(id)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn move_template_to_folder(pool: &PgPool, template_id: i64, folder_id: Option<i64>, user_id: i64) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE templates SET folder_id = $1 WHERE id = $2 AND user_id = $3"
+        )
+        .bind(folder_id)
+        .bind(template_id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 }
 

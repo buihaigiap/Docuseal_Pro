@@ -79,11 +79,12 @@ use crate::models::template::{
     CreateTemplateFromHtmlRequest, MergeTemplatesRequest,
     TemplateField, FieldPosition, SuggestedPosition,
     CreateTemplateFieldRequest, UpdateTemplateFieldRequest,
-    FileUploadResponse, CreateTemplateFromFileRequest, CreateTemplateRequest
+    FileUploadResponse, CreateTemplateFromFileRequest, CreateTemplateRequest,
+    TemplateFolder, CreateFolderRequest, UpdateFolderRequest
 };
 use crate::database::connection::DbPool;
-use crate::database::models::{CreateTemplate, CreateTemplateField};
-use crate::database::queries::TemplateQueries;
+use crate::database::models::{CreateTemplate, CreateTemplateField, CreateTemplateFolder};
+use crate::database::queries::{TemplateQueries, TemplateFolderQueries};
 use crate::services::storage::StorageService;
 use crate::common::jwt::auth_middleware;
 
@@ -199,6 +200,15 @@ pub fn create_template_router() -> Router<AppState> {
 
     // Authenticated routes
     let auth_routes = Router::new()
+        // Template folders routes
+        .route("/folders", get(get_folders))
+        .route("/folders", post(create_folder))
+        .route("/folders/:id", get(get_folder))
+        .route("/folders/:id", put(update_folder))
+        .route("/folders/:id", delete(delete_folder))
+        .route("/folders/:id/templates", get(get_folder_templates))
+        .route("/templates/:template_id/move/:folder_id", put(move_template_to_folder))
+        // Template routes
         .route("/templates", get(get_templates))
         .route("/templates", post(create_template))
         .route("/templates/:id", get(get_template))
@@ -225,6 +235,461 @@ pub fn create_template_router() -> Router<AppState> {
     // Merge public and authenticated routes
     public_routes.merge(auth_routes)
 }
+
+// ===== TEMPLATE FOLDER ENDPOINTS =====
+
+#[utoipa::path(
+    get,
+    path = "/api/folders",
+    responses(
+        (status = 200, description = "List all template folders with hierarchy", body = ApiResponse<Vec<TemplateFolder>>),
+        (status = 500, description = "Internal server error", body = ApiResponse<Vec<TemplateFolder>>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "folders"
+)]
+pub async fn get_folders(
+    State(state): State<AppState>,
+    Extension(user_id): Extension<i64>,
+) -> (StatusCode, Json<ApiResponse<Vec<TemplateFolder>>>) {
+    let pool = &state.lock().await.db_pool;
+
+    match TemplateFolderQueries::get_folders_by_user(pool, user_id).await {
+        Ok(db_folders) => {
+            let mut folders = Vec::new();
+            
+            // Build hierarchy with proper recursion
+            fn build_folder_tree(
+                folder_id: i64,
+                all_folders: &Vec<crate::database::models::DbTemplateFolder>
+            ) -> TemplateFolder {
+                let db_folder = all_folders.iter().find(|f| f.id == folder_id).unwrap();
+                let mut folder = TemplateFolder {
+                    id: db_folder.id,
+                    name: db_folder.name.clone(),
+                    user_id: db_folder.user_id,
+                    parent_folder_id: db_folder.parent_folder_id,
+                    created_at: db_folder.created_at,
+                    updated_at: db_folder.updated_at,
+                    children: Some(Vec::new()),
+                    templates: None,
+                };
+
+                // Find and build all children
+                let children: Vec<TemplateFolder> = all_folders.iter()
+                    .filter(|f| f.parent_folder_id == Some(folder_id))
+                    .map(|child_db| build_folder_tree(child_db.id, all_folders))
+                    .collect();
+
+                if let Some(ref mut children_vec) = folder.children {
+                    *children_vec = children;
+                }
+
+                folder
+            }
+
+            // Build root folders with their full tree
+            for db_folder in &db_folders {
+                if db_folder.parent_folder_id.is_none() {
+                    let root_folder = build_folder_tree(db_folder.id, &db_folders);
+                    folders.push(root_folder);
+                }
+            }
+
+            ApiResponse::success(folders, "Folders retrieved successfully".to_string())
+        }
+        Err(e) => ApiResponse::internal_error(format!("Failed to retrieve folders: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/folders",
+    request_body = CreateFolderRequest,
+    responses(
+        (status = 201, description = "Folder created successfully", body = ApiResponse<TemplateFolder>),
+        (status = 500, description = "Internal server error", body = ApiResponse<TemplateFolder>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "folders"
+)]
+pub async fn create_folder(
+    State(state): State<AppState>,
+    Extension(user_id): Extension<i64>,
+    Json(payload): Json<CreateFolderRequest>,
+) -> (StatusCode, Json<ApiResponse<TemplateFolder>>) {
+    let pool = &state.lock().await.db_pool;
+
+    // Helper function to calculate folder depth
+    fn calculate_depth(folders: &[crate::database::models::DbTemplateFolder], folder_id: i64) -> i32 {
+        let mut depth = 1;
+        let mut current_id = folder_id;
+        loop {
+            if let Some(folder) = folders.iter().find(|f| f.id == current_id) {
+                if let Some(parent_id) = folder.parent_folder_id {
+                    depth += 1;
+                    current_id = parent_id;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        depth
+    }
+
+    // Check folder creation constraints
+    if let Some(parent_id) = payload.parent_folder_id {
+        match TemplateFolderQueries::get_folders_by_user(pool, user_id).await {
+            Ok(all_folders) => {
+                // Check if parent exists
+                if !all_folders.iter().any(|f| f.id == parent_id) {
+                    return ApiResponse::not_found("Parent folder not found".to_string());
+                }
+
+                // Calculate parent depth
+                let parent_depth = calculate_depth(&all_folders, parent_id);
+                if parent_depth >= 2 {
+                    return ApiResponse::bad_request("Cannot create folder: maximum 2 levels allowed".to_string());
+                }
+                
+                // Rule 2: If parent already has children, update existing child instead
+                let has_children = all_folders.iter().any(|f| f.parent_folder_id == Some(parent_id));
+                if has_children {
+                    if let Some(existing_child) = all_folders.iter().find(|f| f.parent_folder_id == Some(parent_id)) {
+                        // Determine the name to use for updating
+                        let template_name_holder;
+                        let update_name = if let Some(name) = &payload.name {
+                            Some(name.as_str())
+                        } else if let Some(template_id) = payload.template_id {
+                            // Get template name when name is not provided
+                            match TemplateQueries::get_template_by_id(pool, template_id).await {
+                                Ok(Some(template)) if template.user_id == user_id => {
+                                    template_name_holder = template.name;
+                                    Some(template_name_holder.as_str())
+                                }
+                                Ok(Some(_)) => return ApiResponse::forbidden("Access denied to template".to_string()),
+                                Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
+                                Err(e) => return ApiResponse::internal_error(format!("Failed to get template: {}", e)),
+                            }
+                        } else {
+                            return ApiResponse::bad_request("Either name or template_id must be provided".to_string());
+                        };
+
+                        match TemplateFolderQueries::update_folder(
+                            pool, 
+                            existing_child.id, 
+                            user_id, 
+                            update_name,
+                            Some(existing_child.parent_folder_id)
+                        ).await {
+                            Ok(Some(updated_folder)) => {
+                                let folder = TemplateFolder {
+                                    id: updated_folder.id,
+                                    name: updated_folder.name,
+                                    user_id: updated_folder.user_id,
+                                    parent_folder_id: updated_folder.parent_folder_id,
+                                    created_at: updated_folder.created_at,
+                                    updated_at: updated_folder.updated_at,
+                                    children: None,
+                                    templates: None,
+                                };
+                                return ApiResponse::success(folder, "Folder name updated (only 1 child per parent allowed)".to_string());
+                            }
+                            Ok(None) => return ApiResponse::not_found("Child folder not found".to_string()),
+                            Err(e) => return ApiResponse::internal_error(format!("Failed to update folder: {}", e)),
+                        }
+                    }
+                }
+            }
+            Err(e) => return ApiResponse::internal_error(format!("Failed to check folder hierarchy: {}", e)),
+        }
+    }
+
+    // Create new folder (either root or first child)
+    // Determine folder name
+    let folder_name = if let Some(name) = payload.name {
+        name
+    } else if let Some(template_id) = payload.template_id {
+        // Get template name when name is not provided
+        match TemplateQueries::get_template_by_id(pool, template_id).await {
+            Ok(Some(template)) if template.user_id == user_id => template.name,
+            Ok(Some(_)) => return ApiResponse::forbidden("Access denied to template".to_string()),
+            Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
+            Err(e) => return ApiResponse::internal_error(format!("Failed to get template: {}", e)),
+        }
+    } else {
+        return ApiResponse::bad_request("Either name or template_id must be provided".to_string());
+    };
+
+    let create_folder = CreateTemplateFolder {
+        name: folder_name,
+        user_id,
+        parent_folder_id: payload.parent_folder_id,
+    };
+
+    match TemplateFolderQueries::create_folder(pool, create_folder).await {
+        Ok(db_folder) => {
+            let folder_id = db_folder.id;
+
+            // Move template to the new folder if template_id is provided
+            if let Some(template_id) = payload.template_id {
+                // Verify template belongs to user
+                match TemplateQueries::get_template_by_id(pool, template_id).await {
+                    Ok(Some(template)) if template.user_id == user_id => {
+                        // Move template to the new folder
+                        if let Err(e) = TemplateFolderQueries::move_template_to_folder(pool, template_id, Some(folder_id), user_id).await {
+                            // Log error but don't fail the folder creation
+                            eprintln!("Failed to move template {} to folder {}: {}", template_id, folder_id, e);
+                        }
+                    }
+                    Ok(Some(_)) => {
+                        // Template doesn't belong to user, log but continue
+                        eprintln!("Template {} does not belong to user {}", template_id, user_id);
+                    }
+                    Ok(None) => {
+                        // Template not found, log but continue
+                        eprintln!("Template {} not found", template_id);
+                    }
+                    Err(e) => {
+                        // Database error, log but continue
+                        eprintln!("Error verifying template {}: {}", template_id, e);
+                    }
+                }
+            }
+
+            let folder = TemplateFolder {
+                id: folder_id,
+                name: db_folder.name,
+                user_id: db_folder.user_id,
+                parent_folder_id: db_folder.parent_folder_id,
+                created_at: db_folder.created_at,
+                updated_at: db_folder.updated_at,
+                children: None,
+                templates: None,
+            };
+            ApiResponse::created(folder, "Folder created successfully".to_string())
+        }
+        Err(e) => ApiResponse::internal_error(format!("Failed to create folder: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/folders/{id}",
+    params(
+        ("id" = i64, Path, description = "Folder ID")
+    ),
+    responses(
+        (status = 200, description = "Folder found with templates", body = ApiResponse<TemplateFolder>),
+        (status = 404, description = "Folder not found", body = ApiResponse<TemplateFolder>),
+        (status = 500, description = "Internal server error", body = ApiResponse<TemplateFolder>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "folders"
+)]
+pub async fn get_folder(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Extension(user_id): Extension<i64>,
+) -> (StatusCode, Json<ApiResponse<TemplateFolder>>) {
+    let pool = &state.lock().await.db_pool;
+
+    match TemplateFolderQueries::get_folder_by_id(pool, id, user_id).await {
+        Ok(Some(db_folder)) => {
+            // Get templates in this folder
+            match TemplateFolderQueries::get_templates_in_folder(pool, user_id, Some(id)).await {
+                Ok(db_templates) => {
+                    let templates = db_templates.into_iter()
+                        .map(|db_template| convert_db_template_to_template_without_fields(db_template))
+                        .collect();
+
+                    let folder = TemplateFolder {
+                        id: db_folder.id,
+                        name: db_folder.name,
+                        user_id: db_folder.user_id,
+                        parent_folder_id: db_folder.parent_folder_id,
+                        created_at: db_folder.created_at,
+                        updated_at: db_folder.updated_at,
+                        children: None,
+                        templates: Some(templates),
+                    };
+                    ApiResponse::success(folder, "Folder retrieved successfully".to_string())
+                }
+                Err(e) => ApiResponse::internal_error(format!("Failed to get folder templates: {}", e)),
+            }
+        }
+        Ok(None) => ApiResponse::not_found("Folder not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to retrieve folder: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/folders/{id}",
+    params(
+        ("id" = i64, Path, description = "Folder ID")
+    ),
+    request_body = UpdateFolderRequest,
+    responses(
+        (status = 200, description = "Folder updated successfully", body = ApiResponse<TemplateFolder>),
+        (status = 404, description = "Folder not found", body = ApiResponse<TemplateFolder>),
+        (status = 500, description = "Internal server error", body = ApiResponse<TemplateFolder>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "folders"
+)]
+pub async fn update_folder(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Extension(user_id): Extension<i64>,
+    Json(payload): Json<UpdateFolderRequest>,
+) -> (StatusCode, Json<ApiResponse<TemplateFolder>>) {
+    let pool = &state.lock().await.db_pool;
+
+    match TemplateFolderQueries::update_folder(
+        pool, 
+        id, 
+        user_id, 
+        payload.name.as_deref(),
+        None
+    ).await {
+        Ok(Some(db_folder)) => {
+            let folder = TemplateFolder {
+                id: db_folder.id,
+                name: db_folder.name,
+                user_id: db_folder.user_id,
+                parent_folder_id: db_folder.parent_folder_id,
+                created_at: db_folder.created_at,
+                updated_at: db_folder.updated_at,
+                children: None,
+                templates: None,
+            };
+            ApiResponse::success(folder, "Folder updated successfully".to_string())
+        }
+        Ok(None) => ApiResponse::not_found("Folder not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to update folder: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/folders/{id}",
+    params(
+        ("id" = i64, Path, description = "Folder ID")
+    ),
+    responses(
+        (status = 200, description = "Folder deleted successfully", body = ApiResponse<serde_json::Value>),
+        (status = 404, description = "Folder not found", body = ApiResponse<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = ApiResponse<serde_json::Value>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "folders"
+)]
+pub async fn delete_folder(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Extension(user_id): Extension<i64>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let pool = &state.lock().await.db_pool;
+
+    match TemplateFolderQueries::delete_folder(pool, id, user_id).await {
+        Ok(true) => ApiResponse::success(serde_json::json!({"deleted": true}), "Folder deleted successfully".to_string()),
+        Ok(false) => ApiResponse::not_found("Folder not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to delete folder: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/folders/{id}/templates",
+    params(
+        ("id" = i64, Path, description = "Folder ID")
+    ),
+    responses(
+        (status = 200, description = "Templates in folder retrieved successfully", body = ApiResponse<Vec<Template>>),
+        (status = 404, description = "Folder not found", body = ApiResponse<Vec<Template>>),
+        (status = 500, description = "Internal server error", body = ApiResponse<Vec<Template>>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "folders"
+)]
+pub async fn get_folder_templates(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Extension(user_id): Extension<i64>,
+) -> (StatusCode, Json<ApiResponse<Vec<Template>>>) {
+    let pool = &state.lock().await.db_pool;
+
+    // Verify folder exists and belongs to user
+    match TemplateFolderQueries::get_folder_by_id(pool, id, user_id).await {
+        Ok(Some(_)) => {
+            // Get templates in this folder
+            match TemplateFolderQueries::get_templates_in_folder(pool, user_id, Some(id)).await {
+                Ok(db_templates) => {
+                    let templates = db_templates.into_iter()
+                        .map(|db_template| convert_db_template_to_template_without_fields(db_template))
+                        .collect();
+                    ApiResponse::success(templates, "Templates retrieved successfully".to_string())
+                }
+                Err(e) => ApiResponse::internal_error(format!("Failed to get templates: {}", e)),
+            }
+        }
+        Ok(None) => ApiResponse::not_found("Folder not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to verify folder: {}", e)),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/templates/{template_id}/move/{folder_id}",
+    params(
+        ("template_id" = i64, Path, description = "Template ID"),
+        ("folder_id" = i64, Path, description = "Destination Folder ID (use 0 for root)")
+    ),
+    responses(
+        (status = 200, description = "Template moved successfully", body = ApiResponse<serde_json::Value>),
+        (status = 404, description = "Template or folder not found", body = ApiResponse<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = ApiResponse<serde_json::Value>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "folders"
+)]
+pub async fn move_template_to_folder(
+    State(state): State<AppState>,
+    Path((template_id, folder_id)): Path<(i64, i64)>,
+    Extension(user_id): Extension<i64>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let pool = &state.lock().await.db_pool;
+
+    let target_folder_id = if folder_id == 0 { None } else { Some(folder_id) };
+
+    // Verify template belongs to user
+    match TemplateQueries::get_template_by_id(pool, template_id).await {
+        Ok(Some(template)) if template.user_id == user_id => {
+            // If moving to a folder (not root), verify folder exists and belongs to user
+            if let Some(fid) = target_folder_id {
+                match TemplateFolderQueries::get_folder_by_id(pool, fid, user_id).await {
+                    Ok(Some(_)) => {} // Folder exists
+                    Ok(None) => return ApiResponse::not_found("Destination folder not found".to_string()),
+                    Err(e) => return ApiResponse::internal_error(format!("Failed to verify folder: {}", e)),
+                }
+            }
+
+            match TemplateFolderQueries::move_template_to_folder(pool, template_id, target_folder_id, user_id).await {
+                Ok(true) => ApiResponse::success(serde_json::json!({"moved": true}), "Template moved successfully".to_string()),
+                Ok(false) => ApiResponse::not_found("Template not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to move template: {}", e)),
+            }
+        }
+        Ok(Some(_)) => ApiResponse::not_found("Template not found".to_string()),
+        Ok(None) => ApiResponse::not_found("Template not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to verify template: {}", e)),
+    }
+}
+
+// ===== TEMPLATE ENDPOINTS =====
 
 #[utoipa::path(
     get,
@@ -453,6 +918,7 @@ pub async fn create_template(
         name: payload.name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        folder_id: payload.folder_id,
         documents: Some(serde_json::json!([{
             "filename": filename,
             "content_type": "text/plain",
@@ -556,6 +1022,7 @@ pub async fn create_template_from_html(
         name: payload.name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        folder_id: payload.folder_id,
         // fields: None, // Removed - fields will be added separately
         documents: None, // Skip documents for now
     };
@@ -646,6 +1113,7 @@ pub async fn create_template_from_pdf(
         name: template_name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        folder_id: None, // PDF uploads don't specify folder initially
         // fields: None, // TODO: Extract fields from PDF - REMOVED
         documents: Some(serde_json::json!([{
             "filename": filename,
@@ -741,6 +1209,7 @@ pub async fn create_template_from_docx(
         name: template_name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        folder_id: None, // DOCX uploads don't specify folder initially
         // fields: None, // TODO: Extract fields from DOCX - REMOVED
         documents: Some(serde_json::json!([{
             "filename": filename,
@@ -803,6 +1272,7 @@ async fn create_template_without_storage(
         name: payload.name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        folder_id: payload.folder_id,
         // fields: None, // Removed - fields will be added separately
         documents: None, // Skip documents for now
     };
@@ -827,6 +1297,7 @@ pub fn convert_db_template_to_template(db_template: crate::database::models::DbT
         name: db_template.name,
         slug: db_template.slug,
         user_id: db_template.user_id,
+        folder_id: db_template.folder_id,
         template_fields: None, // Will be loaded separately if needed
         submitters: None, // No longer stored in templates
         documents: db_template.documents.and_then(|v| serde_json::from_value(v).ok()),
@@ -844,6 +1315,7 @@ pub fn convert_db_template_to_template_without_fields(
         name: db_template.name,
         slug: db_template.slug,
         user_id: db_template.user_id,
+        folder_id: db_template.folder_id,
         template_fields: None,
         submitters: None,
         documents: db_template.documents.and_then(|v| serde_json::from_value(v).ok()),
@@ -880,6 +1352,7 @@ pub async fn convert_db_template_to_template_with_fields(
         name: db_template.name,
         slug: db_template.slug,
         user_id: db_template.user_id,
+        folder_id: db_template.folder_id,
         template_fields: Some(template_fields),
         submitters: None, // No longer stored in templates
         documents: db_template.documents.and_then(|v| serde_json::from_value(v).ok()),
@@ -1711,6 +2184,7 @@ pub async fn create_template_from_file(
         name: payload.name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        folder_id: payload.folder_id,
         documents: Some(serde_json::json!([{
             "filename": payload.file_id.split('/').last().unwrap_or(&payload.file_id),
             "content_type": content_type,

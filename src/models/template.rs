@@ -4,11 +4,38 @@ use utoipa::ToSchema;
 use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TemplateFolder {
+    pub id: i64,
+    pub name: String,
+    pub user_id: i64,
+    pub parent_folder_id: Option<i64>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<TemplateFolder>>, // Nested folders
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub templates: Option<Vec<Template>>, // Templates in this folder
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateFolderRequest {
+    pub name: Option<String>,
+    pub parent_folder_id: Option<i64>,
+    pub template_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateFolderRequest {
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Template {
     pub id: i64,
     pub name: String,
     pub slug: String,
     pub user_id: i64,
+    pub folder_id: Option<i64>,
     // pub fields: Option<Vec<Field>>, // Removed - now stored in separate table
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_fields: Option<Vec<TemplateField>>, // New: fields from separate table
@@ -76,12 +103,14 @@ pub struct Document {
 pub struct CreateTemplateRequest {
     pub name: String,
     pub document: String, // base64 encoded document
+    pub folder_id: Option<i64>,
     pub fields: Option<Vec<CreateTemplateFieldRequest>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateTemplateRequest {
     pub name: Option<String>,
+    pub folder_id: Option<i64>,
     // pub fields: Option<Vec<Field>>, // Removed - now use separate endpoints
 }
 
@@ -111,12 +140,14 @@ pub struct UpdateTemplateFieldRequest {
 pub struct CloneTemplateRequest {
     #[serde(default)]
     pub name: Option<String>,
+    pub folder_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateTemplateFromHtmlRequest {
     pub name: String,
     pub html: String,
+    pub folder_id: Option<i64>,
     // pub fields: Option<Vec<Field>>, // Removed - now use separate endpoints
     pub submitters: Option<Vec<Submitter>>,
 }
@@ -124,6 +155,7 @@ pub struct CreateTemplateFromHtmlRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateTemplateFromPdfRequest {
     pub name: String,
+    pub folder_id: Option<i64>,
     // pub submitters: Option<Vec<Submitter>>, // Keep this for PDF processing
 }
 
@@ -131,6 +163,7 @@ pub struct CreateTemplateFromPdfRequest {
 pub struct CreateTemplateFromDocxRequest {
     pub name: String,
     pub docx_data: String, // base64 encoded
+    pub folder_id: Option<i64>,
     pub submitters: Option<Vec<Submitter>>,
 }
 
@@ -138,6 +171,7 @@ pub struct CreateTemplateFromDocxRequest {
 pub struct MergeTemplatesRequest {
     pub template_ids: Vec<i64>,
     pub name: String,
+    pub folder_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -160,4 +194,5 @@ pub struct FileUploadResponse {
 pub struct CreateTemplateFromFileRequest {
     pub file_id: String,
     pub name: String,
+    pub folder_id: Option<i64>,
 }
