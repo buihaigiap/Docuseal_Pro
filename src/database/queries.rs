@@ -323,19 +323,18 @@ impl TemplateQueries {
         Ok(templates)
     }
 
-    pub async fn update_template(pool: &PgPool, id: i64, user_id: i64, name: Option<&str>) -> Result<Option<DbTemplate>, sqlx::Error> {
+    pub async fn update_template(pool: &PgPool, id: i64, name: Option<&str>) -> Result<Option<DbTemplate>, sqlx::Error> {
         let now = Utc::now();
 
         let row = sqlx::query(
             r#"
             UPDATE templates
-            SET name = COALESCE($3, name), updated_at = $4
-            WHERE id = $1 AND user_id = $2
+            SET name = COALESCE($2, name), updated_at = $3
+            WHERE id = $1
             RETURNING id, name, slug, user_id, folder_id, documents, created_at, updated_at
             "#
         )
         .bind(id)
-        .bind(user_id)
         .bind(name)
         .bind(now)
         .fetch_optional(pool)
@@ -357,10 +356,9 @@ impl TemplateQueries {
         }
     }
 
-    pub async fn delete_template(pool: &PgPool, id: i64, user_id: i64) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM templates WHERE id = $1 AND user_id = $2")
+    pub async fn delete_template(pool: &PgPool, id: i64) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM templates WHERE id = $1")
             .bind(id)
-            .bind(user_id)
             .execute(pool)
             .await?;
 
@@ -370,11 +368,6 @@ impl TemplateQueries {
     pub async fn clone_template(pool: &PgPool, original_id: i64, user_id: i64, new_name: &str, new_slug: &str) -> Result<Option<DbTemplate>, sqlx::Error> {
         // First get the original template
         if let Some(original) = Self::get_template_by_id(pool, original_id).await? {
-            // Check if the template belongs to the user
-            if original.user_id != user_id {
-                return Ok(None);
-            }
-
             let now = Utc::now();
             let create_data = CreateTemplate {
                 name: new_name.to_string(),
@@ -421,12 +414,11 @@ impl TemplateFolderQueries {
         })
     }
 
-    pub async fn get_folder_by_id(pool: &PgPool, id: i64, user_id: i64) -> Result<Option<DbTemplateFolder>, sqlx::Error> {
+    pub async fn get_folder_by_id(pool: &PgPool, id: i64) -> Result<Option<DbTemplateFolder>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, user_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE id = $1 AND user_id = $2"
+            "SELECT id, name, user_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE id = $1"
         )
         .bind(id)
-        .bind(user_id)
         .fetch_optional(pool)
         .await?;
 
@@ -531,21 +523,20 @@ impl TemplateFolderQueries {
         Ok(templates)
     }
 
-    pub async fn update_folder(pool: &PgPool, id: i64, user_id: i64, name: Option<&str>, parent_folder_id: Option<Option<i64>>) -> Result<Option<DbTemplateFolder>, sqlx::Error> {
+    pub async fn update_folder(pool: &PgPool, id: i64, name: Option<&str>, parent_folder_id: Option<Option<i64>>) -> Result<Option<DbTemplateFolder>, sqlx::Error> {
         let now = Utc::now();
 
         let row = sqlx::query(
             r#"
             UPDATE template_folders
-            SET name = COALESCE($3, name),
-                parent_folder_id = COALESCE($4, parent_folder_id),
-                updated_at = $5
-            WHERE id = $1 AND user_id = $2
+            SET name = COALESCE($2, name),
+                parent_folder_id = COALESCE($3, parent_folder_id),
+                updated_at = $4
+            WHERE id = $1
             RETURNING id, name, user_id, parent_folder_id, created_at, updated_at
             "#
         )
         .bind(id)
-        .bind(user_id)
         .bind(name)
         .bind(parent_folder_id)
         .bind(now)
@@ -565,11 +556,11 @@ impl TemplateFolderQueries {
         }
     }
 
-    pub async fn delete_folder(pool: &PgPool, id: i64, user_id: i64) -> Result<bool, sqlx::Error> {
+    pub async fn delete_folder(pool: &PgPool, id: i64, folder_user_id: i64) -> Result<bool, sqlx::Error> {
         // First, move all templates in this folder to root (no folder)
         sqlx::query("UPDATE templates SET folder_id = NULL WHERE folder_id = $1 AND user_id = $2")
             .bind(id)
-            .bind(user_id)
+            .bind(folder_user_id)
             .execute(pool)
             .await?;
 
@@ -578,7 +569,7 @@ impl TemplateFolderQueries {
             "SELECT parent_folder_id FROM template_folders WHERE id = $1 AND user_id = $2"
         )
         .bind(id)
-        .bind(user_id)
+        .bind(folder_user_id)
         .fetch_optional(pool)
         .await?
         .flatten();
@@ -586,14 +577,14 @@ impl TemplateFolderQueries {
         sqlx::query("UPDATE template_folders SET parent_folder_id = $1 WHERE parent_folder_id = $2 AND user_id = $3")
             .bind(parent_folder_id)
             .bind(id)
-            .bind(user_id)
+            .bind(folder_user_id)
             .execute(pool)
             .await?;
 
         // Delete the folder
         let result = sqlx::query("DELETE FROM template_folders WHERE id = $1 AND user_id = $2")
             .bind(id)
-            .bind(user_id)
+            .bind(folder_user_id)
             .execute(pool)
             .await?;
 
@@ -611,6 +602,199 @@ impl TemplateFolderQueries {
         .await?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn get_team_folders(pool: &PgPool, user_id: i64) -> Result<Vec<DbTemplateFolder>, sqlx::Error> {
+        // Get the user's invitation info to find their team
+        let team_query = sqlx::query(
+            r#"
+            SELECT invited_by_user_id FROM user_invitations 
+            WHERE email = (SELECT email FROM users WHERE id = $1) AND is_used = TRUE
+            "#
+        )
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+
+        // Determine team members
+        let team_member_ids = if let Some(row) = team_query {
+            // User was invited - can see inviter's folders and own folders
+            let invited_by: Option<i64> = row.try_get("invited_by_user_id")?;
+            if let Some(inviter_id) = invited_by {
+                // Get all users invited by the same inviter (team members)
+                let team_rows = sqlx::query(
+                    r#"
+                    SELECT u.id FROM users u
+                    INNER JOIN user_invitations ui ON u.email = ui.email
+                    WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
+                    UNION
+                    SELECT $1 as id
+                    "#
+                )
+                .bind(inviter_id)
+                .fetch_all(pool)
+                .await?;
+
+                let mut ids: Vec<i64> = team_rows.iter()
+                    .filter_map(|row| row.try_get::<i64, _>("id").ok())
+                    .collect();
+                ids.push(inviter_id);
+                ids
+            } else {
+                vec![user_id]
+            }
+        } else {
+            // User is the inviter - can see own folders and invited users' folders
+            let invited_rows = sqlx::query(
+                r#"
+                SELECT u.id FROM users u
+                INNER JOIN user_invitations ui ON u.email = ui.email
+                WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
+                UNION
+                SELECT $1 as id
+                "#
+            )
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+
+            invited_rows.iter()
+                .filter_map(|row| row.try_get::<i64, _>("id").ok())
+                .collect()
+        };
+
+        // Get folders for all team members
+        let placeholders = team_member_ids.iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 1))
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let query_str = format!(
+            "SELECT id, name, user_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE user_id IN ({}) ORDER BY name ASC",
+            placeholders
+        );
+
+        let mut query = sqlx::query(&query_str);
+        for id in &team_member_ids {
+            query = query.bind(id);
+        }
+
+        let rows = query.fetch_all(pool).await?;
+
+        let mut folders = Vec::new();
+        for row in rows {
+            folders.push(DbTemplateFolder {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                user_id: row.try_get("user_id")?,
+                parent_folder_id: row.try_get("parent_folder_id")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            });
+        }
+        Ok(folders)
+    }
+
+    // Get templates in a specific folder that are accessible by team members
+    pub async fn get_team_templates_in_folder(pool: &PgPool, user_id: i64, folder_id: i64) -> Result<Vec<DbTemplate>, sqlx::Error> {
+        // Get the user's invitation info to find their team
+        let team_query = sqlx::query(
+            r#"
+            SELECT invited_by_user_id FROM user_invitations 
+            WHERE email = (SELECT email FROM users WHERE id = $1) AND is_used = TRUE
+            "#
+        )
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+
+        // Determine team members
+        let team_member_ids = if let Some(row) = team_query {
+            // User was invited - can see inviter's templates and own templates
+            let invited_by: Option<i64> = row.try_get("invited_by_user_id")?;
+            if let Some(inviter_id) = invited_by {
+                // Get all users invited by the same inviter (team members)
+                let team_rows = sqlx::query(
+                    r#"
+                    SELECT u.id FROM users u
+                    INNER JOIN user_invitations ui ON u.email = ui.email
+                    WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
+                    UNION
+                    SELECT $1 as id
+                    "#
+                )
+                .bind(inviter_id)
+                .fetch_all(pool)
+                .await?;
+
+                let mut ids: Vec<i64> = team_rows.iter()
+                    .filter_map(|row| row.try_get::<i64, _>("id").ok())
+                    .collect();
+                ids.push(user_id); // Include current user
+                ids
+            } else {
+                vec![user_id] // No inviter, only own templates
+            }
+        } else {
+            // User is admin/inviter - can see own templates + invited users' templates
+            let invited_rows = sqlx::query(
+                r#"
+                SELECT u.id FROM users u
+                INNER JOIN user_invitations ui ON u.email = ui.email
+                WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
+                "#
+            )
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+
+            let mut ids: Vec<i64> = invited_rows.iter()
+                .filter_map(|row| row.try_get::<i64, _>("id").ok())
+                .collect();
+            ids.push(user_id); // Include current user (admin)
+            ids
+        };
+
+        // Get templates for all team members in the specific folder
+        if team_member_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let placeholders: Vec<String> = (1..=team_member_ids.len())
+            .map(|i| format!("${}", i))
+            .collect();
+        let query_str = format!(
+            "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at 
+             FROM templates 
+             WHERE user_id IN ({}) AND folder_id = ${}
+             ORDER BY created_at DESC",
+            placeholders.join(", "),
+            team_member_ids.len() + 1
+        );
+
+        let mut query = sqlx::query(&query_str);
+        for id in team_member_ids {
+            query = query.bind(id);
+        }
+        query = query.bind(folder_id);
+
+        let rows = query.fetch_all(pool).await?;
+
+        let mut templates = Vec::new();
+        for row in rows {
+            templates.push(DbTemplate {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                slug: row.try_get("slug")?,
+                user_id: row.try_get("user_id")?,
+                folder_id: row.try_get("folder_id")?,
+                documents: row.try_get("documents")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            });
+        }
+        Ok(templates)
     }
 }
 
@@ -1032,6 +1216,110 @@ impl SubmitterQueries {
             .await?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    // Get submitters accessible by team (invited users can see inviter's submitters)
+    pub async fn get_team_submitters(pool: &PgPool, user_id: i64) -> Result<Vec<DbSubmitter>, sqlx::Error> {
+        // Get the user's invitation info to find their team
+        let team_query = sqlx::query(
+            r#"
+            SELECT invited_by_user_id FROM user_invitations 
+            WHERE email = (SELECT email FROM users WHERE id = $1) AND is_used = TRUE
+            "#
+        )
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+
+        // Determine team members
+        let team_member_ids = if let Some(row) = team_query {
+            // User was invited - can see inviter's submitters and own submitters
+            let invited_by: Option<i64> = row.try_get("invited_by_user_id")?;
+            if let Some(inviter_id) = invited_by {
+                // Get all users invited by the same inviter (team members)
+                let team_rows = sqlx::query(
+                    r#"
+                    SELECT u.id FROM users u
+                    INNER JOIN user_invitations ui ON u.email = ui.email
+                    WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
+                    UNION
+                    SELECT $1 as id
+                    "#
+                )
+                .bind(inviter_id)
+                .fetch_all(pool)
+                .await?;
+
+                let mut ids: Vec<i64> = team_rows.iter()
+                    .filter_map(|row| row.try_get::<i64, _>("id").ok())
+                    .collect();
+                ids.push(user_id); // Include current user
+                ids
+            } else {
+                vec![user_id] // No inviter, only own submitters
+            }
+        } else {
+            // User is admin/inviter - can see own submitters + invited users' submitters
+            let invited_rows = sqlx::query(
+                r#"
+                SELECT u.id FROM users u
+                INNER JOIN user_invitations ui ON u.email = ui.email
+                WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
+                "#
+            )
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+
+            let mut ids: Vec<i64> = invited_rows.iter()
+                .filter_map(|row| row.try_get::<i64, _>("id").ok())
+                .collect();
+            ids.push(user_id); // Include current user (admin)
+            ids
+        };
+
+        // Get submitters for all team members
+        if team_member_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let placeholders: Vec<String> = (1..=team_member_ids.len())
+            .map(|i| format!("${}", i))
+            .collect();
+        let query_str = format!(
+            "SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, created_at, updated_at 
+             FROM submitters 
+             WHERE user_id IN ({}) 
+             ORDER BY created_at DESC",
+            placeholders.join(", ")
+        );
+
+        let mut query = sqlx::query(&query_str);
+        for id in team_member_ids {
+            query = query.bind(id);
+        }
+
+        let rows = query.fetch_all(pool).await?;
+
+        let mut submitters = Vec::new();
+        for row in rows {
+            submitters.push(DbSubmitter {
+                id: row.get(0),
+                template_id: row.get(1),
+                user_id: row.get(2),
+                name: row.get(3),
+                email: row.get(4),
+                status: row.get(5),
+                signed_at: row.get(6),
+                token: row.get(7),
+                bulk_signatures: row.get(8),
+                ip_address: row.get(9),
+                user_agent: row.get(10),
+                created_at: row.get(11),
+                updated_at: row.get(12),
+            });
+        }
+        Ok(submitters)
     }
 }
 

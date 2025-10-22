@@ -28,8 +28,8 @@ pub async fn get_submitters(
 ) -> (StatusCode, Json<ApiResponse<Vec<crate::models::submitter::Submitter>>>) {
     let pool = &state.lock().await.db_pool;
 
-    // Get submitters directly for this user
-    match SubmitterQueries::get_submitters_by_user(pool, user_id).await {
+    // Get submitters for this user and their team members
+    match SubmitterQueries::get_team_submitters(pool, user_id).await {
         Ok(db_submitters) => {
             let mut all_submitters = Vec::new();
             
@@ -71,11 +71,25 @@ pub async fn get_submitters(
 pub async fn get_submitter(
     State(state): State<AppState>,
     Path(submitter_id): Path<i64>,
+    Extension(user_id): Extension<i64>,
 ) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
     let pool = &state.lock().await.db_pool;
 
     match SubmitterQueries::get_submitter_by_id(pool, submitter_id).await {
         Ok(Some(db_submitter)) => {
+            // Check permissions - allow access if user is the owner OR has Editor/Admin/Member role
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    let has_access = db_submitter.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::forbidden("Access denied".to_string());
+                    }
+                }
+                _ => return ApiResponse::forbidden("User not found".to_string()),
+            }
+
             let submitter = crate::models::submitter::Submitter {
                 id: Some(db_submitter.id),
                 template_id: Some(db_submitter.template_id),
@@ -137,29 +151,50 @@ pub async fn get_me(
 pub async fn update_submitter(
     State(state): State<AppState>,
     Path(submitter_id): Path<i64>,
+    Extension(user_id): Extension<i64>,
     Json(payload): Json<crate::models::submitter::UpdateSubmitterRequest>,
 ) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
     let pool = &state.lock().await.db_pool;
 
-    match SubmitterQueries::update_submitter(pool, submitter_id, payload.status.as_deref()).await {
+    // First, verify the submitter exists and check permissions
+    match SubmitterQueries::get_submitter_by_id(pool, submitter_id).await {
         Ok(Some(db_submitter)) => {
-            let submitter = crate::models::submitter::Submitter {
-                id: Some(db_submitter.id),
-                template_id: Some(db_submitter.template_id),
-                user_id: Some(db_submitter.user_id),
-                name: db_submitter.name,
-                email: db_submitter.email,
-                status: db_submitter.status,
-                signed_at: db_submitter.signed_at,
-                token: db_submitter.token,
-                bulk_signatures: db_submitter.bulk_signatures,
-                created_at: db_submitter.created_at,
-                updated_at: db_submitter.updated_at,
-            };
-            ApiResponse::success(submitter, "Submitter updated successfully".to_string())
+            // Check permissions - allow access if user is the owner OR has Editor/Admin/Member role
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    let has_access = db_submitter.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::forbidden("Access denied".to_string());
+                    }
+                }
+                _ => return ApiResponse::forbidden("User not found".to_string()),
+            }
+
+            match SubmitterQueries::update_submitter(pool, submitter_id, payload.status.as_deref()).await {
+                Ok(Some(db_submitter)) => {
+                    let submitter = crate::models::submitter::Submitter {
+                        id: Some(db_submitter.id),
+                        template_id: Some(db_submitter.template_id),
+                        user_id: Some(db_submitter.user_id),
+                        name: db_submitter.name,
+                        email: db_submitter.email,
+                        status: db_submitter.status,
+                        signed_at: db_submitter.signed_at,
+                        token: db_submitter.token,
+                        bulk_signatures: db_submitter.bulk_signatures,
+                        created_at: db_submitter.created_at,
+                        updated_at: db_submitter.updated_at,
+                    };
+                    ApiResponse::success(submitter, "Submitter updated successfully".to_string())
+                }
+                Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to update submitter: {}", e)),
+            }
         }
         Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Failed to update submitter: {}", e)),
+        Err(e) => ApiResponse::internal_error(format!("Failed to get submitter: {}", e)),
     }
 }
 
@@ -183,12 +218,20 @@ pub async fn delete_submitter(
 ) -> (StatusCode, Json<ApiResponse<String>>) {
     let pool = &state.lock().await.db_pool;
 
-    // First, verify the submitter exists and belongs to this user
+    // First, verify the submitter exists and belongs to this user or team
     match SubmitterQueries::get_submitter_by_id(pool, submitter_id).await {
         Ok(Some(db_submitter)) => {
-            // Check if the submitter belongs to this user
-            if db_submitter.user_id != user_id {
-                return ApiResponse::unauthorized("You don't have permission to delete this submitter".to_string());
+            // Check permissions - allow access if user is the owner OR has Editor/Admin/Member role
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    let has_access = db_submitter.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::unauthorized("You don't have permission to delete this submitter".to_string());
+                    }
+                }
+                _ => return ApiResponse::unauthorized("User not found".to_string()),
             }
 
             // Delete the submitter

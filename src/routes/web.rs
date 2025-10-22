@@ -13,6 +13,9 @@ use crate::services::email::EmailService;
 use bcrypt::{hash, verify, DEFAULT_COST};
 use crate::common::requests::{RegisterRequest, LoginRequest};
 use crate::common::responses::{ApiResponse, LoginResponse};
+use jsonwebtoken::{encode, decode, EncodingKey, DecodingKey, Header, Validation};
+use urlencoding;
+use sqlx::Row;
 use crate::models::user::User;
 use crate::models::role::Role;
 use crate::database::connection::DbPool;
@@ -43,6 +46,7 @@ pub fn create_router() -> Router<AppState> {
     let auth_routes = Router::new()
         .route("/me", get(submitters::get_me))
         .route("/users", get(get_users_handler))
+        .route("/auth/users", post(invite_user_handler))
         .route("/submitters", get(submitters::get_submitters))
         .route("/submitters/:id", get(submitters::get_submitter))
         .route("/submitters/:id", put(submitters::update_submitter))
@@ -53,7 +57,6 @@ pub fn create_router() -> Router<AppState> {
         .layer(middleware::from_fn(auth_middleware));
 
     let public_routes = Router::new()
-       .route("/auth/users", post(invite_user_handler))
         .route("/auth/register", post(register_handler))
         .route("/auth/login", post(login_handler))
         .route("/auth/activate", post(activate_user))
@@ -168,8 +171,9 @@ pub async fn login_handler(
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct ActivateUserRequest {
-    pub email: String,
-    pub activation_code: String, // Short code from email (e.g., "ABC123")
+    pub email: Option<String>, // Email from URL parameter (overrides JWT token email)
+    pub name: Option<String>, // Name from URL parameter (overrides JWT token name)
+    pub token: String, // JWT token from invitation link (REQUIRED)
     pub password: String, // User sets their own password during activation
 }
 
@@ -179,8 +183,8 @@ pub struct ActivateUserRequest {
     tag = "auth",
     request_body = ActivateUserRequest,
     responses(
-        (status = 200, description = "Account activated successfully with user-chosen password"),
-        (status = 400, description = "Invalid token or user already exists"),
+        (status = 200, description = "Account activated successfully using JWT token. Email and name can be overridden via request body"),
+        (status = 400, description = "Invalid JWT token or user already exists"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -190,22 +194,52 @@ pub async fn activate_user(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let pool = &state.lock().await.db_pool;
 
-    // Verify activation code from database
+    // JWT Token method only (secure and modern)
+    use jsonwebtoken::{decode, DecodingKey, Validation};
+    use serde::{Serialize, Deserialize};
+    
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct InvitationClaims {
+        pub invitation_id: i64,
+        pub name: String,
+        pub email: String,
+        pub role: String,
+        pub exp: usize,
+    }
+    
+    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+    
+    // Decode and verify JWT token
+    let claims = match decode::<InvitationClaims>(
+        &payload.token,
+        &DecodingKey::from_secret(jwt_secret.as_ref()),
+        &Validation::default()
+    ) {
+        Ok(token_data) => token_data.claims,
+        Err(e) => {
+            eprintln!("JWT decode error: {}", e);
+            return Ok(Json(serde_json::json!({
+                "error": "Invalid or expired invitation token"
+            })));
+        }
+    };
+    
+    // Get invitation from database using invitation_id
     let invitation = match sqlx::query_as::<_, crate::database::models::DbUserInvitation>(
         r#"
         SELECT * FROM user_invitations 
-        WHERE email = $1 AND activation_code = $2 AND is_used = FALSE
+        WHERE id = $1 AND email = $2 AND is_used = FALSE AND expires_at > NOW()
         "#
     )
-    .bind(&payload.email)
-    .bind(&payload.activation_code)
+    .bind(claims.invitation_id)
+    .bind(&claims.email)
     .fetch_optional(pool)
     .await
     {
         Ok(Some(inv)) => inv,
         Ok(None) => {
             return Ok(Json(serde_json::json!({
-                "error": "Invalid or expired activation code"
+                "error": "Invalid or expired invitation"
             })));
         }
         Err(e) => {
@@ -227,10 +261,14 @@ pub async fn activate_user(
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
-    // Create user in database with info from invitation
+    // Use name from URL parameter if provided, otherwise use invitation name
+    let user_name = payload.name.clone().unwrap_or(invitation.name.clone());
+    let user_email = payload.email.clone().unwrap_or(invitation.email.clone());
+
+    // Create user in database with info from invitation or URL parameters
     let create_user = CreateUser {
-        name: invitation.name.clone(),
-        email: invitation.email.clone(),
+        name: user_name,
+        email: user_email.clone(),
         password_hash,
         role: invitation.role,
         is_active: true, // User is active after activation
@@ -250,7 +288,7 @@ pub async fn activate_user(
 
             Ok(Json(serde_json::json!({
                 "message": "Account activated successfully. You can now login.",
-                "email": invitation.email
+                "email": user_email
             })))
         }
         Err(e) => {
@@ -271,7 +309,7 @@ pub struct InviteUserRequest {
 // Invite user to team (Admin only - sends activation email, user data NOT created until activation)
 #[utoipa::path(
     post,
-    path = "/api/users",
+    path = "/api/auth/users",
     request_body = InviteUserRequest,
     responses(
         (status = 200, description = "User invitation sent successfully"),
@@ -317,36 +355,65 @@ pub async fn invite_user_handler(
         }
     }
 
-    // Generate SHORT activation code (6 characters: letters + numbers)
-    use rand::Rng;
-    let activation_code: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(6)
-        .map(|c| c.to_ascii_uppercase() as char)
-        .collect();
-
     // Save invitation to database (NOT create user yet)
     let result = sqlx::query(
         r#"
-        INSERT INTO user_invitations (email, name, role, activation_code, invited_by_user_id)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO user_invitations (email, name, role, invited_by_user_id)
+        VALUES ($1, $2, $3, $4)
         RETURNING id
         "#
     )
     .bind(&payload.email)
     .bind(&payload.name)
     .bind(&payload.role)
-    .bind(&activation_code)
     .bind(user_id)
     .fetch_one(pool)
     .await;
 
-    if let Err(e) = result {
-        eprintln!("Failed to create invitation: {}", e);
-        return ApiResponse::internal_error("Failed to create invitation".to_string());
-    }
+    // Get the invitation ID from result
+    let invitation_row = match result {
+        Ok(row) => row,
+        Err(e) => {
+            eprintln!("Database error creating invitation: {}", e);
+            return ApiResponse::internal_error("Failed to create invitation".to_string());
+        }
+    };
+    
+    let invitation_id: i64 = invitation_row.get("id");
 
-    // Send invitation email with activation code (NO TOKEN in URL)
+    // Generate JWT token for invitation (expires in 24 hours)
+    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+    
+    // Create claims with invitation data
+    use chrono::{Duration, Utc};
+    use serde::{Serialize, Deserialize};
+    
+    #[derive(Debug, Serialize, Deserialize)]
+    struct InvitationClaims {
+        pub invitation_id: i64,
+        pub name: String,
+        pub email: String,
+        pub role: String,
+        pub exp: usize,
+    }
+    
+    let claims = InvitationClaims {
+        invitation_id,
+        name: payload.name.clone(),
+        email: payload.email.clone(),
+        role: payload.role.to_string(),
+        exp: (Utc::now() + Duration::hours(24)).timestamp() as usize,
+    };
+    
+    let token = match encode(&Header::default(), &claims, &EncodingKey::from_secret(jwt_secret.as_ref())) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Failed to create JWT token: {}", e);
+            return ApiResponse::internal_error("Failed to create invitation token".to_string());
+        }
+    };
+
+    // Send invitation email with JWT token link
     let email_service = match EmailService::new() {
         Ok(service) => service,
         Err(e) => {
@@ -355,33 +422,17 @@ pub async fn invite_user_handler(
         }
     };
 
-    // Simple activation page URL (user will enter code manually)
+    // Activation link with JWT token, email and name in URL
     let activation_link = format!(
-        "{}/activate?email={}",
+        "{}/auth/activate?token={}&email={}&name={}",
         std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string()),
-        payload.email
+        token,
+        urlencoding::encode(&payload.email),
+        urlencoding::encode(&payload.name)
     );
 
-    // Send email with activation code
-    let email_body = format!(
-        r#"
-        <h2>Welcome to DocuSeal Pro!</h2>
-        <p>Hi {},</p>
-        <p>You have been invited to join DocuSeal Pro as <strong>{}</strong>.</p>
-        <p>Your activation code is:</p>
-        <h1 style="background: #f0f0f0; padding: 20px; text-align: center; letter-spacing: 5px; font-family: monospace;">{}</h1>
-        <p>Please visit <a href="{}">{}</a> and enter this code to set your password and activate your account.</p>
-        <p>This code will expire in 7 days.</p>
-        <p>If you didn't request this invitation, please ignore this email.</p>
-        "#,
-        payload.name,
-        payload.role.to_lowercase(),
-        activation_code,
-        activation_link,
-        activation_link
-    );
-
-    if let Err(e) = email_service.send_user_activation_email(&payload.email, &payload.name, &email_body).await {
+    // Send email with activation link (email service will generate proper template)
+    if let Err(e) = email_service.send_user_activation_email(&payload.email, &payload.name, &activation_link).await {
         eprintln!("Failed to send invitation email: {}", e);
         // Don't fail - invitation is saved, admin can resend
     }
@@ -392,16 +443,16 @@ pub async fn invite_user_handler(
             "email": payload.email,
             "name": payload.name,
             "role": payload.role,
-            "activation_code": activation_code // Return for testing (remove in production)
+            "invitation_id": invitation_id
         }),
-        "User invitation sent. They will receive an email with activation code.".to_string()
+        "User invitation sent. They will receive an email with activation link.".to_string()
     )
 }
 
 // Get all users (Admin only)
 #[utoipa::path(
     get,
-    path = "/api/auth/users",
+    path = "/api/users",
     responses(
         (status = 200, description = "List of users", body = Vec<User>),
         (status = 401, description = "Unauthorized")

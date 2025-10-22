@@ -77,7 +77,7 @@ use crate::common::responses::ApiResponse;
 use crate::models::template::{
     Template, UpdateTemplateRequest, CloneTemplateRequest,
     CreateTemplateFromHtmlRequest, MergeTemplatesRequest,
-    TemplateField, FieldPosition, SuggestedPosition,
+    TemplateField,
     CreateTemplateFieldRequest, UpdateTemplateFieldRequest,
     FileUploadResponse, CreateTemplateFromFileRequest, CreateTemplateRequest,
     TemplateFolder, CreateFolderRequest, UpdateFolderRequest
@@ -111,11 +111,21 @@ pub async fn get_template_full_info(
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
     let pool = &state.lock().await.db_pool;
 
-    // Verify template belongs to user
+    // Verify user has permission to access this template
     match TemplateQueries::get_template_by_id(pool, template_id).await {
         Ok(Some(db_template)) => {
-            if db_template.user_id != user_id {
-                return ApiResponse::forbidden("Access denied".to_string());
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    let has_access = db_template.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::forbidden("Access denied".to_string());
+                    }
+                }
+                _ => return ApiResponse::forbidden("User not found".to_string()),
             }
 
             // Convert template to API model with fields loaded
@@ -195,11 +205,11 @@ pub async fn get_template_full_info(
 pub fn create_template_router() -> Router<AppState> {
     // Public routes (no authentication required)
     let public_routes = Router::new()
-        .route("/files/preview/*key", get(preview_file))
         .route("/files/upload/public", post(upload_file_public));
 
     // Authenticated routes
     let auth_routes = Router::new()
+        .route("/files/preview/*key", get(preview_file))
         // Template folders routes
         .route("/folders", get(get_folders))
         .route("/folders", post(create_folder))
@@ -254,7 +264,7 @@ pub async fn get_folders(
 ) -> (StatusCode, Json<ApiResponse<Vec<TemplateFolder>>>) {
     let pool = &state.lock().await.db_pool;
 
-    match TemplateFolderQueries::get_folders_by_user(pool, user_id).await {
+    match TemplateFolderQueries::get_team_folders(pool, user_id).await {
         Ok(db_folders) => {
             let mut folders = Vec::new();
             
@@ -380,7 +390,6 @@ pub async fn create_folder(
                         match TemplateFolderQueries::update_folder(
                             pool, 
                             existing_child.id, 
-                            user_id, 
                             update_name,
                             Some(existing_child.parent_folder_id)
                         ).await {
@@ -414,8 +423,21 @@ pub async fn create_folder(
     } else if let Some(template_id) = payload.template_id {
         // Get template name when name is not provided
         match TemplateQueries::get_template_by_id(pool, template_id).await {
-            Ok(Some(template)) if template.user_id == user_id => template.name,
-            Ok(Some(_)) => return ApiResponse::forbidden("Access denied to template".to_string()),
+            Ok(Some(template)) => {
+                // Check user permission to access template
+                match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                    Ok(Some(user)) => {
+                        let has_access = template.user_id == user_id || 
+                                       matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                        
+                        if !has_access {
+                            return ApiResponse::forbidden("Access denied to template".to_string());
+                        }
+                    }
+                    _ => return ApiResponse::forbidden("User not found".to_string()),
+                }
+                template.name
+            }
             Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
             Err(e) => return ApiResponse::internal_error(format!("Failed to get template: {}", e)),
         }
@@ -435,26 +457,18 @@ pub async fn create_folder(
 
             // Move template to the new folder if template_id is provided
             if let Some(template_id) = payload.template_id {
-                // Verify template belongs to user
+                // Template access already verified above, move it
                 match TemplateQueries::get_template_by_id(pool, template_id).await {
-                    Ok(Some(template)) if template.user_id == user_id => {
+                    Ok(Some(template)) => {
                         // Move template to the new folder
-                        if let Err(e) = TemplateFolderQueries::move_template_to_folder(pool, template_id, Some(folder_id), user_id).await {
+                        if let Err(e) = TemplateFolderQueries::move_template_to_folder(pool, template_id, Some(folder_id), template.user_id).await {
                             // Log error but don't fail the folder creation
                             eprintln!("Failed to move template {} to folder {}: {}", template_id, folder_id, e);
                         }
                     }
-                    Ok(Some(_)) => {
-                        // Template doesn't belong to user, log but continue
-                        eprintln!("Template {} does not belong to user {}", template_id, user_id);
-                    }
-                    Ok(None) => {
-                        // Template not found, log but continue
-                        eprintln!("Template {} not found", template_id);
-                    }
-                    Err(e) => {
-                        // Database error, log but continue
-                        eprintln!("Error verifying template {}: {}", template_id, e);
+                    _ => {
+                        // Template access was already checked, this shouldn't happen
+                        eprintln!("Template {} not found during folder creation", template_id);
                     }
                 }
             }
@@ -496,10 +510,24 @@ pub async fn get_folder(
 ) -> (StatusCode, Json<ApiResponse<TemplateFolder>>) {
     let pool = &state.lock().await.db_pool;
 
-    match TemplateFolderQueries::get_folder_by_id(pool, id, user_id).await {
+    match TemplateFolderQueries::get_folder_by_id(pool, id).await {
         Ok(Some(db_folder)) => {
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    let has_access = db_folder.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::not_found("Folder not found".to_string());
+                    }
+                }
+                _ => return ApiResponse::forbidden("User not found".to_string()),
+            }
+
             // Get templates in this folder
-            match TemplateFolderQueries::get_templates_in_folder(pool, user_id, Some(id)).await {
+            match TemplateFolderQueries::get_templates_in_folder(pool, db_folder.user_id, Some(id)).await {
                 Ok(db_templates) => {
                     let templates = db_templates.into_iter()
                         .map(|db_template| convert_db_template_to_template_without_fields(db_template))
@@ -548,28 +576,48 @@ pub async fn update_folder(
 ) -> (StatusCode, Json<ApiResponse<TemplateFolder>>) {
     let pool = &state.lock().await.db_pool;
 
-    match TemplateFolderQueries::update_folder(
-        pool, 
-        id, 
-        user_id, 
-        payload.name.as_deref(),
-        None
-    ).await {
+    // First verify user has permission to access this folder
+    match TemplateFolderQueries::get_folder_by_id(pool, id).await {
         Ok(Some(db_folder)) => {
-            let folder = TemplateFolder {
-                id: db_folder.id,
-                name: db_folder.name,
-                user_id: db_folder.user_id,
-                parent_folder_id: db_folder.parent_folder_id,
-                created_at: db_folder.created_at,
-                updated_at: db_folder.updated_at,
-                children: None,
-                templates: None,
-            };
-            ApiResponse::success(folder, "Folder updated successfully".to_string())
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    let has_access = db_folder.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::forbidden("Access denied".to_string());
+                    }
+                }
+                _ => return ApiResponse::forbidden("User not found".to_string()),
+            }
+
+            match TemplateFolderQueries::update_folder(
+                pool, 
+                id, 
+                payload.name.as_deref(),
+                None
+            ).await {
+                Ok(Some(db_folder)) => {
+                    let folder = TemplateFolder {
+                        id: db_folder.id,
+                        name: db_folder.name,
+                        user_id: db_folder.user_id,
+                        parent_folder_id: db_folder.parent_folder_id,
+                        created_at: db_folder.created_at,
+                        updated_at: db_folder.updated_at,
+                        children: None,
+                        templates: None,
+                    };
+                    ApiResponse::success(folder, "Folder updated successfully".to_string())
+                }
+                Ok(None) => ApiResponse::not_found("Folder not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to update folder: {}", e)),
+            }
         }
         Ok(None) => ApiResponse::not_found("Folder not found".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Failed to update folder: {}", e)),
+        Err(e) => ApiResponse::internal_error(format!("Failed to retrieve folder: {}", e)),
     }
 }
 
@@ -594,10 +642,31 @@ pub async fn delete_folder(
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
     let pool = &state.lock().await.db_pool;
 
-    match TemplateFolderQueries::delete_folder(pool, id, user_id).await {
-        Ok(true) => ApiResponse::success(serde_json::json!({"deleted": true}), "Folder deleted successfully".to_string()),
-        Ok(false) => ApiResponse::not_found("Folder not found".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Failed to delete folder: {}", e)),
+    // First verify user has permission to access this folder
+    match TemplateFolderQueries::get_folder_by_id(pool, id).await {
+        Ok(Some(db_folder)) => {
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    let has_access = db_folder.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::forbidden("Access denied".to_string());
+                    }
+                }
+                _ => return ApiResponse::forbidden("User not found".to_string()),
+            }
+
+            match TemplateFolderQueries::delete_folder(pool, id, db_folder.user_id).await {
+                Ok(true) => ApiResponse::success(serde_json::json!({"deleted": true}), "Folder deleted successfully".to_string()),
+                Ok(false) => ApiResponse::not_found("Folder not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to delete folder: {}", e)),
+            }
+        }
+        Ok(None) => ApiResponse::not_found("Folder not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to retrieve folder: {}", e)),
     }
 }
 
@@ -622,11 +691,25 @@ pub async fn get_folder_templates(
 ) -> (StatusCode, Json<ApiResponse<Vec<Template>>>) {
     let pool = &state.lock().await.db_pool;
 
-    // Verify folder exists and belongs to user
-    match TemplateFolderQueries::get_folder_by_id(pool, id, user_id).await {
-        Ok(Some(_)) => {
+    // Verify folder exists and user has permission
+    match TemplateFolderQueries::get_folder_by_id(pool, id).await {
+        Ok(Some(db_folder)) => {
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    let has_access = db_folder.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::not_found("Folder not found".to_string());
+                    }
+                }
+                _ => return ApiResponse::forbidden("User not found".to_string()),
+            }
+
             // Get templates in this folder
-            match TemplateFolderQueries::get_templates_in_folder(pool, user_id, Some(id)).await {
+            match TemplateFolderQueries::get_team_templates_in_folder(pool, user_id, id).await {
                 Ok(db_templates) => {
                     let templates = db_templates.into_iter()
                         .map(|db_template| convert_db_template_to_template_without_fields(db_template))
@@ -665,25 +748,46 @@ pub async fn move_template_to_folder(
 
     let target_folder_id = if folder_id == 0 { None } else { Some(folder_id) };
 
-    // Verify template belongs to user
+    // Get user role to check permissions
+    let user = match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(user)) => user,
+        _ => return ApiResponse::forbidden("User not found".to_string()),
+    };
+
+    // Verify template access
     match TemplateQueries::get_template_by_id(pool, template_id).await {
-        Ok(Some(template)) if template.user_id == user_id => {
-            // If moving to a folder (not root), verify folder exists and belongs to user
+        Ok(Some(template)) => {
+            // Allow access if user is the owner OR if user has Editor/Admin/Member role
+            let has_template_access = template.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+            
+            if !has_template_access {
+                return ApiResponse::not_found("Template not found".to_string());
+            }
+
+            // If moving to a folder (not root), verify folder access
             if let Some(fid) = target_folder_id {
-                match TemplateFolderQueries::get_folder_by_id(pool, fid, user_id).await {
-                    Ok(Some(_)) => {} // Folder exists
+                match TemplateFolderQueries::get_folder_by_id(pool, fid).await {
+                    Ok(Some(db_folder)) => {
+                        // Check folder access
+                        let has_folder_access = db_folder.user_id == user_id || 
+                                              matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                        
+                        if !has_folder_access {
+                            return ApiResponse::not_found("Destination folder not found".to_string());
+                        }
+                    }
                     Ok(None) => return ApiResponse::not_found("Destination folder not found".to_string()),
                     Err(e) => return ApiResponse::internal_error(format!("Failed to verify folder: {}", e)),
                 }
             }
 
-            match TemplateFolderQueries::move_template_to_folder(pool, template_id, target_folder_id, user_id).await {
+            match TemplateFolderQueries::move_template_to_folder(pool, template_id, target_folder_id, template.user_id).await {
                 Ok(true) => ApiResponse::success(serde_json::json!({"moved": true}), "Template moved successfully".to_string()),
                 Ok(false) => ApiResponse::not_found("Template not found".to_string()),
                 Err(e) => ApiResponse::internal_error(format!("Failed to move template: {}", e)),
             }
         }
-        Ok(Some(_)) => ApiResponse::not_found("Template not found".to_string()),
         Ok(None) => ApiResponse::not_found("Template not found".to_string()),
         Err(e) => ApiResponse::internal_error(format!("Failed to verify template: {}", e)),
     }
@@ -743,9 +847,18 @@ pub async fn get_template(
 
     match TemplateQueries::get_template_by_id(pool, id).await {
         Ok(Some(db_template)) => {
-            // Check if template belongs to user
-            if db_template.user_id != user_id {
-                return ApiResponse::not_found("Template not found".to_string());
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    let has_access = db_template.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::not_found("Template not found".to_string());
+                    }
+                }
+                _ => return ApiResponse::forbidden("User not found".to_string()),
             }
             match convert_db_template_to_template_with_fields(db_template, pool).await {
                 Ok(template) => ApiResponse::success(template, "Template retrieved successfully".to_string()),
@@ -780,16 +893,37 @@ pub async fn update_template(
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
     let pool = &state.lock().await.db_pool;
 
-    // Update template (fields are managed separately via template_fields endpoints)
-    match TemplateQueries::update_template(pool, id, user_id, payload.name.as_deref()).await {
+    // First verify user has permission to access this template
+    match TemplateQueries::get_template_by_id(pool, id).await {
         Ok(Some(db_template)) => {
-            match convert_db_template_to_template_with_fields(db_template, pool).await {
-                Ok(template) => ApiResponse::success(template, "Template updated successfully".to_string()),
-                Err(e) => ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    let has_access = db_template.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::forbidden("Access denied".to_string());
+                    }
+                }
+                _ => return ApiResponse::forbidden("User not found".to_string()),
+            }
+
+            // Update template (fields are managed separately via template_fields endpoints)
+            match TemplateQueries::update_template(pool, id, payload.name.as_deref()).await {
+                Ok(Some(db_template)) => {
+                    match convert_db_template_to_template_with_fields(db_template, pool).await {
+                        Ok(template) => ApiResponse::success(template, "Template updated successfully".to_string()),
+                        Err(e) => ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
+                    }
+                }
+                Ok(None) => ApiResponse::not_found("Template not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to update template: {}", e)),
             }
         }
         Ok(None) => ApiResponse::not_found("Template not found".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Failed to update template: {}", e)),
+        Err(e) => ApiResponse::internal_error(format!("Failed to retrieve template: {}", e)),
     }
 }
 
@@ -814,10 +948,31 @@ pub async fn delete_template(
 ) -> (StatusCode, Json<ApiResponse<String>>) {
     let pool = &state.lock().await.db_pool;
 
-    match TemplateQueries::delete_template(pool, id, user_id).await {
-        Ok(true) => ApiResponse::success("Template deleted successfully".to_string(), "Template deleted successfully".to_string()),
-        Ok(false) => ApiResponse::not_found("Template not found".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Failed to delete template: {}", e)),
+    // First verify user has permission to access this template
+    match TemplateQueries::get_template_by_id(pool, id).await {
+        Ok(Some(db_template)) => {
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    let has_access = db_template.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::forbidden("Access denied".to_string());
+                    }
+                }
+                _ => return ApiResponse::forbidden("User not found".to_string()),
+            }
+
+            match TemplateQueries::delete_template(pool, id).await {
+                Ok(true) => ApiResponse::success("Template deleted successfully".to_string(), "Template deleted successfully".to_string()),
+                Ok(false) => ApiResponse::not_found("Template not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to delete template: {}", e)),
+            }
+        }
+        Ok(None) => ApiResponse::not_found("Template not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to retrieve template: {}", e)),
     }
 }
 
@@ -847,6 +1002,20 @@ pub async fn clone_template(
     // First get the original template to get its name
     match TemplateQueries::get_template_by_id(pool, id).await {
         Ok(Some(original_template)) => {
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    let has_access = original_template.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::not_found("Template not found".to_string());
+                    }
+                }
+                _ => return ApiResponse::forbidden("User not found".to_string()),
+            }
+
             // Generate new name: original name + " (Clone)"
             let new_name = format!("{} (Clone)", original_template.name);
             
@@ -948,7 +1117,7 @@ pub async fn create_template(
 
                     if let Err(e) = crate::database::queries::TemplateFieldQueries::create_template_field(pool, create_field).await {
                         // Try to clean up template if field creation fails
-                        let _ = TemplateQueries::delete_template(pool, template_id, user_id).await;
+                        let _ = TemplateQueries::delete_template(pool, template_id).await;
                         return ApiResponse::internal_error(format!("Failed to create template field: {}", e));
                     }
                 }
@@ -958,7 +1127,7 @@ pub async fn create_template(
                 Ok(template) => ApiResponse::created(template, "Template created successfully".to_string()),
                 Err(e) => {
                     // Try to clean up template if loading fields fails
-                    let _ = TemplateQueries::delete_template(pool, template_id, user_id).await;
+                    let _ = TemplateQueries::delete_template(pool, template_id).await;
                     ApiResponse::internal_error(format!("Failed to load template fields: {}", e))
                 }
             }
@@ -1445,7 +1614,37 @@ pub async fn download_file(
 )]
 pub async fn preview_file(
     Path(key): Path<String>,
+    Extension(user_id): Extension<i64>,
+    State(state): State<AppState>,
 ) -> Response<Body> {
+    let pool = &state.lock().await.db_pool;
+
+    // Check user permissions - allow Editors, Admins, and Members
+    match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(user)) => {
+            let has_access = matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+            if !has_access {
+                let response = Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .header(header::CONTENT_TYPE, "text/plain")
+                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Expose-Headers", "*")
+                    .body(Body::from("Access denied"))
+                    .unwrap();
+                return response;
+            }
+        }
+        _ => {
+            let response = Response::builder()
+                .status(StatusCode::UNAUTHORIZED)
+                .header(header::CONTENT_TYPE, "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Expose-Headers", "*")
+                .body(Body::from("User not found"))
+                .unwrap();
+            return response;
+        }
+    }
     // Initialize storage service
     let storage = match StorageService::new().await {
         Ok(storage) => storage,
@@ -1580,11 +1779,21 @@ pub async fn create_template_field(
 ) -> (StatusCode, Json<ApiResponse<Vec<TemplateField>>>) {
     let pool = &state.lock().await.db_pool;
 
-    // Verify template belongs to user
+    // Verify user has permission to access this template
     match TemplateQueries::get_template_by_id(pool, template_id).await {
         Ok(Some(db_template)) => {
-            if db_template.user_id != user_id {
-                return ApiResponse::not_found("Template not found".to_string());
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    let has_access = db_template.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::not_found("Template not found".to_string());
+                    }
+                }
+                _ => return ApiResponse::not_found("User not found".to_string()),
             }
         }
         Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
@@ -1824,11 +2033,21 @@ pub async fn update_template_field(
 ) -> (StatusCode, Json<ApiResponse<TemplateField>>) {
     let pool = &state.lock().await.db_pool;
 
-    // Verify template belongs to user
+    // Verify user has permission to access this template
     match TemplateQueries::get_template_by_id(pool, template_id).await {
         Ok(Some(db_template)) => {
-            if db_template.user_id != user_id {
-                return ApiResponse::not_found("Template not found".to_string());
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    let has_access = db_template.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::not_found("Template not found".to_string());
+                    }
+                }
+                _ => return ApiResponse::not_found("User not found".to_string()),
             }
         }
         Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
@@ -1892,11 +2111,21 @@ pub async fn delete_template_field(
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
     let pool = &state.lock().await.db_pool;
 
-    // Verify template belongs to user
+    // Verify user has permission to access this template
     match TemplateQueries::get_template_by_id(pool, template_id).await {
         Ok(Some(db_template)) => {
-            if db_template.user_id != user_id {
-                return ApiResponse::not_found("Template not found".to_string());
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    let has_access = db_template.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::not_found("Template not found".to_string());
+                    }
+                }
+                _ => return ApiResponse::not_found("User not found".to_string()),
             }
         }
         Ok(None) => return ApiResponse::not_found("Template not found".to_string()),

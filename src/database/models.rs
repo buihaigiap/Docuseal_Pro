@@ -38,10 +38,10 @@ pub struct DbUserInvitation {
     pub email: String,
     pub name: String,
     pub role: Role,
-    pub activation_code: String, // Short random code (e.g., "ABC123")
     pub invited_by_user_id: Option<i64>,
     pub is_used: bool,
     pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
 }
 
 // Create invitation request
@@ -50,7 +50,6 @@ pub struct CreateUserInvitation {
     pub email: String,
     pub name: String,
     pub role: Role,
-    pub activation_code: String,
     pub invited_by_user_id: i64,
 }
 

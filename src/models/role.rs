@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use std::fmt;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, sqlx::Type, PartialEq)]
 #[sqlx(type_name = "user_role")]
@@ -20,6 +21,19 @@ pub enum Role {
 impl Default for Role {
     fn default() -> Self {
         Role::Member
+    }
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Role::Admin => "admin",
+            Role::Editor => "editor", 
+            Role::Member => "member",
+            Role::Agent => "agent",
+            Role::Viewer => "viewer",
+        };
+        write!(f, "{}", s)
     }
 }
 
