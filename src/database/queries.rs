@@ -14,7 +14,7 @@ pub struct SubmitterQueries;
 impl UserQueries {
     pub async fn get_user_by_id(pool: &PgPool, id: i64) -> Result<Option<DbUser>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, email, password_hash, role, subscription_status, subscription_expires_at, free_usage_count, created_at, updated_at FROM users WHERE id = $1"
+            "SELECT id, name, email, password_hash, role, is_active, activation_token, subscription_status, subscription_expires_at, free_usage_count, created_at, updated_at FROM users WHERE id = $1"
         )
         .bind(id)
         .fetch_optional(pool)
@@ -27,6 +27,8 @@ impl UserQueries {
                 email: row.try_get("email")?,
                 password_hash: row.try_get("password_hash")?,
                 role: row.try_get("role")?,
+                is_active: row.try_get("is_active")?,
+                activation_token: row.try_get("activation_token")?,
                 subscription_status: row.try_get("subscription_status")?,
                 subscription_expires_at: row.try_get("subscription_expires_at")?,
                 free_usage_count: row.try_get("free_usage_count")?,
@@ -42,9 +44,9 @@ impl UserQueries {
 
         let row = sqlx::query(
             r#"
-            INSERT INTO users (name, email, password_hash, role, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id, name, email, password_hash, role, subscription_status, 
+            INSERT INTO users (name, email, password_hash, role, is_active, activation_token, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING id, name, email, password_hash, role, is_active, activation_token, subscription_status, 
                      subscription_expires_at, free_usage_count, created_at, updated_at
             "#
         )
@@ -52,6 +54,8 @@ impl UserQueries {
         .bind(&user_data.email)
         .bind(&user_data.password_hash)
         .bind(&user_data.role)
+        .bind(user_data.is_active)
+        .bind(&user_data.activation_token)
         .bind(now)
         .bind(now)
         .fetch_one(pool)
@@ -63,6 +67,8 @@ impl UserQueries {
             email: row.try_get("email")?,
             password_hash: row.try_get("password_hash")?,
             role: row.try_get("role")?,
+            is_active: row.try_get("is_active")?,
+            activation_token: row.try_get("activation_token")?,
             subscription_status: row.try_get("subscription_status")?,
             subscription_expires_at: row.try_get("subscription_expires_at")?,
             free_usage_count: row.try_get("free_usage_count")?,
@@ -73,7 +79,7 @@ impl UserQueries {
 
     pub async fn get_user_by_email(pool: &PgPool, email: &str) -> Result<Option<DbUser>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, email, password_hash, role, subscription_status, subscription_expires_at, free_usage_count, created_at, updated_at FROM users WHERE email = $1"
+            "SELECT id, name, email, password_hash, role, is_active, activation_token, subscription_status, subscription_expires_at, free_usage_count, created_at, updated_at FROM users WHERE email = $1"
         )
         .bind(email)
         .fetch_optional(pool)
@@ -86,6 +92,8 @@ impl UserQueries {
                 email: row.try_get("email")?,
                 password_hash: row.try_get("password_hash")?,
                 role: row.try_get("role")?,
+                is_active: row.try_get("is_active")?,
+                activation_token: row.try_get("activation_token")?,
                 subscription_status: row.try_get("subscription_status")?,
                 subscription_expires_at: row.try_get("subscription_expires_at")?,
                 free_usage_count: row.try_get("free_usage_count")?,
@@ -94,6 +102,17 @@ impl UserQueries {
             })),
             None => Ok(None),
         }
+    }
+
+    pub async fn activate_user(pool: &PgPool, email: String) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE users SET is_active = TRUE, activation_token = NULL WHERE email = $1"
+        )
+        .bind(email)
+        .execute(pool)
+        .await?;
+
+        Ok(())
     }
 
 }
@@ -197,6 +216,105 @@ impl TemplateQueries {
                 user_id: row.try_get("user_id")?,
                 folder_id: row.try_get("folder_id")?,
                 // fields: None, // Removed - now stored in template_fields table
+                documents: row.try_get("documents")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            });
+        }
+        Ok(templates)
+    }
+
+    // Get templates accessible by team (invited users can see inviter's templates)
+    pub async fn get_team_templates(pool: &PgPool, user_id: i64) -> Result<Vec<DbTemplate>, sqlx::Error> {
+        // Get the user's invitation info to find their team
+        let team_query = sqlx::query(
+            r#"
+            SELECT invited_by_user_id FROM user_invitations 
+            WHERE email = (SELECT email FROM users WHERE id = $1) AND is_used = TRUE
+            "#
+        )
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+
+        // Determine team members
+        let team_member_ids = if let Some(row) = team_query {
+            // User was invited - can see inviter's templates and own templates
+            let invited_by: Option<i64> = row.try_get("invited_by_user_id")?;
+            if let Some(inviter_id) = invited_by {
+                // Get all users invited by the same inviter (team members)
+                let team_rows = sqlx::query(
+                    r#"
+                    SELECT u.id FROM users u
+                    INNER JOIN user_invitations ui ON u.email = ui.email
+                    WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
+                    UNION
+                    SELECT $1 as id
+                    "#
+                )
+                .bind(inviter_id)
+                .fetch_all(pool)
+                .await?;
+
+                let mut ids: Vec<i64> = team_rows.iter()
+                    .filter_map(|row| row.try_get::<i64, _>("id").ok())
+                    .collect();
+                ids.push(user_id); // Include current user
+                ids
+            } else {
+                vec![user_id] // No inviter, only own templates
+            }
+        } else {
+            // User is admin/inviter - can see own templates + invited users' templates
+            let invited_rows = sqlx::query(
+                r#"
+                SELECT u.id FROM users u
+                INNER JOIN user_invitations ui ON u.email = ui.email
+                WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
+                "#
+            )
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+
+            let mut ids: Vec<i64> = invited_rows.iter()
+                .filter_map(|row| row.try_get::<i64, _>("id").ok())
+                .collect();
+            ids.push(user_id); // Include current user (admin)
+            ids
+        };
+
+        // Get templates for all team members
+        if team_member_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let placeholders: Vec<String> = (1..=team_member_ids.len())
+            .map(|i| format!("${}", i))
+            .collect();
+        let query_str = format!(
+            "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at 
+             FROM templates 
+             WHERE user_id IN ({}) AND folder_id IS NULL 
+             ORDER BY created_at DESC",
+            placeholders.join(", ")
+        );
+
+        let mut query = sqlx::query(&query_str);
+        for id in team_member_ids {
+            query = query.bind(id);
+        }
+
+        let rows = query.fetch_all(pool).await?;
+
+        let mut templates = Vec::new();
+        for row in rows {
+            templates.push(DbTemplate {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                slug: row.try_get("slug")?,
+                user_id: row.try_get("user_id")?,
+                folder_id: row.try_get("folder_id")?,
                 documents: row.try_get("documents")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
@@ -1095,6 +1213,5 @@ impl SubscriptionQueries {
 
         Ok(row)
     }
-
 
 }

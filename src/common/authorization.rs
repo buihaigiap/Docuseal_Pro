@@ -34,10 +34,10 @@ pub async fn require_admin(request: Request, next: Next) -> Result<Response, Sta
 
 /// Convenience middleware for admin and team member access
 pub async fn require_admin_or_team_member(request: Request, next: Next) -> Result<Response, StatusCode> {
-    require_roles(vec![Role::Admin, Role::TeamMember], request, next).await
+    require_roles(vec![Role::Admin, Role::Member], request, next).await
 }
 
 /// Convenience middleware for team member and recipient access
 pub async fn require_team_member_or_recipient(request: Request, next: Next) -> Result<Response, StatusCode> {
-    require_roles(vec![Role::TeamMember, Role::Recipient], request, next).await
+    require_roles(vec![Role::Member, Role::Viewer], request, next).await
 }

@@ -7,15 +7,19 @@ use utoipa::ToSchema;
 pub enum Role {
     #[sqlx(rename = "admin")]
     Admin,
-    #[sqlx(rename = "team_member")]
-    TeamMember,
-    #[sqlx(rename = "recipient")]
-    Recipient,
+    #[sqlx(rename = "editor")]
+    Editor,
+    #[sqlx(rename = "member")]
+    Member,
+    #[sqlx(rename = "agent")]
+    Agent,
+    #[sqlx(rename = "viewer")]
+    Viewer,
 }
 
 impl Default for Role {
     fn default() -> Self {
-        Role::TeamMember
+        Role::Member
     }
 }
 
@@ -23,9 +27,25 @@ impl Role {
     pub fn from_string(s: &str) -> Self {
         match s {
             "Admin" => Role::Admin,
-            "TeamMember" => Role::TeamMember,
-            "Recipient" => Role::Recipient,
-            _ => Role::TeamMember, // Default fallback
+            "Editor" => Role::Editor,
+            "Member" => Role::Member,
+            "Agent" => Role::Agent,
+            "Viewer" => Role::Viewer,
+            _ => Role::Member, // Default fallback to Member
         }
+    }
+
+    pub fn to_lowercase(&self) -> String {
+        match self {
+            Role::Admin => "admin".to_string(),
+            Role::Editor => "editor".to_string(),
+            Role::Member => "member".to_string(),
+            Role::Agent => "agent".to_string(),
+            Role::Viewer => "viewer".to_string(),
+        }
+    }
+
+    pub fn is_admin(&self) -> bool {
+        matches!(self, Role::Admin)
     }
 }

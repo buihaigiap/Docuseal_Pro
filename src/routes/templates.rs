@@ -707,7 +707,7 @@ pub async fn get_templates(
 ) -> (StatusCode, Json<ApiResponse<Vec<Template>>>) {
     let pool = &state.lock().await.db_pool;
 
-    match TemplateQueries::get_all_templates(pool, user_id).await {
+    match TemplateQueries::get_team_templates(pool, user_id).await {
         Ok(db_templates) => {
             let mut templates = Vec::new();
             for db_template in db_templates {

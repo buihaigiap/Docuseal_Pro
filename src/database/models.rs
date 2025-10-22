@@ -11,6 +11,8 @@ pub struct DbUser {
     pub email: String,
     pub password_hash: String,
     pub role: Role,
+    pub is_active: bool,
+    pub activation_token: Option<String>,
     pub subscription_status: String, // free, premium
     pub subscription_expires_at: Option<DateTime<Utc>>,
     pub free_usage_count: i32,
@@ -25,6 +27,31 @@ pub struct CreateUser {
     pub email: String,
     pub password_hash: String,
     pub role: Role,
+    pub is_active: bool,
+    pub activation_token: Option<String>,
+}
+
+// User invitation model (secure invitation flow)
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DbUserInvitation {
+    pub id: i64,
+    pub email: String,
+    pub name: String,
+    pub role: Role,
+    pub activation_code: String, // Short random code (e.g., "ABC123")
+    pub invited_by_user_id: Option<i64>,
+    pub is_used: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+// Create invitation request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateUserInvitation {
+    pub email: String,
+    pub name: String,
+    pub role: Role,
+    pub activation_code: String,
+    pub invited_by_user_id: i64,
 }
 
 // Database-specific template field model

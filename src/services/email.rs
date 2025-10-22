@@ -208,6 +208,140 @@ impl EmailService {
         Ok(())
     }
 
+    pub async fn send_user_activation_email(
+        &self,
+        to_email: &str,
+        to_name: &str,
+        activation_link: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        if self.test_mode {
+            println!("TEST MODE: Would send activation email to {} ({}) with link: {}", to_email, to_name, activation_link);
+            return Ok(());
+        }
+
+        let subject = "Kích hoạt tài khoản DocuSeal Pro".to_string();
+
+        let html_body = format!(
+            r#"
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kích hoạt tài khoản</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #f8f9fa;
+            padding: 20px;
+        }}
+        .container {{
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }}
+        .header {{
+            text-align: center;
+            margin-bottom: 30px;
+        }}
+        .header h1 {{
+            color: #007bff;
+            margin-bottom: 10px;
+        }}
+        .content {{
+            margin-bottom: 30px;
+        }}
+        .button {{
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+        }}
+        .footer {{
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Chào mừng đến với DocuSeal Pro!</h1>
+        </div>
+        <div class="content">
+            <p>Xin chào <strong>{}</strong>,</p>
+            <p>Tài khoản của bạn đã được tạo thành công. Để kích hoạt tài khoản và bắt đầu sử dụng DocuSeal Pro, vui lòng nhấp vào nút bên dưới:</p>
+            <p style="text-align: center;">
+                <a href="{}" class="button">Kích hoạt tài khoản</a>
+            </p>
+            <p>Nếu nút không hoạt động, bạn có thể sao chép và dán liên kết sau vào trình duyệt:</p>
+            <p><a href="{}">{}</a></p>
+            <p>Liên kết này sẽ hết hạn sau 24 giờ.</p>
+        </div>
+        <div class="footer">
+            <p>Email này được gửi tự động từ hệ thống DocuSeal Pro.</p>
+            <p>Nếu bạn không mong muốn nhận email này, vui lòng bỏ qua.</p>
+        </div>
+    </div>
+</body>
+</html>
+            "#,
+            to_name, activation_link, activation_link, activation_link
+        );
+
+        let text_body = format!(
+            "Xin chào {},\n\nTài khoản của bạn đã được tạo. Để kích hoạt, truy cập: {}\n\nLiên kết hết hạn sau 24 giờ.\n\nDocuSeal Pro",
+            to_name, activation_link
+        );
+
+        let email = Message::builder()
+            .from(format!("{} <{}>", self.from_name, self.from_email).parse()?)
+            .to(format!("{} <{}>", to_name, to_email).parse()?)
+            .subject(subject)
+            .multipart(
+                lettre::message::MultiPart::alternative()
+                    .singlepart(
+                        lettre::message::SinglePart::builder()
+                            .header(lettre::message::header::ContentType::TEXT_PLAIN)
+                            .body(text_body),
+                    )
+                    .singlepart(
+                        lettre::message::SinglePart::builder()
+                            .header(lettre::message::header::ContentType::TEXT_HTML)
+                            .body(html_body),
+                    ),
+            )?;
+
+        let creds = Credentials::new(self.smtp_username.clone(), self.smtp_password.clone());
+
+        let mailer = if self.use_tls {
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&self.smtp_host)?
+                .credentials(creds)
+                .build()
+        } else {
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&self.smtp_host)?
+                .credentials(creds)
+                .build()
+        };
+
+        mailer.send(email).await?;
+        println!("Activation email sent successfully to: {}", to_email);
+
+        Ok(())
+    }
+
     pub async fn send_signature_completed(
         &self,
         to_email: &str,

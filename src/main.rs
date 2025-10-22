@@ -24,6 +24,8 @@ use models::template::Template;
     paths(
         routes::web::register_handler,
         routes::web::login_handler,
+        routes::web::activate_user,
+        routes::web::invite_user_handler,
         routes::templates::get_folders,
         routes::templates::create_folder,
         routes::templates::get_folder,
@@ -66,6 +68,8 @@ use models::template::Template;
         schemas(
             common::requests::RegisterRequest,
             common::requests::LoginRequest,
+            routes::web::ActivateUserRequest,
+            routes::web::InviteUserRequest,
             common::responses::ApiResponse<User>,
             common::responses::ApiResponse<common::responses::LoginResponse>,
             common::responses::ApiResponse<Vec<Template>>,

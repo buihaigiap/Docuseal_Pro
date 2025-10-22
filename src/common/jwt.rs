@@ -19,8 +19,10 @@ pub fn generate_jwt(user_id: i64, email: &str, role: &Role, secret: &str) -> Res
 
     let role_str = match role {
         Role::Admin => "Admin",
-        Role::TeamMember => "TeamMember", 
-        Role::Recipient => "Recipient",
+        Role::Editor => "Editor",
+        Role::Member => "Member",
+        Role::Agent => "Agent",
+        Role::Viewer => "Viewer",
     };
 
     let claims = Claims {
@@ -83,8 +85,10 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> Result<Respons
     // Convert role string to Role enum
     let role = match claims.role.as_str() {
         "Admin" => Role::Admin,
-        "TeamMember" => Role::TeamMember,
-        "Recipient" => Role::Recipient,
+        "Editor" => Role::Editor,
+        "Member" => Role::Member,
+        "Agent" => Role::Agent,
+        "Viewer" => Role::Viewer,
         _ => return Err(StatusCode::UNAUTHORIZED),
     };
 
@@ -93,4 +97,14 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> Result<Respons
     request.extensions_mut().insert(role);
 
     Ok(next.run(request).await)
+}
+
+pub fn decode_jwt(token: &str, secret: &str) -> Result<Claims, StatusCode> {
+    let key = DecodingKey::from_secret(secret.as_ref());
+    let validation = Validation::new(Algorithm::HS256);
+
+    match decode::<Claims>(token, &key, &validation) {
+        Ok(token_data) => Ok(token_data.claims),
+        Err(_) => Err(StatusCode::UNAUTHORIZED),
+    }
 }
