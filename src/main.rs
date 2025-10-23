@@ -37,6 +37,7 @@ use models::template::Template;
         routes::templates::get_templates,
         routes::templates::get_template,
         routes::templates::get_template_full_info,
+        routes::templates::download_template_with_signatures_rendered,
         routes::templates::update_template,
         routes::templates::delete_template,
         routes::templates::clone_template,

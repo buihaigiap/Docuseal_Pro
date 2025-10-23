@@ -66,10 +66,16 @@ pub async fn create_submission(
                 Ok(Some(user)) => {
                     // Allow access if user is the owner OR if user has Editor/Admin/Member role (Members can send signature requests from all team templates)
                     let has_access = db_template.user_id == user_id || 
-                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                            matches!(
+                                user.role, 
+                                crate::models::role::Role::Editor |
+                                crate::models::role::Role::Admin |
+                                crate::models::role::Role::Member |
+                                crate::models::role::Role::Agent
+                            );
                     
                     if !has_access {
-                        return ApiResponse::not_found("Template not found".to_string());
+                        return ApiResponse::forbidden("You do not have access to this form".to_string());
                     }
                 }
                 _ => return ApiResponse::forbidden("User not found".to_string()),
