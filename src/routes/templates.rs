@@ -15,24 +15,6 @@ use tokio::sync::Mutex;
 use serde_json;
 use base64;
 use aws_config;
-// use docx_rs::DocxFile;
-
-// fn extract_text_from_file(key: &str, data: &[u8]) -> Result<String, String> {
-//     println!("Extracting text from file with key: {}" , key);
-//     let key_lower = key.to_lowercase();
-//     if key_lower.ends_with(".pdf") {
-//         let result = extract_text_from_mem(data).map_err(|e| format!("Failed to extract text from PDF: {}", e));
-//         println!("Extracting text from PDF file: {:?}", result);
-//         result
-//     } else if key_lower.ends_with(".docx") {
-//         // TODO: Implement DOCX text extraction
-//         Err("DOCX text extraction not yet implemented".to_string())
-//     } else if key_lower.ends_with(".txt") {
-//         String::from_utf8(data.to_vec()).map_err(|e| format!("Invalid UTF-8: {}", e))
-//     } else {
-//         Err("Unsupported file type for preview".to_string())
-//     }
-// }
 
 fn get_content_type_from_filename(filename: &str) -> &'static str {
     let filename_lower = filename.to_lowercase();
@@ -134,10 +116,15 @@ pub async fn get_template_full_info(
                 Err(e) => return ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
             };
 
-            // Get all submitters for this template directly
+            // Get submitters for this template, filtered by user_id from JWT
             match crate::database::queries::SubmitterQueries::get_submitters_by_template(pool, template_id).await {
                 Ok(db_submitters) => {
-                    let submitters = db_submitters.into_iter().map(|db_sub| crate::models::submitter::Submitter {
+                    // Filter submitters to only show those created by the current user
+                    let filtered_submitters: Vec<_> = db_submitters.into_iter()
+                        .filter(|db_sub| db_sub.user_id == user_id)
+                        .collect();
+
+                    let submitters = filtered_submitters.into_iter().map(|db_sub| crate::models::submitter::Submitter {
                         id: Some(db_sub.id),
                         template_id: Some(db_sub.template_id),
                         user_id: Some(db_sub.user_id),
@@ -205,11 +192,11 @@ pub async fn get_template_full_info(
 pub fn create_template_router() -> Router<AppState> {
     // Public routes (no authentication required)
     let public_routes = Router::new()
-        .route("/files/upload/public", post(upload_file_public));
+        .route("/files/upload/public", post(upload_file_public))
+        .route("/files/preview/*key", get(preview_file));
 
     // Authenticated routes
     let auth_routes = Router::new()
-        .route("/files/preview/*key", get(preview_file))
         // Template folders routes
         .route("/folders", get(get_folders))
         .route("/folders", post(create_folder))
@@ -582,9 +569,9 @@ pub async fn update_folder(
             // Get user role to check permissions
             match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
                 Ok(Some(user)) => {
-                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    // Allow access if user is the owner OR if user has Editor/Admin role (Members have read-only access to others' folders)
                     let has_access = db_folder.user_id == user_id || 
-                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin);
                     
                     if !has_access {
                         return ApiResponse::forbidden("Access denied".to_string());
@@ -648,9 +635,9 @@ pub async fn delete_folder(
             // Get user role to check permissions
             match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
                 Ok(Some(user)) => {
-                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    // Allow access if user is the owner OR if user has Editor/Admin role (Members have read-only access to others' folders)
                     let has_access = db_folder.user_id == user_id || 
-                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin);
                     
                     if !has_access {
                         return ApiResponse::forbidden("Access denied".to_string());
@@ -757,12 +744,12 @@ pub async fn move_template_to_folder(
     // Verify template access
     match TemplateQueries::get_template_by_id(pool, template_id).await {
         Ok(Some(template)) => {
-            // Allow access if user is the owner OR if user has Editor/Admin/Member role
+            // Allow access if user is the owner OR if user has Editor/Admin role (Members have read-only access to others' templates)
             let has_template_access = template.user_id == user_id || 
-                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin);
             
             if !has_template_access {
-                return ApiResponse::not_found("Template not found".to_string());
+                return ApiResponse::forbidden("Access denied: You do not have permission to move this template".to_string());
             }
 
             // If moving to a folder (not root), verify folder access
@@ -774,7 +761,7 @@ pub async fn move_template_to_folder(
                                               matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
                         
                         if !has_folder_access {
-                            return ApiResponse::not_found("Destination folder not found".to_string());
+                            return ApiResponse::forbidden("Access denied: You do not have permission to access this folder".to_string());
                         }
                     }
                     Ok(None) => return ApiResponse::not_found("Destination folder not found".to_string()),
@@ -815,7 +802,14 @@ pub async fn get_templates(
         Ok(db_templates) => {
             let mut templates = Vec::new();
             for db_template in db_templates {
-                let template = convert_db_template_to_template_without_fields(db_template);
+                // Get user name for this template's owner
+                let user_name = match crate::database::queries::UserQueries::get_user_by_id(pool, db_template.user_id).await {
+                    Ok(Some(user)) => Some(user.name.clone()), // Using name field instead of email
+                    _ => None,
+                };
+                
+                let mut template = convert_db_template_to_template_without_fields(db_template);
+                template.user_name = user_name;
                 templates.push(template);
             }
             ApiResponse::success(templates, "Templates retrieved successfully".to_string())
@@ -861,7 +855,15 @@ pub async fn get_template(
                 _ => return ApiResponse::forbidden("User not found".to_string()),
             }
             match convert_db_template_to_template_with_fields(db_template, pool).await {
-                Ok(template) => ApiResponse::success(template, "Template retrieved successfully".to_string()),
+                Ok(mut template) => {
+                    // Get user name for this template's owner
+                    let user_name = match crate::database::queries::UserQueries::get_user_by_id(pool, template.user_id).await {
+                        Ok(Some(user)) => Some(user.name.clone()),
+                        _ => None,
+                    };
+                    template.user_name = user_name;
+                    ApiResponse::success(template, "Template retrieved successfully".to_string())
+                }
                 Err(e) => ApiResponse::internal_error(format!("Failed to load template fields: {}", e)),
             }
         }
@@ -899,9 +901,9 @@ pub async fn update_template(
             // Get user role to check permissions
             match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
                 Ok(Some(user)) => {
-                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    // Allow access if user is the owner OR if user has Editor/Admin role (Members have read-only access to others' templates)
                     let has_access = db_template.user_id == user_id || 
-                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin);
                     
                     if !has_access {
                         return ApiResponse::forbidden("Access denied".to_string());
@@ -954,12 +956,12 @@ pub async fn delete_template(
             // Get user role to check permissions
             match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
                 Ok(Some(user)) => {
-                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    // Allow access if user is the owner OR if user has Editor/Admin role (Members have read-only access to others' templates)
                     let has_access = db_template.user_id == user_id || 
-                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin);
                     
                     if !has_access {
-                        return ApiResponse::forbidden("Access denied".to_string());
+                        return ApiResponse::forbidden("Access denied: You do not have permission to access this folder".to_string());
                     }
                 }
                 _ => return ApiResponse::forbidden("User not found".to_string()),
@@ -1466,6 +1468,7 @@ pub fn convert_db_template_to_template(db_template: crate::database::models::DbT
         name: db_template.name,
         slug: db_template.slug,
         user_id: db_template.user_id,
+        user_name: None, // Will be set by caller if needed
         folder_id: db_template.folder_id,
         template_fields: None, // Will be loaded separately if needed
         submitters: None, // No longer stored in templates
@@ -1484,6 +1487,7 @@ pub fn convert_db_template_to_template_without_fields(
         name: db_template.name,
         slug: db_template.slug,
         user_id: db_template.user_id,
+        user_name: None, // Will be set by caller if needed
         folder_id: db_template.folder_id,
         template_fields: None,
         submitters: None,
@@ -1521,6 +1525,7 @@ pub async fn convert_db_template_to_template_with_fields(
         name: db_template.name,
         slug: db_template.slug,
         user_id: db_template.user_id,
+        user_name: None, // Will be set by caller if needed
         folder_id: db_template.folder_id,
         template_fields: Some(template_fields),
         submitters: None, // No longer stored in templates
@@ -1614,37 +1619,9 @@ pub async fn download_file(
 )]
 pub async fn preview_file(
     Path(key): Path<String>,
-    Extension(user_id): Extension<i64>,
     State(state): State<AppState>,
 ) -> Response<Body> {
-    let pool = &state.lock().await.db_pool;
-
-    // Check user permissions - allow Editors, Admins, and Members
-    match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
-        Ok(Some(user)) => {
-            let has_access = matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
-            if !has_access {
-                let response = Response::builder()
-                    .status(StatusCode::FORBIDDEN)
-                    .header(header::CONTENT_TYPE, "text/plain")
-                    .header("Access-Control-Allow-Origin", "*")
-                    .header("Access-Control-Expose-Headers", "*")
-                    .body(Body::from("Access denied"))
-                    .unwrap();
-                return response;
-            }
-        }
-        _ => {
-            let response = Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
-                .header(header::CONTENT_TYPE, "text/plain")
-                .header("Access-Control-Allow-Origin", "*")
-                .header("Access-Control-Expose-Headers", "*")
-                .body(Body::from("User not found"))
-                .unwrap();
-            return response;
-        }
-    }
+    // No authentication required for public preview
     // Initialize storage service
     let storage = match StorageService::new().await {
         Ok(storage) => storage,
@@ -1721,11 +1698,21 @@ pub async fn get_template_fields(
 ) -> (StatusCode, Json<ApiResponse<Vec<TemplateField>>>) {
     let pool = &state.lock().await.db_pool;
 
-    // Verify template belongs to user
+    // Verify user has permission to access this template
     match TemplateQueries::get_template_by_id(pool, template_id).await {
         Ok(Some(db_template)) => {
-            if db_template.user_id != user_id {
-                return ApiResponse::not_found("Template not found".to_string());
+            // Get user role to check permissions
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role (Members can read fields from team templates)
+                    let has_access = db_template.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::not_found("Template not found".to_string());
+                    }
+                }
+                _ => return ApiResponse::not_found("User not found".to_string()),
             }
         }
         Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
@@ -1785,12 +1772,12 @@ pub async fn create_template_field(
             // Get user role to check permissions
             match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
                 Ok(Some(user)) => {
-                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    // Allow access if user is the owner OR if user has Editor/Admin role (Members have read-only access to others' templates)
                     let has_access = db_template.user_id == user_id || 
-                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin);
                     
                     if !has_access {
-                        return ApiResponse::not_found("Template not found".to_string());
+                        return ApiResponse::forbidden("Access denied: You do not have permission to modify this template".to_string());
                     }
                 }
                 _ => return ApiResponse::not_found("User not found".to_string()),
@@ -1895,7 +1882,7 @@ pub async fn upload_template_field_file(
     match TemplateQueries::get_template_by_id(pool, template_id).await {
         Ok(Some(db_template)) => {
             if db_template.user_id != user_id {
-                return ApiResponse::not_found("Template not found".to_string());
+                return ApiResponse::forbidden("Access denied: You can only upload files to your own templates".to_string());
             }
         }
         Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
@@ -2039,12 +2026,12 @@ pub async fn update_template_field(
             // Get user role to check permissions
             match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
                 Ok(Some(user)) => {
-                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    // Allow access if user is the owner OR if user has Editor/Admin role (Members have read-only access to others' templates)
                     let has_access = db_template.user_id == user_id || 
-                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin);
                     
                     if !has_access {
-                        return ApiResponse::not_found("Template not found".to_string());
+                        return ApiResponse::forbidden("Access denied: You do not have permission to modify this template".to_string());
                     }
                 }
                 _ => return ApiResponse::not_found("User not found".to_string()),
@@ -2117,12 +2104,12 @@ pub async fn delete_template_field(
             // Get user role to check permissions
             match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
                 Ok(Some(user)) => {
-                    // Allow access if user is the owner OR if user has Editor/Admin/Member role
+                    // Allow access if user is the owner OR if user has Editor/Admin role (Members have read-only access to others' templates)
                     let has_access = db_template.user_id == user_id || 
-                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin);
                     
                     if !has_access {
-                        return ApiResponse::not_found("Template not found".to_string());
+                        return ApiResponse::forbidden("Access denied: You do not have permission to modify this template".to_string());
                     }
                 }
                 _ => return ApiResponse::not_found("User not found".to_string()),

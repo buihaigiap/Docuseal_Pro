@@ -86,3 +86,13 @@ pub struct CreatePaymentRequest {
     pub success_url: Option<String>,
     pub cancel_url: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TeamMember {
+    pub id: Option<i64>,
+    pub name: String,
+    pub email: String,
+    pub role: Role,
+    pub status: String, // "active" or "pending"
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}

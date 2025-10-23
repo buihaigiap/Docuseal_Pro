@@ -61,6 +61,20 @@ pub async fn create_submission(
     // Check if template exists
     match TemplateQueries::get_template_by_id(pool, payload.template_id).await {
         Ok(Some(db_template)) => {
+            // Check if user has permission to access this template
+            match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(user)) => {
+                    // Allow access if user is the owner OR if user has Editor/Admin/Member role (Members can send signature requests from all team templates)
+                    let has_access = db_template.user_id == user_id || 
+                                   matches!(user.role, crate::models::role::Role::Editor | crate::models::role::Role::Admin | crate::models::role::Role::Member);
+                    
+                    if !has_access {
+                        return ApiResponse::not_found("Template not found".to_string());
+                    }
+                }
+                _ => return ApiResponse::forbidden("User not found".to_string()),
+            }
+
             // In merged schema, we create submitters directly without a separate submission record
             let mut created_submitters = Vec::new();
             let mut emails_sent_count = 0;

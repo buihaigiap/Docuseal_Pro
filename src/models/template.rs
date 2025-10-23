@@ -35,6 +35,8 @@ pub struct Template {
     pub name: String,
     pub slug: String,
     pub user_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_name: Option<String>,
     pub folder_id: Option<i64>,
     // pub fields: Option<Vec<Field>>, // Removed - now stored in separate table
     #[serde(skip_serializing_if = "Option::is_none")]

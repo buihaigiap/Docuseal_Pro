@@ -46,6 +46,7 @@ pub fn create_router() -> Router<AppState> {
     let auth_routes = Router::new()
         .route("/me", get(submitters::get_me))
         .route("/users", get(get_users_handler))
+        .route("/admin/members", get(get_admin_team_members_handler))
         .route("/auth/users", post(invite_user_handler))
         .route("/submitters", get(submitters::get_submitters))
         .route("/submitters/:id", get(submitters::get_submitter))
@@ -424,12 +425,12 @@ pub async fn invite_user_handler(
 
     // Activation link with JWT token, email and name in URL
     let activation_link = format!(
-        "{}/auth/activate?token={}&email={}&name={}",
-        std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string()),
-        token,
-        urlencoding::encode(&payload.email),
-        urlencoding::encode(&payload.name)
-    );
+    "{}/activate?token={}&email={}&name={}",
+    std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string()),
+    token,
+    urlencoding::encode(&payload.email),
+    urlencoding::encode(&payload.name)
+);
 
     // Send email with activation link (email service will generate proper template)
     if let Err(e) = email_service.send_user_activation_email(&payload.email, &payload.name, &activation_link).await {
@@ -486,6 +487,65 @@ pub async fn get_users_handler(
         Ok(db_users) => {
             let users: Vec<User> = db_users.into_iter().map(|u| u.into()).collect();
             ApiResponse::success(users, "Users retrieved successfully".to_string())
+        }
+        Err(e) => ApiResponse::internal_error(format!("Database error: {}", e)),
+    }
+}
+
+// Get team members invited by the current admin
+#[utoipa::path(
+    get,
+    path = "/api/admin/members",
+    responses(
+        (status = 200, description = "List of team members", body = Vec<crate::models::user::TeamMember>),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "auth"
+)]
+pub async fn get_admin_team_members_handler(
+    State(state): State<AppState>,
+    axum::Extension(user_id): axum::Extension<i64>,
+) -> (StatusCode, Json<ApiResponse<Vec<crate::models::user::TeamMember>>>) {
+    let pool = &state.lock().await.db_pool;
+
+    // Check if requesting user is admin
+    match UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(requester)) => {
+            let role_str = requester.role.to_lowercase();
+            if role_str != "admin" {
+                return ApiResponse::unauthorized("Only admins can view team members".to_string());
+            }
+        }
+        _ => return ApiResponse::unauthorized("Invalid user".to_string()),
+    }
+
+    // Get all invitations sent by this admin
+    match sqlx::query_as::<_, crate::database::models::DbUserInvitation>(
+        "SELECT * FROM user_invitations WHERE invited_by_user_id = $1 ORDER BY created_at DESC"
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(invitations) => {
+            let mut team_members = Vec::new();
+            for inv in invitations {
+                // Check if user exists (activated)
+                let status = if let Ok(Some(_)) = UserQueries::get_user_by_email(pool, &inv.email).await {
+                    "active"
+                } else {
+                    "pending"
+                };
+                team_members.push(crate::models::user::TeamMember {
+                    id: None, // For now, not setting id
+                    name: inv.name,
+                    email: inv.email,
+                    role: inv.role,
+                    status: status.to_string(),
+                    created_at: inv.created_at,
+                });
+            }
+            ApiResponse::success(team_members, "Team members retrieved successfully".to_string())
         }
         Err(e) => ApiResponse::internal_error(format!("Database error: {}", e)),
     }
