@@ -34,3 +34,8 @@ lettre = { version = "0.11.18", features = ["builder", "smtp-transport", "tokio1
 reqwest = { version = "0.11", features = ["json", "blocking", "multipart", "stream"] }
 bytes = "1.0"
 urlencoding = "2.1"
+image = "0.24"
+imageproc = "0.23"
+rusttype = "0.9"
+pdfium-render = "0.8"
+ab_glyph = "0.2.32"

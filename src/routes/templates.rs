@@ -1,7 +1,7 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, State, Query, OriginalUri},
     http::{StatusCode, header},
-    response::{Json, Response},
+    response::{Json, Response, IntoResponse},
     routing::{get, post, put, delete},
     Router,
     body::Body,
@@ -1888,75 +1888,363 @@ pub async fn download_file(
     response
 }
 
+#[derive(serde::Deserialize)]
+pub struct PreviewQuery {
+    page: Option<i32>,
+    format: Option<String>,
+}
+
+#[axum::debug_handler]
 #[utoipa::path(
     get,
     path = "/api/files/preview/{key}",
     params(
-        ("key" = String, Path, description = "File path in storage (e.g., 'templates/test.pdf' or 'templates/test.docx')")
+        ("key" = String, Path, description = "File key in storage (e.g., 'templates/1234567890_document.pdf' or 'templates/1234567890_document_page_2.png')"),
+        ("page" = Option<i32>, Query, description = "Page number - if not provided, returns JSON with all page URLs"),
+        ("format" = Option<String>, Query, description = "Image format: jpg or png (default: jpg)")
     ),
     responses(
-        (status = 200, description = "File preview returned successfully (binary file data for frontend display)"),
+        (status = 200, description = "Preview image or JSON with all pages"),
         (status = 404, description = "File not found"),
         (status = 500, description = "Internal server error")
     ),
     tag = "files"
 )]
 pub async fn preview_file(
+    State(_state): State<AppState>,
     Path(key): Path<String>,
-    State(state): State<AppState>,
-) -> Response<Body> {
-    // No authentication required for public preview
+    Query(query): Query<PreviewQuery>,
+) -> impl IntoResponse {
+    // Wildcard paths include leading slash, so remove it
+    let key = key.trim_start_matches('/');
+    
+    // Parse page number and format from URL
+    let mut page_number: Option<i32> = None;
+    let mut image_format = "jpg";
+    let mut file_key = key.to_string();
+    
+    // Check if key contains page number in filename (e.g., "document_page_2.png")
+    if key.contains("_page_") {
+        // Extract page number and format from filename
+        if let Some(page_start) = key.rfind("_page_") {
+            let after_page = &key[page_start + 6..]; // Skip "_page_"
+            
+            // Try to extract page number
+            if let Some(dot_pos) = after_page.find('.') {
+                if let Ok(page) = after_page[..dot_pos].parse::<i32>() {
+                    page_number = Some(page);
+                }
+                
+                // Extract format from extension
+                let extension = &after_page[dot_pos + 1..];
+                if extension == "png" || extension == "jpg" || extension == "jpeg" {
+                    image_format = extension;
+                }
+                
+                // Remove the _page_X.ext suffix to get the original file key
+                file_key = key[..page_start].to_string() + ".pdf";
+            }
+        }
+    }
+    
+    // Override with query parameters if provided
+    if let Some(page) = query.page {
+        page_number = Some(page);
+    }
+    if let Some(format_str) = &query.format {
+        if format_str == "png" || format_str == "jpg" || format_str == "jpeg" {
+            image_format = format_str;
+        }
+    }
+    
     // Initialize storage service
     let storage = match StorageService::new().await {
         Ok(storage) => storage,
-        Err(_) => {
-            // Return default PDF on storage error
-            const DEFAULT_PDF: &[u8] = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n2 0 obj\n<<\n/Type /Pages\n/Kids [3 0 R]\n/Count 1\n>>\nendobj\n3 0 obj\n<<\n/Type /Page\n/Parent 2 0 R\n/MediaBox [0 0 612 792]\n/Contents 4 0 R\n>>\nendobj\n4 0 obj\n<<\n/Length 0\n>>\nstream\n\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000170 00000 n \ntrailer\n<<\n/Size 5\n/Root 1 0 R\n>>\nstartxref\n226\n%%EOF";
+        Err(e) => {
+            eprintln!("Failed to initialize storage: {:?}", e);
             let response = Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/pdf")
-                .header(header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", key))
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header(header::CONTENT_TYPE, "text/plain")
                 .header("Access-Control-Allow-Origin", "*")
-                .header("Access-Control-Expose-Headers", "*")
-                .header("Content-Length", DEFAULT_PDF.len().to_string())
-                .body(Body::from(DEFAULT_PDF.to_vec()))
+                .body(Body::from("Storage initialization failed"))
                 .unwrap();
             return response;
         }
     };
-
-    // Download file from storage
-    let file_data = match storage.download_file(&key).await {
+    
+    // If no page number specified, return JSON with all page URLs
+    if page_number.is_none() {
+        // Download the PDF to get page count
+        let pdf_data = match storage.download_file(&file_key).await {
+            Ok(data) => data,
+            Err(e) => {
+                eprintln!("Failed to download PDF: {:?}", e);
+                let response = Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(Body::from(serde_json::json!({"error": "PDF file not found"}).to_string()))
+                    .unwrap();
+                return response;
+            }
+        };
+        
+        // Get total page count
+        let total_pages = match get_pdf_page_count(&pdf_data) {
+            Ok(count) => count,
+            Err(e) => {
+                eprintln!("Failed to read PDF: {:?}", e);
+                let response = Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(Body::from(serde_json::json!({"error": "Failed to read PDF"}).to_string()))
+                    .unwrap();
+                return response;
+            }
+        };
+        
+        // Generate preview for each page
+        let mut page_urls = Vec::new();
+        let base_key = file_key.trim_end_matches(".pdf");
+        
+        for page_num in 1..=total_pages {
+            let preview_key = format!("{}_page_{}.{}", base_key, page_num, image_format);
+            
+            // Check if preview already exists
+            let preview_exists = storage.download_file(&preview_key).await.is_ok();
+            
+            if !preview_exists {
+                // Generate preview for this page
+                match render_pdf_page_to_image(&pdf_data, page_num, image_format) {
+                    Ok(image_data) => {
+                        let content_type = match image_format {
+                            "png" => "image/png",
+                            _ => "image/jpeg",
+                        };
+                        
+                        // Upload to storage
+                        if let Err(e) = storage.upload_file(image_data, &preview_key, content_type).await {
+                            eprintln!("Failed to save preview for page {}: {:?}", page_num, e);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to render page {}: {:?}", page_num, e);
+                    }
+                }
+            }
+            
+            // Add URL to response (whether it existed or was just created)
+            page_urls.push(format!("/api/files/preview/{}_page_{}.{}", base_key, page_num, image_format));
+        }
+        
+        // Return JSON response with all pages
+        let json_response = serde_json::json!({
+            "total_pages": total_pages,
+            "format": image_format,
+            "pages": page_urls
+        });
+        
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Expose-Headers", "*")
+            .body(Body::from(json_response.to_string()))
+            .unwrap();
+        return response;
+    }
+    
+    // Single page request - return image
+    let page_number = page_number.unwrap();
+    
+    // Initialize storage service
+    let storage = match StorageService::new().await {
+        Ok(storage) => storage,
+        Err(e) => {
+            eprintln!("Failed to initialize storage: {:?}", e);
+            let response = Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header(header::CONTENT_TYPE, "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(Body::from("Storage initialization failed"))
+                .unwrap();
+            return response;
+        }
+    };
+    
+    // Step 2: Check if preview image already exists
+    let preview_key = format!("{}_page_{}.{}", 
+        file_key.trim_end_matches(".pdf"),
+        page_number,
+        image_format
+    );
+    
+    // Try to download existing preview
+    if let Ok(preview_data) = storage.download_file(&preview_key).await {
+        println!("Found existing preview: {}", preview_key);
+        let content_type = match image_format {
+            "jpg" | "jpeg" => "image/jpeg",
+            "png" => "image/png",
+            _ => "image/jpeg",
+        };
+        
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, content_type)
+            .header(header::CONTENT_DISPOSITION, format!("inline; filename=\"page_{}.{}\"", page_number, image_format))
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Expose-Headers", "*")
+            .header("Content-Length", preview_data.len().to_string())
+            .body(Body::from(preview_data))
+            .unwrap();
+        return response;
+    }
+    
+    // Step 3: Preview doesn't exist, create it by rendering PDF page to image
+    println!("Preview not found, generating: {}", preview_key);
+    
+    // Download the original PDF
+    let pdf_data = match storage.download_file(&file_key).await {
         Ok(data) => data,
-        Err(_) => {
-            println!("File not found in storage: {}", key);
-            // Return 404 Not Found response
+        Err(e) => {
+            eprintln!("Failed to download PDF: {:?}", e);
             let response = Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .header(header::CONTENT_TYPE, "text/plain")
                 .header("Access-Control-Allow-Origin", "*")
-                .header("Access-Control-Expose-Headers", "*")
-                .body(Body::from("File not found"))
+                .body(Body::from("PDF file not found"))
                 .unwrap();
             return response;
         }
     };
-
-    // Determine content type based on file extension
-    let content_type = get_content_type_from_filename(&key);
-
-    // Create response with file data for preview (inline display)
+    
+    // Render PDF page to image using pdf2image or similar
+    let image_data = match render_pdf_page_to_image(&pdf_data, page_number, image_format) {
+        Ok(data) => data,
+        Err(e) => {
+            eprintln!("Failed to render PDF page: {:?}", e);
+            let response = Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header(header::CONTENT_TYPE, "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(Body::from(format!("Failed to render PDF page: {}", e)))
+                .unwrap();
+            return response;
+        }
+    };
+    
+    // Step 4: Upload the generated preview image to storage
+    let content_type = match image_format {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        _ => "image/jpeg",
+    };
+    
+    match storage.upload_file(image_data.clone(), &preview_key, content_type).await {
+        Ok(_) => println!("Preview saved: {}", preview_key),
+        Err(e) => eprintln!("Failed to save preview: {:?}", e),
+    }
+    
+    // Step 5: Return the preview image
     let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
-        .header(header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", key))
+        .header(header::CONTENT_DISPOSITION, format!("inline; filename=\"page_{}.{}\"", page_number, image_format))
         .header("Access-Control-Allow-Origin", "*")
         .header("Access-Control-Expose-Headers", "*")
-        .header("Content-Length", file_data.len().to_string())
-        .body(Body::from(file_data))
+        .header("Content-Length", image_data.len().to_string())
+        .body(Body::from(image_data))
         .unwrap();
 
     response
+}
+
+/// Helper function to render a PDF page to an image
+fn render_pdf_page_to_image(
+    pdf_bytes: &[u8],
+    page_number: i32,
+    format: &str,
+) -> Result<Vec<u8>, String> {
+    use pdfium_render::prelude::*;
+    use image::{ImageBuffer, Rgba, RgbaImage};
+
+    // Initialize PDFium with system library
+    let pdfium = Pdfium::new(
+        Pdfium::bind_to_system_library().map_err(|e| e.to_string())?,
+    );
+
+    // Load PDF document
+    let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None).map_err(|e| e.to_string())?;
+
+    // Get the page (page_number is 1-indexed)
+    let page_index = (page_number - 1) as u16;
+    if page_index >= document.pages().len() as u16 {
+        return Err(format!("Page {} not found in PDF", page_number));
+    }
+
+    let page = document.pages().get(page_index).map_err(|e| e.to_string())?;
+
+    // Render page to bitmap with high DPI for better quality
+    let bitmap = page.render_with_config(
+        &PdfRenderConfig::new()
+            .set_target_width(800)
+            .set_maximum_height(1100)
+            .rotate_if_landscape(PdfPageRenderRotation::None, true),
+    ).map_err(|e| e.to_string())?;
+
+    // Convert bitmap to RGBA image
+    let width = bitmap.width() as u32;
+    let height = bitmap.height() as u32;
+    let mut img: RgbaImage = ImageBuffer::new(width, height);
+
+    // Copy pixel data from bitmap to image buffer
+    let bitmap_bytes = bitmap.as_raw_bytes();
+    let row_stride = (bitmap.width() * 4) as usize; // 4 bytes per pixel (RGBA)
+
+    for y in 0..height {
+        for x in 0..width {
+            let pixel_index = (y as usize * row_stride) + (x as usize * 4); // 4 bytes per pixel (RGBA)
+            if pixel_index + 3 < bitmap_bytes.len() {
+                let r = bitmap_bytes[pixel_index];
+                let g = bitmap_bytes[pixel_index + 1];
+                let b = bitmap_bytes[pixel_index + 2];
+                let a = bitmap_bytes[pixel_index + 3];
+
+                img.put_pixel(x, y, Rgba([r, g, b, a]));
+            }
+        }
+    }
+
+    // Encode image to bytes
+    let mut buffer = Vec::new();
+    match format {
+        "png" => {
+            img.write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png).map_err(|e| e.to_string())?;
+        }
+        "jpeg" | "jpg" => {
+            // Convert RGBA to RGB for JPEG
+            let rgb_img = image::DynamicImage::ImageRgba8(img).to_rgb8();
+            rgb_img.write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Jpeg).map_err(|e| e.to_string())?;
+        }
+        _ => {
+            // Default to PNG
+            img.write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(buffer)
+}
+
+/// Get PDF metadata (page count, dimensions, etc.)
+/// Helper function to get PDF page count
+fn get_pdf_page_count(pdf_bytes: &[u8]) -> Result<i32, String> {
+    use pdfium_render::prelude::*;
+
+    let pdfium = Pdfium::new(Pdfium::bind_to_system_library().map_err(|e| e.to_string())?);
+    let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None).map_err(|e| e.to_string())?;
+    
+    Ok(document.pages().len() as i32)
 }
 
 // ===== TEMPLATE FIELDS ENDPOINTS =====
