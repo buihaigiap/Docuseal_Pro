@@ -632,7 +632,12 @@ fn render_signatures_on_pdf(
         .collect();
     
     // Process each signature
-    for (_field_name, signature_value, area_x, area_y, area_w, area_h, page_num) in signatures {
+    for (field_name, signature_value, area_x, area_y, area_w, area_h, page_num) in signatures {
+        // Skip empty signatures
+        if signature_value.trim().is_empty() {
+            continue;
+        }
+        
         // Convert page number from 1-based to 0-based index
         let page_index = (*page_num - 1).max(0) as usize;
         
@@ -679,25 +684,42 @@ fn render_signatures_on_pdf(
             }
         };
         
-        // Position values from database are already in pixels, not normalized (0-1)
-        // So we use them directly without multiplying by page dimensions
+        // ==================== CÔNG THỨC CHÍNH XÁC ====================
+        
+        // Database lưu tọa độ gốc (TOP-LEFT origin, chưa scale)
         let x_pos = *area_x;
         let y_pos = *area_y;
         let field_width = *area_w;
         let field_height = *area_h;
         
-        // PDF uses bottom-left origin, so convert from top-left
+        // Chuyển đổi Y từ TOP-LEFT (Frontend) sang BOTTOM-LEFT (PDF)
+        // Frontend: Y=0 ở top, tăng xuống dưới
+        // PDF: Y=0 ở bottom, tăng lên trên
         let pdf_y = page_height - y_pos - field_height;
         
         // Calculate font size based on field height
-        let font_size = (field_height * 0.5).max(6.0).min(16.0);
+        // Tương tự công thức trong PdfViewer.tsx: getFontSize()
+        let font_size = (field_height * 0.65).max(8.0).min(16.0);
         
-        // Calculate baseline with offset for vertical centering
-        let offset = font_size * 0.3; // Adjust baseline offset
-        let baseline_y = pdf_y + field_height + offset;  // Thêm offset
+        // Calculate baseline for vertical centering
+        // Text baseline cần offset để text hiển thị ở giữa field
+        let baseline_offset = (field_height - font_size) / 2.0;
+        let baseline_y = pdf_y + baseline_offset + font_size * 0.25;
         
-        println!("DEBUG: Field '{}' - area({}, {}) size({}, {}) -> PDF pos({}, {}) baseline={} size({}, {}) font={}", 
-                 _field_name, area_x, area_y, area_w, area_h, x_pos, pdf_y, baseline_y, field_width, field_height, font_size);
+        // ==================== KẾT THÚC CÔNG THỨC ====================
+        
+        println!("╔══════════════════════════════════════════════════════════╗");
+        println!("║ Field: '{}'", field_name);
+        println!("╠══════════════════════════════════════════════════════════╣");
+        println!("║ Database (TOP-LEFT):                                     ║");
+        println!("║   x={:.2}, y={:.2}, w={:.2}, h={:.2}", area_x, area_y, area_w, area_h);
+        println!("║ PDF Page: {:.2} x {:.2}", page_width, page_height);
+        println!("║ PDF Coords (BOTTOM-LEFT):                                ║");
+        println!("║   x={:.2}, y={:.2}", x_pos, pdf_y);
+        println!("║ Text Rendering:                                          ║");
+        println!("║   baseline_y={:.2}, font_size={:.2}", baseline_y, font_size);
+        println!("║ Value: '{}'", signature_value);
+        println!("╚══════════════════════════════════════════════════════════╝");
         
         // Create Helvetica font if not exists
         let font_name = b"F1".to_vec();
@@ -706,6 +728,7 @@ fn render_signatures_on_pdf(
             helvetica_dict.set("Type", Object::Name(b"Font".to_vec()));
             helvetica_dict.set("Subtype", Object::Name(b"Type1".to_vec()));
             helvetica_dict.set("BaseFont", Object::Name(b"Helvetica".to_vec()));
+            helvetica_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
             doc.add_object(Object::Dictionary(helvetica_dict))
         };
         
@@ -718,15 +741,9 @@ fn render_signatures_on_pdf(
             if !page_dict.has(b"Resources") {
                 page_dict.set("Resources", Object::Dictionary(Dictionary::new()));
             }
-            
-            // This is a workaround - we'll modify resources after getting the reference
-            let has_resources = page_dict.has(b"Resources");
-            if has_resources {
-                // Mark that we need to update resources
-            }
         }
         
-        // Now update the resources (separate borrow)
+        // Update the resources (separate borrow)
         {
             let page_obj = doc.get_object_mut(page_id)?;
             let page_dict = page_obj.as_dict_mut()?;
@@ -747,20 +764,36 @@ fn render_signatures_on_pdf(
             }
         }
         
-        // Create text content stream
+        // Create text content stream with proper positioning
         let text_operations = vec![
+            // Begin text object
             Operation::new("BT", vec![]),
+            
+            // Set font and size
             Operation::new("Tf", vec![
                 Object::Name(font_name),
                 Object::Real(font_size as f32),
             ]),
+            
+            // Set text color to black
+            Operation::new("rg", vec![
+                Object::Real(0.0),
+                Object::Real(0.0),
+                Object::Real(0.0),
+            ]),
+            
+            // Position text at baseline
             Operation::new("Td", vec![
                 Object::Real(x_pos as f32),
                 Object::Real(baseline_y as f32),
             ]),
+            
+            // Show text
             Operation::new("Tj", vec![
                 Object::string_literal(signature_value.clone()),
             ]),
+            
+            // End text object
             Operation::new("ET", vec![]),
         ];
         
@@ -768,7 +801,9 @@ fn render_signatures_on_pdf(
         let content_data = content.encode()?;
         
         // Create a new content stream
-        let stream = Stream::new(Dictionary::new(), content_data);
+        let mut stream_dict = Dictionary::new();
+        stream_dict.set("Length", Object::Integer(content_data.len() as i64));
+        let stream = Stream::new(stream_dict, content_data);
         let stream_id = doc.add_object(stream);
         
         // Add stream to page contents
@@ -788,8 +823,14 @@ fn render_signatures_on_pdf(
                     Object::Array(ref mut arr) => {
                         arr.push(Object::Reference(stream_id));
                     }
-                    _ => {}
+                    _ => {
+                        // If contents is something else, replace it
+                        *contents_obj = Object::Array(vec![Object::Reference(stream_id)]);
+                    }
                 }
+            } else {
+                // No contents exist, create new
+                page_dict.set("Contents", Object::Array(vec![Object::Reference(stream_id)]));
             }
         }
     }
@@ -865,52 +906,92 @@ fn merge_pdfs(pdf_bytes_list: Vec<Vec<u8>>) -> Result<Vec<u8>, Box<dyn std::erro
         ("token" = String, Path, description = "Submitter token")
     ),
     responses(
-        (status = 200, description = "Download URLs retrieved successfully", body = ApiResponse<serde_json::Value>),
-        (status = 404, description = "Submitter not found", body = ApiResponse<serde_json::Value>)
+        (status = 200, description = "PDF file downloaded successfully"),
+        (status = 404, description = "Submitter not found")
     ),
     tag = "submitters"
 )]
 pub async fn download_signed_pdf(
     State(state): State<AppState>,
     Path(token): Path<String>,
-) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+) -> impl IntoResponse {
     let pool = &state.lock().await.db_pool;
     
     // Get submitter by token
     let db_submitter = match SubmitterQueries::get_submitter_by_token(pool, &token).await {
         Ok(Some(s)) => s,
-        Ok(None) => return ApiResponse::not_found("Invalid token".to_string()),
-        Err(e) => return ApiResponse::internal_error(format!("Failed to get submitter: {}", e)),
+        Ok(None) => {
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("Invalid token"))
+                .unwrap();
+        },
+        Err(e) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Failed to get submitter: {}", e)))
+                .unwrap();
+        }
     };
     
     // Get template
     let db_template = match crate::database::queries::TemplateQueries::get_template_by_id(pool, db_submitter.template_id).await {
         Ok(Some(t)) => t,
-        Ok(None) => return ApiResponse::not_found("Template not found".to_string()),
-        Err(e) => return ApiResponse::internal_error(format!("Failed to get template: {}", e)),
+        Ok(None) => {
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("Template not found"))
+                .unwrap();
+        },
+        Err(e) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Failed to get template: {}", e)))
+                .unwrap();
+        }
     };
     
     // Get template with fields
     let template = match crate::routes::templates::convert_db_template_to_template_with_fields(db_template.clone(), pool).await {
         Ok(t) => t,
-        Err(e) => return ApiResponse::internal_error(format!("Failed to load template: {}", e)),
+        Err(e) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Failed to load template: {}", e)))
+                .unwrap();
+        }
     };
     
     // Get document URL
     let doc_url = match template.documents.as_ref().and_then(|docs| docs.get(0)) {
         Some(doc) => &doc.url,
-        None => return ApiResponse::bad_request("Template has no document".to_string()),
+        None => {
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::from("Template has no document"))
+                .unwrap();
+        }
     };
     
     // Download PDF from storage
     let storage_service = match StorageService::new().await {
         Ok(s) => s,
-        Err(e) => return ApiResponse::internal_error(format!("Storage error: {}", e)),
+        Err(e) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Storage error: {}", e)))
+                .unwrap();
+        }
     };
     
     let pdf_bytes = match storage_service.download_file(doc_url).await {
         Ok(bytes) => bytes,
-        Err(e) => return ApiResponse::internal_error(format!("Failed to download PDF: {}", e)),
+        Err(e) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Failed to download PDF: {}", e)))
+                .unwrap();
+        }
     };
     
     // Get template fields
@@ -949,26 +1030,23 @@ pub async fn download_signed_pdf(
     // Render signatures on PDF
     let signed_pdf_bytes = match render_signatures_on_pdf(&pdf_bytes, &signatures_to_render) {
         Ok(bytes) => bytes,
-        Err(e) => return ApiResponse::internal_error(format!("Failed to render PDF: {}", e)),
+        Err(e) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Failed to render PDF: {}", e)))
+                .unwrap();
+        }
     };
     
-    // Upload signed PDF
+    // Return PDF file directly
     let filename = format!("signed_{}_{}.pdf", template.slug, db_submitter.id);
-    let url = match storage_service.upload_file(signed_pdf_bytes, &filename, "application/pdf").await {
-        Ok(u) => u,
-        Err(e) => return ApiResponse::internal_error(format!("Failed to upload PDF: {}", e)),
-    };
     
-    // Return response
-    let response = serde_json::json!({
-        "downloads": [{
-            "submitter_name": db_submitter.name,
-            "submitter_email": db_submitter.email,
-            "url": url
-        }]
-    });
-    
-    ApiResponse::success(response, "Download URL generated successfully".to_string())
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/pdf")
+        .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename))
+        .body(Body::from(signed_pdf_bytes))
+        .unwrap()
 }
 
 pub fn create_submitter_router() -> Router<AppState> {
