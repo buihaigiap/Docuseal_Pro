@@ -26,6 +26,10 @@ use models::template::Template;
         routes::web::login_handler,
         routes::web::activate_user,
         routes::web::invite_user_handler,
+        routes::web::change_password_handler,
+        routes::web::forgot_password_handler,
+        routes::web::reset_password_handler,
+        routes::web::update_user_profile_handler,
         routes::web::get_admin_team_members_handler,
         routes::templates::get_folders,
         routes::templates::create_folder,
@@ -72,6 +76,10 @@ use models::template::Template;
             common::requests::LoginRequest,
             routes::web::ActivateUserRequest,
             routes::web::InviteUserRequest,
+            routes::web::ChangePasswordRequest,
+            routes::web::ForgotPasswordRequest,
+            routes::web::ResetPasswordRequest,
+            routes::web::UpdateUserRequest,
             common::responses::ApiResponse<User>,
             common::responses::ApiResponse<common::responses::LoginResponse>,
             common::responses::ApiResponse<Vec<Template>>,
@@ -142,9 +150,11 @@ async fn main() {
     // Initialize services
     let db_pool_arc = Arc::new(Mutex::new(pool.clone()));
     let payment_queue = PaymentQueue::new(db_pool_arc);
+    let otp_cache = crate::services::cache::OtpCache::new();
     let app_state_data = AppStateData {
         db_pool: pool,
         payment_queue: payment_queue.clone(),
+        otp_cache,
     };
     let app_state: AppState = Arc::new(Mutex::new(app_state_data));
 

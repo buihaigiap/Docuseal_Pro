@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{State, Extension},
     http::StatusCode,
     response::Json,
     routing::{get, post, put, delete},
@@ -24,11 +24,13 @@ use crate::database::queries::UserQueries;
 use crate::common::jwt::{generate_jwt, decode_jwt, Claims};
 
 use crate::services::queue::PaymentQueue;
+use crate::services::cache::OtpCache;
 
 #[derive(Clone)]
 pub struct AppStateData {
     pub db_pool: DbPool,
     pub payment_queue: PaymentQueue,
+    pub otp_cache: OtpCache,
 }
 
 pub type AppState = Arc<Mutex<AppStateData>>;
@@ -48,6 +50,8 @@ pub fn create_router() -> Router<AppState> {
         .route("/users", get(get_users_handler))
         .route("/admin/members", get(get_admin_team_members_handler))
         .route("/auth/users", post(invite_user_handler))
+        .route("/auth/change-password", put(change_password_handler))
+        .route("/auth/profile", put(update_user_profile_handler))
         .route("/submitters", get(submitters::get_submitters))
         .route("/submitters/:id", get(submitters::get_submitter))
         .route("/submitters/:id", put(submitters::update_submitter))
@@ -61,6 +65,9 @@ pub fn create_router() -> Router<AppState> {
         .route("/auth/register", post(register_handler))
         .route("/auth/login", post(login_handler))
         .route("/auth/activate", post(activate_user))
+        .route("/auth/forgot-password", post(forgot_password_handler))
+        .route("/auth/verify-reset-code", post(verify_reset_code_handler))
+        .route("/auth/reset-password", post(reset_password_handler))
         .route("/stripe/webhook", post(stripe_webhook::stripe_webhook_handler))
         .merge(templates::create_template_router()); // Template router has its own public/auth separation
 
@@ -113,7 +120,7 @@ pub async fn register_handler(
         name: payload.name.clone(),
         email: payload.email.clone(),
         password_hash,
-        role: Role::Member, // Default role for new users
+        role: Role::Admin, // Default role for new users
         is_active: true, // Self-registered users are active immediately
         activation_token: None, // No activation needed for self-registration
     };
@@ -297,6 +304,365 @@ pub async fn activate_user(
             eprintln!("Failed to create user: {}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
+    }
+}
+
+// Change password request struct
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+// Change password handler
+#[utoipa::path(
+    put,
+    path = "/api/auth/change-password",
+    request_body = ChangePasswordRequest,
+    responses(
+        (status = 200, description = "Password changed successfully", body = ApiResponse<serde_json::Value>),
+        (status = 400, description = "Invalid current password or request", body = ApiResponse<serde_json::Value>),
+        (status = 401, description = "Unauthorized", body = ApiResponse<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = ApiResponse<serde_json::Value>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "auth"
+)]
+pub async fn change_password_handler(
+    State(state): State<AppState>,
+    Extension(user_id): Extension<i64>,
+    Json(payload): Json<ChangePasswordRequest>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let pool = &state.lock().await.db_pool;
+
+    // Get user from database
+    match UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(db_user)) => {
+            // Verify current password
+            match verify(&payload.current_password, &db_user.password_hash) {
+                Ok(true) => {
+                    // Hash new password
+                    match hash(&payload.new_password, DEFAULT_COST) {
+                        Ok(new_password_hash) => {
+                            // Update password in database
+                            match UserQueries::update_user_password(pool, user_id, new_password_hash).await {
+                                Ok(_) => ApiResponse::success(
+                                    serde_json::json!({
+                                        "message": "Password changed successfully"
+                                    }),
+                                    "Password updated successfully".to_string()
+                                ),
+                                Err(e) => ApiResponse::internal_error(format!("Failed to update password: {}", e)),
+                            }
+                        }
+                        Err(_) => ApiResponse::internal_error("Failed to hash new password".to_string()),
+                    }
+                }
+                Ok(false) => ApiResponse::bad_request("Current password is incorrect".to_string()),
+                Err(_) => ApiResponse::internal_error("Password verification failed".to_string()),
+            }
+        }
+        Ok(None) => ApiResponse::unauthorized("User not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Database error: {}", e)),
+    }
+}
+
+// Update user profile request struct
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct UpdateUserRequest {
+    pub name: String,
+}
+
+// Update user profile handler
+#[utoipa::path(
+    put,
+    path = "/api/auth/profile",
+    request_body = UpdateUserRequest,
+    responses(
+        (status = 200, description = "Profile updated successfully", body = ApiResponse<User>),
+        (status = 400, description = "Invalid request data", body = ApiResponse<User>),
+        (status = 401, description = "Unauthorized", body = ApiResponse<User>),
+        (status = 500, description = "Internal server error", body = ApiResponse<User>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "auth"
+)]
+pub async fn update_user_profile_handler(
+    State(state): State<AppState>,
+    Extension(user_id): Extension<i64>,
+    Json(payload): Json<UpdateUserRequest>,
+) -> (StatusCode, Json<ApiResponse<User>>) {
+    let pool = &state.lock().await.db_pool;
+
+    // Validate name is not empty
+    if payload.name.trim().is_empty() {
+        return ApiResponse::bad_request("Name cannot be empty".to_string());
+    }
+
+    // Update user name in database
+    match UserQueries::update_user_name(pool, user_id, payload.name.clone()).await {
+        Ok(_) => {
+            // Get updated user data
+            match UserQueries::get_user_by_id(pool, user_id).await {
+                Ok(Some(db_user)) => {
+                    let user: User = db_user.into();
+                    ApiResponse::success(user, "Profile updated successfully".to_string())
+                }
+                Ok(None) => ApiResponse::unauthorized("User not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to retrieve updated user: {}", e)),
+            }
+        }
+        Err(e) => ApiResponse::internal_error(format!("Failed to update profile: {}", e)),
+    }
+}
+
+// Forgot password request struct
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct ForgotPasswordRequest {
+    pub email: String,
+}
+
+// Verify reset code request struct
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct VerifyResetCodeRequest {
+    pub email: String,
+    pub reset_code: String,
+}
+
+// Reset password request struct
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct ResetPasswordRequest {
+    pub email: String,
+    pub reset_code: String,
+    pub new_password: String,
+}
+
+// Forgot password handler - sends OTP via email
+#[utoipa::path(
+    post,
+    path = "/api/auth/forgot-password",
+    request_body = ForgotPasswordRequest,
+    responses(
+        (status = 200, description = "OTP sent successfully", body = ApiResponse<serde_json::Value>),
+        (status = 400, description = "Invalid email or user not found", body = ApiResponse<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = ApiResponse<serde_json::Value>)
+    ),
+    tag = "auth"
+)]
+pub async fn forgot_password_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<ForgotPasswordRequest>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let state_data = state.lock().await;
+
+    // Check if user exists
+    match UserQueries::get_user_by_email(&state_data.db_pool, &payload.email).await {
+        Ok(Some(db_user)) => {
+            // Generate 6-digit OTP
+            use rand::Rng;
+            let otp_code: u32 = rand::thread_rng().gen_range(100000..=999999);
+            let otp_string = otp_code.to_string();
+
+            // Store OTP in cache with 15 minutes TTL
+            match state_data.otp_cache.store_otp(&payload.email, &otp_string, 900).await {
+                Ok(_) => {
+                    // Send email with OTP
+                    let email_service = match EmailService::new() {
+                        Ok(service) => service,
+                        Err(e) => {
+                            eprintln!("Failed to initialize email service: {:?}", e);
+                            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse {
+                                success: false,
+                                status_code: 500,
+                                message: "Internal server error".to_string(),
+                                data: None,
+                                error: Some("Email service unavailable".to_string()),
+                            }));
+                        }
+                    };
+
+                    match email_service.send_password_reset_code(&payload.email, &db_user.name, &otp_string).await {
+                        Ok(_) => (StatusCode::OK, Json(ApiResponse {
+                            success: true,
+                            status_code: 200,
+                            message: "OTP sent successfully".to_string(),
+                            data: Some(serde_json::json!({
+                                "message": "Password reset OTP sent to your email"
+                            })),
+                            error: None,
+                        })),
+                        Err(e) => {
+                            eprintln!("Failed to send OTP email: {:?}", e);
+                            (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse {
+                                success: false,
+                                status_code: 500,
+                                message: "Internal server error".to_string(),
+                                data: None,
+                                error: Some("Failed to send OTP email".to_string()),
+                            }))
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to store OTP: {:?}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse {
+                        success: false,
+                        status_code: 500,
+                        message: "Internal server error".to_string(),
+                        data: None,
+                        error: Some("Failed to generate OTP".to_string()),
+                    }))
+                }
+            }
+        }
+        Ok(None) => (StatusCode::BAD_REQUEST, Json(ApiResponse {
+            success: false,
+            status_code: 400,
+            message: "Bad request".to_string(),
+            data: None,
+            error: Some("User with this email not found".to_string()),
+        })),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse {
+            success: false,
+            status_code: 500,
+            message: "Internal server error".to_string(),
+            data: None,
+            error: Some(format!("Database error: {}", e)),
+        })),
+    }
+}
+
+// Verify reset code handler
+#[utoipa::path(
+    post,
+    path = "/api/auth/verify-reset-code",
+    request_body = VerifyResetCodeRequest,
+    responses(
+        (status = 200, description = "OTP is valid", body = ApiResponse<serde_json::Value>),
+        (status = 400, description = "Invalid or expired OTP", body = ApiResponse<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = ApiResponse<serde_json::Value>)
+    ),
+    tag = "auth"
+)]
+pub async fn verify_reset_code_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<VerifyResetCodeRequest>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let state_data = state.lock().await;
+
+    match state_data.otp_cache.verify_otp(&payload.email, &payload.reset_code).await {
+        Ok(true) => (StatusCode::OK, Json(ApiResponse {
+            success: true,
+            status_code: 200,
+            message: "Code verified successfully".to_string(),
+            data: Some(serde_json::json!({
+                "message": "OTP is valid"
+            })),
+            error: None,
+        })),
+        Ok(false) => (StatusCode::BAD_REQUEST, Json(ApiResponse {
+            success: false,
+            status_code: 400,
+            message: "Bad request".to_string(),
+            data: None,
+            error: Some("Invalid or expired OTP".to_string()),
+        })),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse {
+            success: false,
+            status_code: 500,
+            message: "Internal server error".to_string(),
+            data: None,
+            error: Some(format!("Verification error: {}", e)),
+        })),
+    }
+}
+
+// Reset password handler - verifies OTP and resets password in one step
+#[utoipa::path(
+    post,
+    path = "/api/auth/reset-password",
+    request_body = ResetPasswordRequest,
+    responses(
+        (status = 200, description = "Password reset successfully", body = ApiResponse<serde_json::Value>),
+        (status = 400, description = "Invalid OTP or request", body = ApiResponse<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = ApiResponse<serde_json::Value>)
+    ),
+    tag = "auth"
+)]
+pub async fn reset_password_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<ResetPasswordRequest>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let state_data = state.lock().await;
+
+    // Verify the OTP first
+    match state_data.otp_cache.verify_otp(&payload.email, &payload.reset_code).await {
+        Ok(true) => {
+            // Get user by email
+            match UserQueries::get_user_by_email(&state_data.db_pool, &payload.email).await {
+                Ok(Some(db_user)) => {
+                    // Hash new password
+                    match hash(&payload.new_password, DEFAULT_COST) {
+                        Ok(new_password_hash) => {
+                            // Update password
+                            match UserQueries::update_user_password(&state_data.db_pool, db_user.id, new_password_hash).await {
+                                Ok(_) => (StatusCode::OK, Json(ApiResponse {
+                                    success: true,
+                                    status_code: 200,
+                                    message: "Password reset successfully".to_string(),
+                                    data: Some(serde_json::json!({
+                                        "message": "Password reset successfully"
+                                    })),
+                                    error: None,
+                                })),
+                                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse {
+                                    success: false,
+                                    status_code: 500,
+                                    message: "Internal server error".to_string(),
+                                    data: None,
+                                    error: Some(format!("Failed to update password: {}", e)),
+                                })),
+                            }
+                        }
+                        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse {
+                            success: false,
+                            status_code: 500,
+                            message: "Internal server error".to_string(),
+                            data: None,
+                            error: Some("Failed to hash new password".to_string()),
+                        })),
+                    }
+                }
+                Ok(None) => (StatusCode::BAD_REQUEST, Json(ApiResponse {
+                    success: false,
+                    status_code: 400,
+                    message: "Bad request".to_string(),
+                    data: None,
+                    error: Some("User not found".to_string()),
+                })),
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse {
+                    success: false,
+                    status_code: 500,
+                    message: "Internal server error".to_string(),
+                    data: None,
+                    error: Some(format!("Database error: {}", e)),
+                })),
+            }
+        }
+        Ok(false) => (StatusCode::BAD_REQUEST, Json(ApiResponse {
+            success: false,
+            status_code: 400,
+            message: "Bad request".to_string(),
+            data: None,
+            error: Some("Invalid or expired OTP".to_string()),
+        })),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse {
+            success: false,
+            status_code: 500,
+            message: "Internal server error".to_string(),
+            data: None,
+            error: Some(format!("Verification error: {}", e)),
+        })),
     }
 }
 

@@ -115,6 +115,32 @@ impl UserQueries {
         Ok(())
     }
 
+    pub async fn update_user_password(pool: &PgPool, user_id: i64, new_password_hash: String) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE users SET password_hash = $1, updated_at = $2 WHERE id = $3"
+        )
+        .bind(new_password_hash)
+        .bind(Utc::now())
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn update_user_name(pool: &PgPool, user_id: i64, new_name: String) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE users SET name = $1, updated_at = $2 WHERE id = $3"
+        )
+        .bind(new_name)
+        .bind(Utc::now())
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
 }
 
 impl TemplateQueries {

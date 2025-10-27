@@ -478,4 +478,76 @@ impl EmailService {
 
         Ok(())
     }
+
+    pub async fn send_password_reset_code(
+        &self,
+        to_email: &str,
+        to_name: &str,
+        reset_code: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        if self.test_mode {
+            println!("TEST MODE: Would send password reset code '{}' to {} ({})", reset_code, to_email, to_name);
+            return Ok(());
+        }
+
+        let subject = "Password Reset Code - DocuSeal Pro";
+        let html_body = format!(
+            r#"
+            <html>
+            <body>
+                <h2>Password Reset Request</h2>
+                <p>Hello {},</p>
+                <p>You have requested to reset your password for your DocuSeal Pro account.</p>
+                <p>Your password reset code is:</p>
+                <h1 style="color: #007bff; font-size: 32px; letter-spacing: 5px;">{}</h1>
+                <p>This code will expire in 3 minutes.</p>
+                <p>If you didn't request this password reset, please ignore this email.</p>
+                <p>Best regards,<br>DocuSeal Pro Team</p>
+            </body>
+            </html>
+            "#,
+            to_name, reset_code
+        );
+
+        let text_body = format!(
+            "Hello {},\n\nYou have requested to reset your password for your DocuSeal Pro account.\n\nYour password reset code is: {}\n\nThis code will expire in 3 minutes.\n\nIf you didn't request this password reset, please ignore this email.\n\nBest regards,\nDocuSeal Pro Team",
+            to_name, reset_code
+        );
+
+        let email = Message::builder()
+            .from(format!("{} <{}>", self.from_name, self.from_email).parse()?)
+            .to(format!("{} <{}>", to_name, to_email).parse()?)
+            .subject(subject)
+            .multipart(
+                lettre::message::MultiPart::alternative()
+                    .singlepart(
+                        lettre::message::SinglePart::builder()
+                            .header(lettre::message::header::ContentType::TEXT_PLAIN)
+                            .body(text_body),
+                    )
+                    .singlepart(
+                        lettre::message::SinglePart::builder()
+                            .header(lettre::message::header::ContentType::TEXT_HTML)
+                            .body(html_body),
+                    ),
+            )?;
+
+        let creds = Credentials::new(self.smtp_username.clone(), self.smtp_password.clone());
+
+        let mailer = if self.use_tls {
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&self.smtp_host)?
+                .credentials(creds)
+                .build()
+        } else {
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&self.smtp_host)?
+                .credentials(creds)
+                .port(self.smtp_port)
+                .build()
+        };
+
+        mailer.send(email).await?;
+        println!("Password reset code sent successfully to: {}", to_email);
+
+        Ok(())
+    }
 }
