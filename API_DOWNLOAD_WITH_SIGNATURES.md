@@ -65,18 +65,7 @@ curl -H "Authorization: Bearer YOUR_TOKEN" \
 
 ---
 
-### 3. GET /api/templates/{id}/download-with-signatures 🆕⭐
-**Mục đích**: Download PDF với signature values được RENDER trực tiếp lên PDF tại đúng vị trí
 
-**Tính năng**:
-- ✅ Lấy PDF gốc từ storage
-- ✅ Đọc signature values từ submitters
-- ✅ Render text lên PDF tại vị trí đã định (x, y, width, height)
-- ✅ Convert tọa độ từ top-left (web) sang bottom-left (PDF)
-- ✅ Tự động tính font size dựa trên field height
-- ✅ Trả về PDF đã có chữ ký
-
-**Response**: Binary PDF file với signatures đã render
 
 **Example**:
 ```bash

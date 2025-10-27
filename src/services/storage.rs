@@ -103,6 +103,38 @@ impl StorageService {
         }
     }
 
+    /// Upload file with custom key (no timestamp prefix)
+    pub async fn upload_file_with_key(
+        &self,
+        file_data: Vec<u8>,
+        key: &str,
+        content_type: &str,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        if self.storage_type == "local" {
+            let path = Path::new(self.local_path.as_ref().unwrap()).join(key);
+            fs::create_dir_all(path.parent().unwrap())?;
+            fs::write(&path, &file_data)?;
+            Ok(key.to_string())
+        } else {
+            let byte_stream = ByteStream::from(file_data);
+
+            match self.client.as_ref().unwrap()
+                .put_object()
+                .bucket(self.bucket.as_ref().unwrap())
+                .key(key)
+                .body(byte_stream)
+                .content_type(content_type)
+                .send()
+                .await {
+                Ok(_) => Ok(key.to_string()),
+                Err(e) => {
+                    eprintln!("MinIO upload error: {:?}", e);
+                    Err(Box::new(e))
+                }
+            }
+        }
+    }
+
     pub async fn download_file(
         &self,
         key: &str,

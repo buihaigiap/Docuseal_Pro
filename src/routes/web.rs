@@ -75,7 +75,8 @@ pub fn create_router() -> Router<AppState> {
         .route("/public/submissions/:token", get(submitters::get_public_submitter).put(submitters::update_public_submitter))
         .route("/public/submissions/:token/fields", get(submitters::get_public_submitter_fields))
         .route("/public/submissions/:token/signatures", get(submitters::get_public_submitter_signatures))
-        .route("/public/signatures/bulk/:token", post(submitters::submit_bulk_signatures));
+        .route("/public/signatures/bulk/:token", post(submitters::submit_bulk_signatures))
+        .route("/public/download/:token", get(submitters::download_signed_pdf));
     println!("Final router created");
     final_router
 }

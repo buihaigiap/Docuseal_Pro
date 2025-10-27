@@ -191,160 +191,6 @@ pub async fn get_template_full_info(
 
 
 
-/// Download template PDF with signature values rendered on it
-#[utoipa::path(
-    get,
-    path = "/api/templates/{id}/download-with-signatures",
-    params(
-        ("id" = i64, Path, description = "Template ID")
-    ),
-    responses(
-        (status = 200, description = "PDF file with signatures rendered", content_type = "application/pdf"),
-        (status = 404, description = "Template not found"),
-        (status = 500, description = "Internal server error")
-    ),
-    security(("bearer_auth" = [])),
-    tag = "templates"
-)]
-pub async fn download_template_with_signatures_rendered(
-    State(state): State<AppState>,
-    Path(template_id): Path<i64>,
-    Extension(_user_id): Extension<i64>,
-) -> Response<Body> {
-    let pool = &state.lock().await.db_pool;
-
-    // Initialize storage service
-    let storage = match StorageService::new().await {
-        Ok(storage) => storage,
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Failed to initialize storage: {}", e)))
-                .unwrap();
-        }
-    };
-
-    // Get template
-    let db_template = match TemplateQueries::get_template_by_id(pool, template_id).await {
-        Ok(Some(template)) => template,
-        Ok(None) => {
-            return Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("Template not found"))
-                .unwrap();
-        }
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Failed to retrieve template: {}", e)))
-                .unwrap();
-        }
-    };
-
-    // Get template fields
-    let db_fields = match TemplateFieldQueries::get_template_fields(pool, template_id).await {
-        Ok(fields) => fields,
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Failed to retrieve template fields: {}", e)))
-                .unwrap();
-        }
-    };
-
-    // Get the original PDF file from storage
-    let documents = db_template.documents.unwrap_or(serde_json::json!([]));
-    let doc_array = documents.as_array();
-    
-    let file_key = if doc_array.is_none() || doc_array.unwrap().is_empty() {
-        return Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::from("No document found for this template"))
-            .unwrap();
-    } else {
-        let first_doc = &doc_array.unwrap()[0];
-        first_doc["url"].as_str().unwrap_or("").to_string()
-    };
-
-    // Download PDF from storage
-    let pdf_bytes = match storage.download_file(&file_key).await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Failed to download PDF: {}", e)))
-                .unwrap();
-        }
-    };
-
-    // Get submitters with signatures for this template
-    let db_submitters = match crate::database::queries::SubmitterQueries::get_submitters_by_template(pool, template_id).await {
-        Ok(submitters) => submitters,
-        Err(_) => Vec::new(),
-    };
-
-    // Build a map of field_name -> signature_value from submitters
-    let mut signature_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    
-    for submitter in &db_submitters {
-        if let Some(bulk_sigs) = &submitter.bulk_signatures {
-            if let Some(sig_array) = bulk_sigs.as_array() {
-                for sig in sig_array {
-                    if let Some(field_name) = sig.get("field_name").and_then(|v| v.as_str()) {
-                        if let Some(value) = sig.get("signature_value").and_then(|v| v.as_str()) {
-                            signature_map.insert(field_name.to_string(), value.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Build field positions map
-    let mut field_positions: Vec<(String, String, f64, f64, f64, f64, i32)> = Vec::new(); // (field_name, value, x, y, width, height, page)
-    for field in db_fields {
-        if let Some(signature_value) = signature_map.get(&field.name) {
-            if let Some(position) = field.position {
-                let x = position.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let y = position.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let width = position.get("width").and_then(|v| v.as_f64()).unwrap_or(100.0);
-                let height = position.get("height").and_then(|v| v.as_f64()).unwrap_or(20.0);
-                let page = position.get("page").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-                
-                field_positions.push((
-                    field.name.clone(),
-                    signature_value.clone(),
-                    x,
-                    y,
-                    width,
-                    height,
-                    page
-                ));
-            }
-        }
-    }
-
-    // Render signatures on PDF using lopdf
-    let modified_pdf = match render_signatures_on_pdf(&pdf_bytes, &field_positions) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            eprintln!("Error rendering signatures: {}", e);
-            // If rendering fails, return original PDF
-            pdf_bytes
-        }
-    };
-
-    let filename = format!("{}_{}_signed.pdf", db_template.name.replace(" ", "_"), template_id);
-    
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/pdf")
-        .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename))
-        .header("Access-Control-Allow-Origin", "*")
-        .header("Access-Control-Expose-Headers", "*")
-        .body(Body::from(modified_pdf))
-        .unwrap()
-}
 
 /// Helper function to render signatures on PDF
 fn render_signatures_on_pdf(
@@ -476,7 +322,8 @@ pub fn create_template_router() -> Router<AppState> {
     // Public routes (no authentication required)
     let public_routes = Router::new()
         .route("/files/upload/public", post(upload_file_public))
-        .route("/files/preview/*key", get(preview_file));
+        .route("/files/preview/*key", get(preview_file))
+        .route("/files/previews/*key", get(download_file_public)); // Public download for preview images
 
     // Authenticated routes
     let auth_routes = Router::new()
@@ -493,7 +340,6 @@ pub fn create_template_router() -> Router<AppState> {
         .route("/templates", post(create_template))
         .route("/templates/:id", get(get_template))
         .route("/templates/:id/full-info", get(get_template_full_info))
-        .route("/templates/:id/download-with-signatures", get(download_template_with_signatures_rendered))
         .route("/templates/:id", put(update_template))
         .route("/templates/:id", delete(delete_template))
         .route("/templates/:id/clone", post(clone_template))
@@ -1888,6 +1734,73 @@ pub async fn download_file(
     response
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/files/previews/{key}",
+    params(
+        ("key" = String, Path, description = "File path in storage (e.g., 'templates/previews/1759746273_test_page_1.jpg')")
+    ),
+    responses(
+        (status = 200, description = "File downloaded successfully"),
+        (status = 404, description = "File not found")
+    ),
+    tag = "files"
+)]
+pub async fn download_file_public(
+    Path(key): Path<String>,
+) -> Response<Body> {
+    // Initialize storage service
+    let storage = match StorageService::new().await {
+        Ok(storage) => storage,
+        Err(_) => {
+            // Return default image on storage error
+            const DEFAULT_IMAGE: &[u8] = b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="; // 1x1 transparent PNG
+            let response = Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "image/png")
+                .header(header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", key))
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Expose-Headers", "*")
+                .header("Content-Length", DEFAULT_IMAGE.len().to_string())
+                .body(Body::from(DEFAULT_IMAGE.to_vec()))
+                .unwrap();
+            return response;
+        }
+    };
+
+    // Download file from storage
+    let file_data = match storage.download_file(&key).await {
+        Ok(data) => data,
+        Err(_) => {
+            println!("File not found in storage: {}", key);
+            // Return 404 Not Found response
+            let response = Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .header(header::CONTENT_TYPE, "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Expose-Headers", "*")
+                .body(Body::from("File not found"))
+                .unwrap();
+            return response;
+        }
+    };
+    // Determine content type based on file extension
+    let content_type = get_content_type_from_filename(&key);
+
+    // Create response with file data
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", key))
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Access-Control-Expose-Headers", "*")
+        .header("Content-Length", file_data.len().to_string())
+        .body(Body::from(file_data))
+        .unwrap();
+
+    response
+}
+
 #[derive(serde::Deserialize)]
 pub struct PreviewQuery {
     page: Option<i32>,
@@ -2006,10 +1919,12 @@ pub async fn preview_file(
         
         // Generate preview for each page
         let mut page_urls = Vec::new();
-        let base_key = file_key.trim_end_matches(".pdf");
+        let base_filename = file_key.trim_end_matches(".pdf")
+            .trim_start_matches("templates/");
         
         for page_num in 1..=total_pages {
-            let preview_key = format!("{}_page_{}.{}", base_key, page_num, image_format);
+            let preview_key = format!("templates/previews/{}_page_{}.{}", 
+                base_filename, page_num, image_format);
             
             // Check if preview already exists
             let preview_exists = storage.download_file(&preview_key).await.is_ok();
@@ -2023,8 +1938,8 @@ pub async fn preview_file(
                             _ => "image/jpeg",
                         };
                         
-                        // Upload to storage
-                        if let Err(e) = storage.upload_file(image_data, &preview_key, content_type).await {
+                        // Upload to storage with exact key (no timestamp prefix)
+                        if let Err(e) = storage.upload_file_with_key(image_data, &preview_key, content_type).await {
                             eprintln!("Failed to save preview for page {}: {:?}", page_num, e);
                         }
                     }
@@ -2034,8 +1949,8 @@ pub async fn preview_file(
                 }
             }
             
-            // Add URL to response (whether it existed or was just created)
-            page_urls.push(format!("/api/files/preview/{}_page_{}.{}", base_key, page_num, image_format));
+            // Add URL to response - use public /files/previews/ route for preview images
+            page_urls.push(format!("/api/files/previews/{}", preview_key));
         }
         
         // Return JSON response with all pages
@@ -2074,8 +1989,11 @@ pub async fn preview_file(
     };
     
     // Step 2: Check if preview image already exists
-    let preview_key = format!("{}_page_{}.{}", 
-        file_key.trim_end_matches(".pdf"),
+    // Store previews in templates/previews/ subfolder
+    let base_filename = file_key.trim_end_matches(".pdf")
+        .trim_start_matches("templates/");
+    let preview_key = format!("templates/previews/{}_page_{}.{}", 
+        base_filename,
         page_number,
         image_format
     );
@@ -2134,14 +2052,14 @@ pub async fn preview_file(
         }
     };
     
-    // Step 4: Upload the generated preview image to storage
+    // Step 4: Upload the generated preview image to storage with exact key
     let content_type = match image_format {
         "jpg" | "jpeg" => "image/jpeg",
         "png" => "image/png",
         _ => "image/jpeg",
     };
     
-    match storage.upload_file(image_data.clone(), &preview_key, content_type).await {
+    match storage.upload_file_with_key(image_data.clone(), &preview_key, content_type).await {
         Ok(_) => println!("Preview saved: {}", preview_key),
         Err(e) => eprintln!("Failed to save preview: {:?}", e),
     }
