@@ -16,7 +16,8 @@ use crate::models::submission::{Submission, CreateSubmissionRequest};
 use crate::models::submitter::Submitter;
 use crate::database::connection::DbPool;
 use crate::database::models::CreateSubmitter;
-use crate::database::queries::{SubmitterQueries, TemplateQueries};
+use crate::database::queries::{SubmitterQueries, TemplateQueries, SubmissionFieldQueries};
+use crate::database::models::CreateSubmissionField;
 use crate::routes::subscription::{can_user_submit, increment_usage_count_by};
 use crate::routes::templates::convert_db_template_to_template;
 use crate::common::jwt::auth_middleware;
@@ -111,7 +112,35 @@ pub async fn create_submission(
                             created_at: db_submitter.created_at,
                             updated_at: db_submitter.updated_at,
                         };
-                        created_submitters.push(submitter_api);
+                        created_submitters.push(submitter_api.clone());
+
+                        // Copy template fields to submission fields for this submitter
+                        match crate::database::queries::TemplateFieldQueries::get_template_fields(pool, payload.template_id).await {
+                            Ok(template_fields) => {
+                                for db_field in template_fields {
+                                    let create_field = CreateSubmissionField {
+                                        submitter_id: db_submitter.id,
+                                        template_field_id: db_field.id,
+                                        name: db_field.name,
+                                        field_type: db_field.field_type,
+                                        required: db_field.required,
+                                        display_order: db_field.display_order,
+                                        position: db_field.position,
+                                        options: db_field.options,
+                                        metadata: db_field.metadata,
+                                        partner: db_field.partner,
+                                    };
+                                    if let Err(e) = SubmissionFieldQueries::create_submission_field(pool, create_field).await {
+                                        eprintln!("Failed to create submission field for submitter {}: {}", db_submitter.id, e);
+                                        // Continue with other fields, don't fail the whole submission
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to get template fields for submission copy: {}", e);
+                                // Continue, don't fail the submission
+                            }
+                        }
 
                         // Send email to submitter
                         let template = convert_db_template_to_template(db_template.clone());

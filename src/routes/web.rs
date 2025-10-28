@@ -371,6 +371,7 @@ pub async fn change_password_handler(
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct UpdateUserRequest {
     pub name: String,
+    pub email: Option<String>,
 }
 
 // Update user profile handler
@@ -399,20 +400,39 @@ pub async fn update_user_profile_handler(
         return ApiResponse::bad_request("Name cannot be empty".to_string());
     }
 
-    // Update user name in database
-    match UserQueries::update_user_name(pool, user_id, payload.name.clone()).await {
-        Ok(_) => {
-            // Get updated user data
-            match UserQueries::get_user_by_id(pool, user_id).await {
-                Ok(Some(db_user)) => {
-                    let user: User = db_user.into();
-                    ApiResponse::success(user, "Profile updated successfully".to_string())
-                }
-                Ok(None) => ApiResponse::unauthorized("User not found".to_string()),
-                Err(e) => ApiResponse::internal_error(format!("Failed to retrieve updated user: {}", e)),
+    // Validate email if provided
+    if let Some(ref email) = payload.email {
+        if email.trim().is_empty() {
+            return ApiResponse::bad_request("Email cannot be empty".to_string());
+        }
+        // Check if email is already in use by another user
+        if let Ok(Some(existing_user)) = UserQueries::get_user_by_email(pool, email).await {
+            if existing_user.id != user_id {
+                return ApiResponse::bad_request("Email is already in use by another user".to_string());
             }
         }
-        Err(e) => ApiResponse::internal_error(format!("Failed to update profile: {}", e)),
+    }
+
+    // Update user name in database
+    if let Err(e) = UserQueries::update_user_name(pool, user_id, payload.name.clone()).await {
+        return ApiResponse::internal_error(format!("Failed to update name: {}", e));
+    }
+
+    // Update user email if provided
+    if let Some(email) = payload.email.clone() {
+        if let Err(e) = UserQueries::update_user_email(pool, user_id, email).await {
+            return ApiResponse::internal_error(format!("Failed to update email: {}", e));
+        }
+    }
+
+    // Get updated user data
+    match UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(db_user)) => {
+            let user: User = db_user.into();
+            ApiResponse::success(user, "Profile updated successfully".to_string())
+        }
+        Ok(None) => ApiResponse::unauthorized("User not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to retrieve updated user: {}", e)),
     }
 }
 

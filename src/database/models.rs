@@ -179,17 +179,6 @@ pub struct DbPaymentRecord {
     pub updated_at: DateTime<Utc>,
 }
 
-// Create payment record request - simplified
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreatePaymentRecord {
-    pub user_id: i64,
-    pub stripe_session_id: Option<String>,
-    pub amount_cents: i32,
-    pub currency: String,
-    pub status: String,
-    pub metadata: Option<serde_json::Value>,
-}
-
 #[derive(Debug, sqlx::FromRow)]
 pub struct DbSubscriptionPlan {
     pub id: i64,
@@ -200,5 +189,49 @@ pub struct DbSubscriptionPlan {
     pub active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+// Database-specific submission field model (snapshot of template fields at submission time)
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DbSubmissionField {
+    pub id: i64,
+    pub submitter_id: i64,
+    pub template_field_id: i64,
+    pub name: String,
+    pub field_type: String,
+    pub required: bool,
+    pub display_order: i32,
+    pub position: Option<serde_json::Value>,
+    pub options: Option<serde_json::Value>,
+    pub metadata: Option<serde_json::Value>,
+    pub partner: Option<String>, // Which partner/signer this field belongs to
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// Create submission field request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateSubmissionField {
+    pub submitter_id: i64,
+    pub template_field_id: i64,
+    pub name: String,
+    pub field_type: String,
+    pub required: bool,
+    pub display_order: i32,
+    pub position: Option<serde_json::Value>,
+    pub options: Option<serde_json::Value>,
+    pub metadata: Option<serde_json::Value>,
+    pub partner: Option<String>, // Which partner/signer this field belongs to
+}
+
+// Create payment record request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePaymentRecord {
+    pub user_id: i64,
+    pub stripe_session_id: Option<String>,
+    pub amount_cents: i32,
+    pub currency: String,
+    pub status: String,
+    pub metadata: Option<serde_json::Value>,
 }
 

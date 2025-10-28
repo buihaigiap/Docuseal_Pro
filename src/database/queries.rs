@@ -1,7 +1,7 @@
 use sqlx::{PgPool, Row};
 use chrono::{Utc, DateTime};
 
-use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan, DbTemplateFolder, CreateTemplateFolder};
+use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan, DbTemplateFolder, CreateTemplateFolder, DbSubmissionField, CreateSubmissionField};
 use crate::models::role::Role;
 
 // Structured query implementations for better organization
@@ -10,6 +10,7 @@ pub struct TemplateQueries;
 pub struct TemplateFolderQueries;
 pub struct TemplateFieldQueries;
 pub struct SubmitterQueries;
+pub struct SubmissionFieldQueries;
 
 impl UserQueries {
     pub async fn get_user_by_id(pool: &PgPool, id: i64) -> Result<Option<DbUser>, sqlx::Error> {
@@ -133,6 +134,19 @@ impl UserQueries {
             "UPDATE users SET name = $1, updated_at = $2 WHERE id = $3"
         )
         .bind(new_name)
+        .bind(Utc::now())
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn update_user_email(pool: &PgPool, user_id: i64, new_email: String) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE users SET email = $1, updated_at = $2 WHERE id = $3"
+        )
+        .bind(new_email)
         .bind(Utc::now())
         .bind(user_id)
         .execute(pool)
@@ -341,6 +355,7 @@ impl TemplateQueries {
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
                 folder_id: row.try_get("folder_id")?,
+                // fields: None, // Removed - now stored in template_fields table
                 documents: row.try_get("documents")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
@@ -1346,6 +1361,77 @@ impl SubmitterQueries {
             });
         }
         Ok(submitters)
+    }
+}
+
+impl SubmissionFieldQueries {
+    pub async fn create_submission_field(pool: &PgPool, field_data: CreateSubmissionField) -> Result<DbSubmissionField, sqlx::Error> {
+        let now = Utc::now();
+        let row = sqlx::query(
+            "INSERT INTO submission_fields (submitter_id, template_field_id, name, field_type, required, display_order, position, options, metadata, partner, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             RETURNING id, submitter_id, template_field_id, name, field_type, required, display_order, position, options, metadata, partner, created_at, updated_at"
+        )
+        .bind(field_data.submitter_id)
+        .bind(field_data.template_field_id)
+        .bind(field_data.name)
+        .bind(field_data.field_type)
+        .bind(field_data.required)
+        .bind(field_data.display_order)
+        .bind(field_data.position)
+        .bind(field_data.options)
+        .bind(field_data.metadata)
+        .bind(field_data.partner)
+        .bind(now)
+        .bind(now)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(DbSubmissionField {
+            id: row.get(0),
+            submitter_id: row.get(1),
+            template_field_id: row.get(2),
+            name: row.get(3),
+            field_type: row.get(4),
+            required: row.get(5),
+            display_order: row.get(6),
+            position: row.get(7),
+            options: row.get(8),
+            metadata: row.get(9),
+            partner: row.get(10),
+            created_at: row.get(11),
+            updated_at: row.get(12),
+        })
+    }
+
+    pub async fn get_submission_fields_by_submitter_id(pool: &PgPool, submitter_id: i64) -> Result<Vec<DbSubmissionField>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT id, submitter_id, template_field_id, name, field_type, required, display_order, position, options, metadata, partner, created_at, updated_at
+             FROM submission_fields WHERE submitter_id = $1 ORDER BY display_order"
+        )
+        .bind(submitter_id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut fields = Vec::new();
+        for row in rows {
+            fields.push(DbSubmissionField {
+                id: row.get(0),
+                submitter_id: row.get(1),
+                template_field_id: row.get(2),
+                name: row.get(3),
+                field_type: row.get(4),
+                required: row.get(5),
+                display_order: row.get(6),
+                position: row.get(7),
+                options: row.get(8),
+                metadata: row.get(9),
+                partner: row.get(10),
+                created_at: row.get(11),
+                updated_at: row.get(12),
+            });
+        }
+        Ok(fields)
     }
 }
 
