@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 use utoipa::openapi::security::{HttpAuthScheme, Http, SecurityScheme};
@@ -187,10 +188,15 @@ async fn main() {
     let swagger_routes = SwaggerUi::new("/swagger-ui")
         .url("/api-docs/openapi.json", openapi_json);
 
+    // Serve static files from frontend build directory
+    let static_files_service = ServeDir::new("app/docuseal/dist")
+        .not_found_service(ServeDir::new("app/docuseal/dist/index.html"));
+
     // Combine all routes
     let app = Router::new()
         .merge(api_routes)
         .merge(swagger_routes)
+        .fallback_service(static_files_service)
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 
@@ -200,6 +206,7 @@ async fn main() {
     println!("Server running on http://{}", addr);
     println!("Swagger UI: http://{}/swagger-ui", addr);
     println!("API Base URL: http://{}/api", addr);
+    println!("Frontend: http://{}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
