@@ -5,25 +5,74 @@ interface SignatureRendererProps {
   width?: number;
   height?: number;
   fieldType?: string;
+  color?: string; // Color for signature/text
 }
 
 const SignatureRenderer: React.FC<SignatureRendererProps> = ({ 
   data, 
   width = 200, 
   height = 100,
-  fieldType
+  fieldType,
+  color = '#000000'
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
   useEffect(() => {
+    console.log('SignatureRenderer render:', { data: data?.substring(0, 50), width, height, fieldType, color });
+    
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) {
+      console.error('Canvas ref not available');
+      return;
+    }
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      console.error('Cannot get canvas context');
+      return;
+    }
 
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
+
+    // Check if data is an image URL (including blob URLs)
+    if (data && (data.startsWith('http') || data.startsWith('/') || data.startsWith('blob:'))) {
+      console.log('Rendering image from URL:', data);
+      // Render image
+      const img = new Image();
+      // Only set crossOrigin for non-blob URLs
+      if (!data.startsWith('blob:')) {
+        img.crossOrigin = 'anonymous';
+      }
+      img.onload = () => {
+        console.log('Image loaded successfully, dimensions:', img.width, 'x', img.height);
+        // Calculate scale to fit image in canvas
+        const scale = Math.min(width / img.width, height / img.height);
+        const scaledWidth = img.width * scale;
+        const scaledHeight = img.height * scale;
+        
+        // Center the image
+        const offsetX = (width - scaledWidth) / 2;
+        const offsetY = (height - scaledHeight) / 2;
+        
+        // Clear canvas again before drawing
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+        console.log('Image rendered on canvas');
+      };
+      img.onerror = (error) => {
+        console.error('Image failed to load:', data, error);
+        // Fallback to text if image fails to load
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = color;
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Image failed to load', width / 2, height / 2);
+      };
+      img.src = data;
+      return;
+    }
 
     try {
       const pointGroups = JSON.parse(data);
@@ -60,7 +109,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
       const offsetY = (height - signatureHeight * scale) / 2 - minY * scale;
 
       // Draw signature
-      ctx.strokeStyle = '#000000';
+      ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -120,7 +169,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           actualHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
         }
         
-        ctx.fillStyle = '#000000';
+        ctx.fillStyle = color;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
         
@@ -133,21 +182,21 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         ctx.fillText(data, width / 2, centerY);
       } else {
         // Default text rendering for signatures
-        ctx.fillStyle = '#000000';
+        ctx.fillStyle = color;
         ctx.font = `${Math.min(Math.max(width / 5, 12), height)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(data || '', width / 2, height / 2);
       }
     }
-  }, [data, width, height, fieldType]);
+  }, [data, width, height, fieldType, color]);
 
   return (
     <canvas 
       ref={canvasRef} 
       width={width} 
       height={height}
-      className="max-w-full max-h-full"
+      style={{ width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%' }}
     />
   );
 };

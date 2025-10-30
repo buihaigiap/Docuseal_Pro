@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogActions, Button, IconButton,
    CardMedia, Link } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import toast from 'react-hot-toast';
-
+import { useNavigate } from 'react-router-dom';
 interface TemplateField {
   id: number;
   template_id: number;
@@ -58,23 +58,35 @@ const TemplateEditPage = () => {
   const [currentFieldIndex, setCurrentFieldIndex] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [pendingUploads, setPendingUploads] = useState<Record<number, File>>({});
+  const navigate = useNavigate();
   const [fileUploading, setFileUploading] = useState(false);
-  console.log('fields' , fields)
   const uploadFile = async (file: File): Promise<string | null> => {
     try {
       setFileUploading(true);
       const formData = new FormData();
       formData.append('file', file);
 
-      const data = await upstashService.uploadPublicFile(formData);
-      if (data && data.data && data.data.url) {
+      console.log('Uploading file:', file.name, 'Size:', file.size);
+      const response = await upstashService.uploadPublicFile(formData);
+      console.log('Upload response:', response);
+
+      // Extract data from axios response
+      const data = response.data;
+      if (data && data.success && data.data && data.data.url) {
+        console.log('Upload successful, URL:', data.data.url);
         return data.data.url;
       } else {
-        console.error('File upload failed:', data);
+        console.error('File upload failed - invalid response:', data);
         return null;
       }
     } catch (error) {
       console.error('File upload error:', error);
+      // Log more details about the error
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
       return null;
     } finally {
       setFileUploading(false);
@@ -177,10 +189,34 @@ const TemplateEditPage = () => {
   };
 
   const handleComplete = async () => {
+    // Upload any pending files first
+    const finalTexts = { ...texts };
+    for (const [fieldId, file] of Object.entries(pendingUploads)) {
+      try {
+        const fileUrl = await uploadFile(file);
+        if (fileUrl) {
+          finalTexts[parseInt(fieldId)] = fileUrl;
+          // Cleanup blob URL after successful upload
+          const blobUrl = texts[parseInt(fieldId)];
+          if (blobUrl && blobUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(blobUrl);
+          }
+        } else {
+          console.error(`Upload failed for field ${fieldId}`);
+          toast.error(`Failed to upload file for field ${fieldId}`);
+          return;
+        }
+      } catch (error) {
+        console.error(`Upload error for field ${fieldId}:`, error);
+        toast.error(`Upload error for field ${fieldId}`);
+        return;
+      }
+    }
+
     // Validate required fields
     const missingFields = fields.filter(field => {
       if (!field.required) return false;
-      const value = texts[field.id];
+      const value = finalTexts[field.id];
       if (!value) return true;
       // For signature fields, check if it's not empty
       if (field.field_type === 'signature') {
@@ -210,16 +246,20 @@ const TemplateEditPage = () => {
     try {
       const signatures = fields.map(field => ({
         field_id: field.id,
-        signature_value: texts[field.id] || ''
+        signature_value: finalTexts[field.id] || ''
       }));
 
       const data = await upstashService.bulkSign(token, {
         signatures,
-        ip_address: '', // TODO: get IP
         user_agent: navigator.userAgent
       });
+      console.log(data)
       if (data.success) {
-        toast.success('Completed! Thank you for signing.');
+        toast.success(data?.message);
+        // Navigate to template view page
+        navigate(`/templates/${templateInfo?.id}`);
+        // Clear pending uploads after successful submission
+        setPendingUploads({});
         // Redirect or show success message
       } else {
         toast.error(`Error: ${data.message}`);
@@ -231,7 +271,6 @@ const TemplateEditPage = () => {
   };
 
   const currentField = fields[currentFieldIndex];
-  console.log('currentField' , currentField)
   const isLastField = currentFieldIndex === fields.length - 1;
   if (loading) return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
   if (error) return <div className="text-red-500 text-center p-4">{error}</div>;
@@ -316,6 +355,22 @@ const TemplateEditPage = () => {
                   onSave={(dataUrl) => handleTextChange(currentField.id, dataUrl)}
                   onClear={() => handleTextChange(currentField.id, '')}
                   initialData={texts[currentField.id]}
+                  onFileSelected={(file) => {
+                    if (file) {
+                      // Create blob URL for immediate preview
+                      const blobUrl = URL.createObjectURL(file);
+                      // Update texts with blob URL for preview
+                      handleTextChange(currentField.id, blobUrl);
+                      // Store file for later upload
+                      setPendingUploads(prev => ({ ...prev, [currentField.id]: file }));
+                    } else {
+                      setPendingUploads(prev => {
+                        const newUploads = { ...prev };
+                        delete newUploads[currentField.id];
+                        return newUploads;
+                      });
+                    }
+                  }}
                 />
               ) : currentField.field_type === 'image' ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

@@ -8,7 +8,9 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     subscription_status VARCHAR(20) DEFAULT 'free',
     subscription_expires_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
-    free_usage_count INTEGER DEFAULT 0
+    free_usage_count INTEGER DEFAULT 0,
+    signature TEXT,
+    initials TEXT
 );
 
 -- Create enum type for user roles

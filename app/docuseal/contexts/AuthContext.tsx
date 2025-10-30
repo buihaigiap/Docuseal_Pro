@@ -10,6 +10,7 @@ interface AuthContextType {
   token: string | null;
   login: (token: string, user: User) => void;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -76,8 +77,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(false);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const data = await upstashService.getMe();
+      if (data.success && data.data) {
+        setUser(data.data);
+        localStorage.setItem('user', JSON.stringify(data.data));
+      }
+    } catch (error) {
+      console.error('Failed to refresh user data:', error);
+    }
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated: !!token, isLoading, user, token, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated: !!token, isLoading, user, token, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

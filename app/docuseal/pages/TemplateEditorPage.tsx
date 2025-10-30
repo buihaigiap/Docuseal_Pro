@@ -157,7 +157,7 @@ const TemplateEditorPage = () => {
         py: 2
       }}>
         <Box sx={{
-          maxWidth: 1400,
+          // maxWidth: 1400,
           mx: 'auto',
           display: 'flex',
           alignItems: 'center',
@@ -194,16 +194,12 @@ const TemplateEditorPage = () => {
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>
           )}
-         
         </Box>
       </Box>
 
       {/* Editor Content */}
       <Box sx={{
-        maxWidth: 1400,
-        mx: 'auto',
-        px: { xs: 2, sm: 3, md: 4 },
-        py: 4
+        // py: 4
       }}>
         {React.createElement(DocumentEditor as any, {
           ref: editorRef,

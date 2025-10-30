@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Avatar, Box, Menu, MenuItem } from '@mui/material';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -20,6 +20,23 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     setIsMobileMenuOpen(false);
   };
 
+  // Handle click outside to close menu
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (anchorEl && !anchorEl.contains(event.target)) {
+        handleMenuClose();
+      }
+    };
+
+    if (anchorEl) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [anchorEl]);
+
   const navLinkClasses = "text-slate-300 hover:text-white transition-colors duration-300 text-sm font-medium";
 
   return (
@@ -31,7 +48,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
             <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-16">
                 <Link to="/" className="text-xl font-bold text-white">
-                    <img src='/public/logo.png' alt='Letmesign' width={250} />
+                    <img src='/logo.png' alt='Letmesign' width={250} />
                 </Link>
 
                 {/* Desktop Nav */}
@@ -102,7 +119,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                 } }}
             >
                 <MenuItem onClick={() => navigate('/settings')}>Settings</MenuItem>
-              <MenuItem onClick={handleLogout}>Logout</MenuItem>
+                <MenuItem onClick={handleLogout}>Logout</MenuItem>
             </Menu>
 
 
@@ -133,7 +150,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
             )}
         </header>
             <Box sx={{
-                 maxWidth: { xs: '100%', lg: 1400 },
+                 maxWidth: { xs: '100%', lg: 1500 },
                   mx: 'auto', 
                   position: 'relative', 
                   zIndex: 1, 

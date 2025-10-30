@@ -248,7 +248,7 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
       case 'images':
         const currentImageUrl = docState.content[docState.currentPage - 1];
         return (
-          <div className="w-full flex justify-center bg-white">
+          <div className="w-full   ">
             <div className="relative inline-block">
               <img
                 ref={imgRef}
@@ -270,7 +270,7 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
         );
       case 'image':
         return (
-          <div className="w-full flex justify-center bg-white">
+          <div className="w-full">
             <div className="relative inline-block">
               <img
                 ref={imgRef}

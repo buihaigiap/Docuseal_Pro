@@ -15,7 +15,7 @@ pub struct SubmissionFieldQueries;
 impl UserQueries {
     pub async fn get_user_by_id(pool: &PgPool, id: i64) -> Result<Option<DbUser>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, email, password_hash, role, is_active, activation_token, subscription_status, subscription_expires_at, free_usage_count, created_at, updated_at FROM users WHERE id = $1"
+            "SELECT id, name, email, password_hash, role, is_active, activation_token, subscription_status, subscription_expires_at, free_usage_count, signature, initials, created_at, updated_at FROM users WHERE id = $1"
         )
         .bind(id)
         .fetch_optional(pool)
@@ -33,6 +33,8 @@ impl UserQueries {
                 subscription_status: row.try_get("subscription_status")?,
                 subscription_expires_at: row.try_get("subscription_expires_at")?,
                 free_usage_count: row.try_get("free_usage_count")?,
+                signature: row.try_get("signature")?,
+                initials: row.try_get("initials")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             })),
@@ -48,7 +50,7 @@ impl UserQueries {
             INSERT INTO users (name, email, password_hash, role, is_active, activation_token, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING id, name, email, password_hash, role, is_active, activation_token, subscription_status, 
-                     subscription_expires_at, free_usage_count, created_at, updated_at
+                     subscription_expires_at, free_usage_count, signature, initials, created_at, updated_at
             "#
         )
         .bind(&user_data.name)
@@ -73,6 +75,8 @@ impl UserQueries {
             subscription_status: row.try_get("subscription_status")?,
             subscription_expires_at: row.try_get("subscription_expires_at")?,
             free_usage_count: row.try_get("free_usage_count")?,
+            signature: row.try_get("signature")?,
+            initials: row.try_get("initials")?,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
         })
@@ -80,7 +84,7 @@ impl UserQueries {
 
     pub async fn get_user_by_email(pool: &PgPool, email: &str) -> Result<Option<DbUser>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, email, password_hash, role, is_active, activation_token, subscription_status, subscription_expires_at, free_usage_count, created_at, updated_at FROM users WHERE email = $1"
+            "SELECT id, name, email, password_hash, role, is_active, activation_token, subscription_status, subscription_expires_at, free_usage_count, signature, initials, created_at, updated_at FROM users WHERE email = $1"
         )
         .bind(email)
         .fetch_optional(pool)
@@ -98,6 +102,8 @@ impl UserQueries {
                 subscription_status: row.try_get("subscription_status")?,
                 subscription_expires_at: row.try_get("subscription_expires_at")?,
                 free_usage_count: row.try_get("free_usage_count")?,
+                signature: row.try_get("signature")?,
+                initials: row.try_get("initials")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             })),
@@ -147,6 +153,32 @@ impl UserQueries {
             "UPDATE users SET email = $1, updated_at = $2 WHERE id = $3"
         )
         .bind(new_email)
+        .bind(Utc::now())
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn update_user_signature(pool: &PgPool, user_id: i64, signature: String) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE users SET signature = $1, updated_at = $2 WHERE id = $3"
+        )
+        .bind(signature)
+        .bind(Utc::now())
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn update_user_initials(pool: &PgPool, user_id: i64, initials: String) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE users SET initials = $1, updated_at = $2 WHERE id = $3"
+        )
+        .bind(initials)
         .bind(Utc::now())
         .bind(user_id)
         .execute(pool)
@@ -1614,4 +1646,82 @@ impl SubscriptionQueries {
         Ok(row)
     }
 
+}
+
+pub struct OAuthTokenQueries;
+
+impl OAuthTokenQueries {
+    pub async fn get_oauth_token(pool: &PgPool, user_id: i64, provider: &str) -> Result<Option<super::models::DbOAuthToken>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT id, user_id, provider, access_token, refresh_token, expires_at, created_at, updated_at FROM oauth_tokens WHERE user_id = $1 AND provider = $2 ORDER BY created_at DESC LIMIT 1"
+        )
+        .bind(user_id)
+        .bind(provider)
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(super::models::DbOAuthToken {
+                id: row.try_get("id")?,
+                user_id: row.try_get("user_id")?,
+                provider: row.try_get("provider")?,
+                access_token: row.try_get("access_token")?,
+                refresh_token: row.try_get("refresh_token")?,
+                expires_at: row.try_get("expires_at")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn create_oauth_token(pool: &PgPool, token_data: super::models::CreateOAuthToken) -> Result<super::models::DbOAuthToken, sqlx::Error> {
+        let now = Utc::now();
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO oauth_tokens (user_id, provider, access_token, refresh_token, expires_at, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id, user_id, provider, access_token, refresh_token, expires_at, created_at, updated_at
+            "#
+        )
+        .bind(token_data.user_id)
+        .bind(&token_data.provider)
+        .bind(&token_data.access_token)
+        .bind(&token_data.refresh_token)
+        .bind(token_data.expires_at)
+        .bind(now)
+        .bind(now)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(super::models::DbOAuthToken {
+            id: row.try_get("id")?,
+            user_id: row.try_get("user_id")?,
+            provider: row.try_get("provider")?,
+            access_token: row.try_get("access_token")?,
+            refresh_token: row.try_get("refresh_token")?,
+            expires_at: row.try_get("expires_at")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+
+    pub async fn update_oauth_token(pool: &PgPool, user_id: i64, provider: &str, access_token: &str, refresh_token: Option<&str>, expires_at: Option<DateTime<Utc>>) -> Result<(), sqlx::Error> {
+        let now = Utc::now();
+
+        sqlx::query(
+            "UPDATE oauth_tokens SET access_token = $1, refresh_token = $2, expires_at = $3, updated_at = $4 WHERE user_id = $5 AND provider = $6"
+        )
+        .bind(access_token)
+        .bind(refresh_token)
+        .bind(expires_at)
+        .bind(now)
+        .bind(user_id)
+        .bind(provider)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
 }

@@ -126,11 +126,30 @@ const PartnersPanel: React.FC<PartnersPanelProps> = ({
                   </span>
                   {hoveredIndex === index && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
                         const newPartners = partners.filter((p, i) => p && i !== index);
                         setPartners(newPartners);
+                        
+                        // Also remove all fields associated with this partner
+                        setFields(prevFields => {
+                          const filteredFields = prevFields.filter(f => {
+                            const fieldPartner = (f.partner || '').trim();
+                            const targetPartner = (partner || '').trim();
+                            const shouldKeep = fieldPartner !== targetPartner;
+                            console.log(`Field "${f.name}" partner "${fieldPartner}" vs target "${targetPartner}" - keep: ${shouldKeep}`);
+                            return shouldKeep;
+                          });
+                          console.log('Fields after deletion:', filteredFields.length, 'fields remaining');
+                          return filteredFields;
+                        });
+                        
                         if (currentPartner === partner && newPartners.length > 0) {
+                          console.log('Updating currentPartner from', currentPartner, 'to', newPartners[0]);
                           setCurrentPartner(newPartners[0]);
+                        } else if (currentPartner === partner && newPartners.length === 0) {
+                          console.log('No partners left, currentPartner will be empty');
+                          setCurrentPartner('');
                         }
                       }}
                     >

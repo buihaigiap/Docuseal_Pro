@@ -71,7 +71,7 @@ const SignedSubmissionPage = () => {
           <PdfViewer
             filePath={data.template_info.document.url}
             fields={data?.bulk_signatures?.map(sig => ({ ...sig.field_info, signature_value: sig.signature_value }))}
-            scale={1.5}
+            // scale={1.5}
           />
         </div>
       </div>

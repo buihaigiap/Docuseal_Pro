@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { Box, List, ListItem, ListItemButton, ListItemText, Typography, Paper } from '@mui/material';
-import ProfileSettings from './ProfileSettings';
+import ProfileSettings from './Profile/ProfileSettings';
 import UsersSettings from './Activate/UsersSettings';
 
 const SettingsPage = () => {

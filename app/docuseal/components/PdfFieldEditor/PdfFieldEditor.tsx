@@ -3,6 +3,7 @@ import {  FieldType } from '../../types';
 import upstashService from '../../ConfigApi/upstashService';
 import { Rnd } from 'react-rnd';
 import PdfDisplay, { PdfDisplayRef } from '../PdfDisplay';
+import FieldRenderer from '../FieldRenderer';
 import FieldTools from './FieldTools';
 import PartnersPanel from './PartnersPanel';
 import FieldProperties from './FieldProperties';
@@ -13,12 +14,14 @@ import { measureTextWidth, getFieldClass } from './utils';
 import { useFieldManagement } from './hooks/useFieldManagement';
 import { usePdfInitialization } from './hooks/usePdfInitialization';
 import { canTemplate , useRoleAccess } from '@/hooks/useRoleAccess';
+import { useAuth } from '../../contexts/AuthContext';
 const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token } : any, ref) {
+  const { user } = useAuth();
   const overlayRef = useRef<HTMLDivElement>(null);
   const pdfDisplayRef = useRef<PdfDisplayRef>(null);
   const fieldRefs = useRef(new Map<string, HTMLDivElement>());
   const [error, setError] = useState('');
-  const [scale] = useState(1.5);
+  // const [scale] = useState(1.5);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageWidth, setPageWidth] = useState(0);
   const [pageHeight, setPageHeight] = useState(0);
@@ -50,7 +53,7 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
   useEffect(() => {
     prevPartnersRef.current = partners;
   }, [partners]);
-
+  console.log('fieldsbbbbbbbbbbbb'  , fields)
   // Custom hooks
   const { updateField, deleteField, handleSaveClick } = useFieldManagement(
     fields,
@@ -239,8 +242,6 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
     const w = Math.max(0.01, Math.min(1 - x, width / displayWidth));
     const h = Math.max(0.01, Math.min(1 - y, height / displayHeight));
 
-    console.log('Field position (decimal):', { x, y, w, h });
-
     const fieldType: FieldType = activeTool === 'cursor' && e.shiftKey ? lastFieldTool : (activeTool === 'cursor' ? lastFieldTool : activeTool as FieldType);
     const newField: any = {
       tempId: `new-${Date.now()}`,
@@ -311,14 +312,13 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
   if (error) return <div className="text-red-400 bg-gray-800 p-4 rounded break-words">{error}</div>;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-3 ">
       <div className="lg:col-span-2">
-        {/* Desktop view: Use PdfDisplay with single page */}
         <PdfDisplay
             ref={pdfDisplayRef}
             filePath={template.file_url}
             token={token}
-            scale={scale}
+            // scale={scale}
             page={currentPage}
             onPageChange={(newPage: number) => setCurrentPage(newPage)}
             onLoad={() => {
@@ -523,10 +523,12 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
                     >
                       {f.field_type === 'cells' ? (
                         <>
-                          <div className="w-full h-full grid overflow-hidden" style={{ gridTemplateColumns: f.options.widths.map((w: number) => `${w}fr`).join(' ') }}>
-                            {Array.from({length: f.options.columns}, (_, i) => <div key={i} className="border border-gray-400 flex items-center justify-center text-xs bg-white bg-opacity-50">TH {i+1}</div>)}
-                          </div>
-                          {/* Bottom bar with single handle */}
+                          <FieldRenderer 
+                            field={f}
+                            defaultSignature={user?.signature}
+                            defaultInitials={user?.initials}
+                          />
+                          {/* Bottom bar with single handle for column resizing */}
                           <div className="absolute bottom-0 left-0 right-0 h-4 bg-gray-200 flex items-center justify-center overflow-hidden">
                             <div 
                               className="absolute w-3 h-3 bg-blue-500 rounded-full cursor-ew-resize border border-white"
@@ -540,17 +542,19 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
                           </div>
                         </>
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-black">
-                          {getCurrentToolIcon(f.field_type, 'w-6 h-6')}
-                        </div>
-                      ) }
+                        <FieldRenderer
+                          field={f}
+                          defaultSignature={user?.signature}
+                          defaultInitials={user?.initials}
+                        />
+                      )}
                     </div>
                   </Rnd>
                 );
               })}
               {currentRect && <div style={currentRect}></div>}
             </div>
-          </PdfDisplay>
+        </PdfDisplay>
         </div>
 
         <div className="lg:col-span-1 text-black p-4 rounded-lg space-y-6">
@@ -573,6 +577,7 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
             selectedFieldTempId={selectedFieldTempId}
             setSelectedFieldTempId={setSelectedFieldTempId}
             updateField={updateField}
+            deleteField={deleteField}
           />
           {checkRole && !hasAccess && (
            <div>

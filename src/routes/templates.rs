@@ -62,7 +62,8 @@ use crate::models::template::{
     TemplateField,
     CreateTemplateFieldRequest, UpdateTemplateFieldRequest,
     FileUploadResponse, CreateTemplateFromFileRequest, CreateTemplateRequest,
-    TemplateFolder, CreateFolderRequest, UpdateFolderRequest
+    TemplateFolder, CreateFolderRequest, UpdateFolderRequest,
+    CreateTemplateFromGoogleDriveRequest
 };
 use crate::database::connection::DbPool;
 use crate::database::models::{CreateTemplate, CreateTemplateField, CreateTemplateFolder};
@@ -347,6 +348,7 @@ pub fn create_template_router() -> Router<AppState> {
         .route("/templates/pdf", post(create_template_from_pdf))
         .route("/templates/docx", post(create_template_from_docx))
         .route("/templates/from-file", post(create_template_from_file))
+        .route("/templates/google_drive_documents", post(create_template_from_google_drive))
         .route("/templates/merge", post(merge_templates))
         // Template Fields routes
         .route("/templates/:template_id/fields", get(get_template_fields))
@@ -1441,6 +1443,139 @@ pub async fn create_template_from_pdf(
             ApiResponse::internal_error(format!("Failed to create template: {}", e))
         }
     }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/templates/google_drive_documents",
+    request_body = CreateTemplateFromGoogleDriveRequest,
+    responses(
+        (status = 201, description = "Template created from Google Drive successfully", body = ApiResponse<Template>),
+        (status = 400, description = "Bad request", body = ApiResponse<Template>),
+        (status = 500, description = "Internal server error", body = ApiResponse<Template>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "templates"
+)]
+pub async fn create_template_from_google_drive(
+    State(state): State<AppState>,
+    Extension(user_id): Extension<i64>,
+    Json(payload): Json<CreateTemplateFromGoogleDriveRequest>,
+) -> (StatusCode, Json<ApiResponse<Template>>) {
+    let pool = &state.lock().await.db_pool;
+
+    // Initialize storage service
+    let storage = match StorageService::new().await {
+        Ok(storage) => storage,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to initialize storage: {}", e)),
+    };
+
+    if payload.google_drive_file_ids.is_empty() {
+        return ApiResponse::bad_request("No Google Drive files provided".to_string());
+    }
+
+    // For now, process only the first file
+    let file_id = &payload.google_drive_file_ids[0];
+
+    // Get OAuth token for the user
+    let oauth_token = match crate::database::queries::OAuthTokenQueries::get_oauth_token(pool, user_id, "google").await {
+        Ok(Some(token)) => {
+            // Check if token is expired
+            if let Some(expires_at) = token.expires_at {
+                if expires_at < chrono::Utc::now() {
+                    return ApiResponse::bad_request("Google Drive access token expired. Please reconnect your Google Drive.".to_string());
+                }
+            }
+            token
+        },
+        Ok(None) => return ApiResponse::bad_request("Google Drive not connected. Please connect your Google Drive first.".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Database error: {}", e)),
+    };
+
+    // Download file from Google Drive
+    let client = reqwest::Client::new();
+    let download_url = format!("https://www.googleapis.com/drive/v3/files/{}?alt=media", file_id);
+
+    let response = match client
+        .get(&download_url)
+        .header("Authorization", format!("Bearer {}", oauth_token.access_token))
+        .send()
+        .await
+    {
+        Ok(resp) => resp,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to download file from Google Drive: {}", e)),
+    };
+
+    if !response.status().is_success() {
+        return ApiResponse::bad_request("Failed to download file from Google Drive. The file may not exist or you may not have permission.".to_string());
+    }
+
+    let pdf_data = match response.bytes().await {
+        Ok(bytes) => bytes.to_vec(),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to read file data: {}", e)),
+    };
+
+    // Get file metadata to extract filename
+    let metadata_url = format!("https://www.googleapis.com/drive/v3/files/{}", file_id);
+    let metadata_response = match client
+        .get(&metadata_url)
+        .header("Authorization", format!("Bearer {}", oauth_token.access_token))
+        .send()
+        .await
+    {
+        Ok(resp) => resp,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to get file metadata: {}", e)),
+    };
+
+    let metadata: serde_json::Value = match metadata_response.json().await {
+        Ok(json) => json,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to parse metadata: {}", e)),
+    };
+
+    let filename = metadata["name"].as_str().unwrap_or("document.pdf").to_string();
+
+    // Upload file to storage
+    let file_key = match storage.upload_file(pdf_data, &filename, "application/pdf").await {
+        Ok(key) => key,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to upload file: {}", e)),
+    };
+
+    // Generate unique slug
+    let slug = format!("gdrive-{}-{}", filename.replace(".pdf", "").to_lowercase().replace(" ", "-"), chrono::Utc::now().timestamp());
+
+    let template_name = payload.name.unwrap_or_else(|| filename.replace(".pdf", ""));
+
+    // Create template in database
+    let create_template = CreateTemplate {
+        name: template_name.clone(),
+        slug: slug.clone(),
+        user_id: user_id,
+        folder_id: payload.folder_id,
+        documents: Some(serde_json::json!([{
+            "filename": filename,
+            "content_type": "application/pdf",
+            "size": 0,
+            "url": file_key
+        }])),
+    };
+
+    match TemplateQueries::create_template(pool, create_template).await {
+        Ok(db_template) => {
+            match convert_db_template_to_template_with_fields(db_template, pool).await {
+                Ok(template) => ApiResponse::created(template, "Template created from Google Drive successfully".to_string()),
+                Err(e) => {
+                    // Try to delete uploaded file if database operation fails
+                    let _ = storage.delete_file(&file_key).await;
+                    ApiResponse::internal_error(format!("Failed to load template fields: {}", e))
+                }
+            }
+        }
+        Err(e) => {
+            // Try to delete uploaded file if database operation fails
+            let _ = storage.delete_file(&file_key).await;
+            ApiResponse::internal_error(format!("Failed to create template: {}", e))
+        }
+}
 }
 
 #[utoipa::path(

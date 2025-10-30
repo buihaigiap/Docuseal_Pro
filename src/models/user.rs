@@ -13,6 +13,8 @@ pub struct User {
     pub subscription_status: String,
     pub subscription_expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub free_usage_count: i32,
+    pub signature: Option<String>,
+    pub initials: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -28,6 +30,8 @@ impl From<crate::database::models::DbUser> for User {
             subscription_status: db_user.subscription_status,
             subscription_expires_at: db_user.subscription_expires_at,
             free_usage_count: db_user.free_usage_count,
+            signature: db_user.signature,
+            initials: db_user.initials,
             created_at: db_user.created_at,
         }
     }

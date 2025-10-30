@@ -1,5 +1,35 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateUserInvitation {
+    pub email: String,
+    pub name: String,
+    pub role: Role,
+    pub invited_by_user_id: Option<i64>,
+}
+
+// OAuth token model for Google Drive integration
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DbOAuthToken {
+    pub id: i64,
+    pub user_id: i64,
+    pub provider: String, // "google"
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// Create OAuth token request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateOAuthToken {
+    pub user_id: i64,
+    pub provider: String,
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub expires_at: Option<DateTime<Utc>>,
+}
 use sqlx::FromRow;
 use crate::models::role::Role;
 
@@ -16,6 +46,8 @@ pub struct DbUser {
     pub subscription_status: String, // free, premium
     pub subscription_expires_at: Option<DateTime<Utc>>,
     pub free_usage_count: i32,
+    pub signature: Option<String>,
+    pub initials: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -42,15 +74,6 @@ pub struct DbUserInvitation {
     pub is_used: bool,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
-}
-
-// Create invitation request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateUserInvitation {
-    pub email: String,
-    pub name: String,
-    pub role: Role,
-    pub invited_by_user_id: i64,
 }
 
 // Database-specific template field model

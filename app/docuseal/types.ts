@@ -4,6 +4,8 @@ export interface User {
   email: string;
   role: string;
   free_usage_count?: number;
+  signature?: string;
+  initials?: string;
 }
 
 export interface ApiResponse<T> {

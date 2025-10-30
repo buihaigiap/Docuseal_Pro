@@ -3,6 +3,41 @@ fn main() {
     // trigger recompilation when a new migration is added
     println!("cargo:rerun-if-changed=migrations");
 
+    // trigger recompilation when frontend files change
+    println!("cargo:rerun-if-changed=app/docuseal/src");
+    println!("cargo:rerun-if-changed=app/docuseal/public");
+    println!("cargo:rerun-if-changed=app/docuseal/package.json");
+
     // Optional: You can add database setup checks here if needed
     // But be careful as build.rs runs during compilation
+
+    // Build the frontend
+    // build_frontend(); // Temporarily disabled
+}
+
+fn build_frontend() {
+    use std::process::Command;
+    use std::env;
+
+    // Get the current directory
+    let current_dir = env::current_dir().unwrap();
+    
+    // Path to the frontend directory
+    let frontend_dir = current_dir.join("app").join("docuseal");
+    
+    println!("cargo:warning=Building frontend...");
+    
+    // Run npm build in the frontend directory
+    let status = Command::new("npm")
+        .arg("run")
+        .arg("build")
+        .current_dir(&frontend_dir)
+        .status()
+        .expect("Failed to run npm build");
+    
+    if !status.success() {
+        panic!("Frontend build failed");
+    }
+    
+    println!("cargo:warning=Frontend build completed successfully");
 }

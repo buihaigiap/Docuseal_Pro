@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 use utoipa::openapi::security::{HttpAuthScheme, Http, SecurityScheme};
@@ -190,7 +190,7 @@ async fn main() {
 
     // Serve static files from frontend build directory
     let static_files_service = ServeDir::new("app/docuseal/dist")
-        .not_found_service(ServeDir::new("app/docuseal/dist/index.html"));
+        .not_found_service(ServeFile::new("app/docuseal/dist/index.html"));
 
     // Combine all routes
     let app = Router::new()

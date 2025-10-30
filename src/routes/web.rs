@@ -1,7 +1,7 @@
 use axum::{
     extract::{State, Extension},
     http::StatusCode,
-    response::Json,
+    response::{Json, Redirect, IntoResponse},
     routing::{get, post, put, delete},
     Router,
     middleware,
@@ -25,6 +25,7 @@ use crate::common::jwt::{generate_jwt, decode_jwt, Claims};
 
 use crate::services::queue::PaymentQueue;
 use crate::services::cache::OtpCache;
+use chrono::Utc;
 
 #[derive(Clone)]
 pub struct AppStateData {
@@ -79,6 +80,9 @@ pub fn create_router() -> Router<AppState> {
     let final_router = Router::new()
         .nest("/api", api_routes)
         .route("/health", get(health_check))
+        .route("/template_google_drive", get(template_google_drive_picker))
+        .route("/auth/google_oauth2", get(google_oauth_init))
+        .route("/auth/google_oauth2/callback", get(google_oauth_callback))
         .route("/public/submissions/:token", get(submitters::get_public_submitter).put(submitters::update_public_submitter))
         .route("/public/submissions/:token/fields", get(submitters::get_public_submitter_fields))
         .route("/public/submissions/:token/signatures", get(submitters::get_public_submitter_signatures))
@@ -372,6 +376,8 @@ pub async fn change_password_handler(
 pub struct UpdateUserRequest {
     pub name: String,
     pub email: Option<String>,
+    pub signature: Option<String>,
+    pub initials: Option<String>,
 }
 
 // Update user profile handler
@@ -408,7 +414,7 @@ pub async fn update_user_profile_handler(
         // Check if email is already in use by another user
         if let Ok(Some(existing_user)) = UserQueries::get_user_by_email(pool, email).await {
             if existing_user.id != user_id {
-                return ApiResponse::bad_request("Email is already in use by another user".to_string());
+                return ApiResponse::bad_request("Email is already in use".to_string());
             }
         }
     }
@@ -422,6 +428,20 @@ pub async fn update_user_profile_handler(
     if let Some(email) = payload.email.clone() {
         if let Err(e) = UserQueries::update_user_email(pool, user_id, email).await {
             return ApiResponse::internal_error(format!("Failed to update email: {}", e));
+        }
+    }
+
+    // Update user signature if provided
+    if let Some(signature) = payload.signature.clone() {
+        if let Err(e) = UserQueries::update_user_signature(pool, user_id, signature).await {
+            return ApiResponse::internal_error(format!("Failed to update signature: {}", e));
+        }
+    }
+
+    // Update user initials if provided
+    if let Some(initials) = payload.initials.clone() {
+        if let Err(e) = UserQueries::update_user_initials(pool, user_id, initials).await {
+            return ApiResponse::internal_error(format!("Failed to update initials: {}", e));
         }
     }
 
@@ -940,4 +960,207 @@ pub async fn get_admin_team_members_handler(
 
 async fn health_check() -> &'static str {
     "OK"
+}
+
+use axum::response::Html;
+
+async fn template_google_drive_picker() -> Html<String> {
+    let client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_else(|_| "YOUR_GOOGLE_CLIENT_ID".to_string());
+    let developer_key = std::env::var("GOOGLE_DEVELOPER_KEY").unwrap_or_else(|_| "YOUR_GOOGLE_DEVELOPER_KEY".to_string());
+    let html = format!(r#"
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Google Drive Picker</title>
+    <script type="text/javascript">
+        let pickerApiLoaded = false;
+        let oauthToken = null;
+
+        function onApiLoad() {{
+            window.gapi.load('auth2', onAuthApiLoad);
+            window.gapi.load('picker', onPickerApiLoad);
+        }}
+
+        function onAuthApiLoad() {{
+            window.gapi.auth2.init({{
+                client_id: '{}'
+            }});
+        }}
+
+        function onPickerApiLoad() {{
+            pickerApiLoaded = true;
+            fetch('/api/me', {{
+                headers: {{
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                }}
+            }}).then(response => response.json()).then(data => {{
+                if (data.success && data.data.oauth_tokens) {{
+                    const googleToken = data.data.oauth_tokens.find(t => t.provider === 'google');
+                    if (googleToken) {{
+                        oauthToken = googleToken.access_token;
+                        createPicker();
+                    }} else {{
+                        requestOAuth();
+                    }}
+                }} else {{
+                    requestOAuth();
+                }}
+            }}).catch(() => {{
+                requestOAuth();
+            }});
+        }}
+
+        function requestOAuth() {{
+            window.parent.postMessage({{ type: 'google-drive-picker-request-oauth' }}, '*' );
+        }}
+
+        function createPicker() {{
+            if (pickerApiLoaded && oauthToken) {{
+                const picker = new google.picker.PickerBuilder()
+                    .addView(google.picker.ViewId.DOCS)
+                    .setOAuthToken(oauthToken)
+                    .setDeveloperKey('{}')
+                    .setCallback(pickerCallback)
+                    .build();
+                picker.setVisible(true);
+            }}
+        }}
+
+        function pickerCallback(data) {{
+            if (data.action === google.picker.Action.PICKED) {{
+                window.parent.postMessage({{
+                    type: 'google-drive-files-picked',
+                    files: data.docs
+                }}, '*' );
+            }}
+        }}
+
+        window.addEventListener('load', function() {{
+            window.parent.postMessage({{ type: 'google-drive-picker-loaded' }}, '*' );
+        }});
+    </script>
+    <script src="https://apis.google.com/js/api.js?onload=onApiLoad"></script>
+</head>
+<body>
+    <div id="picker-container"></div>
+</body>
+</html>
+"#, client_id, developer_key);
+    Html(html)
+}
+
+use axum::extract::Query;
+use std::collections::HashMap;
+
+#[derive(Debug, Deserialize)]
+pub struct GoogleOAuthCallbackQuery {
+    pub code: Option<String>,
+    pub state: Option<String>,
+}
+
+async fn google_oauth_init(
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    // Redirect to Google OAuth
+    let client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_else(|_| "YOUR_GOOGLE_CLIENT_ID".to_string());
+    let redirect_uri = format!("{}/auth/google_oauth2/callback", std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string()));
+
+    let scope = "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file";
+    let state = params.get("state").unwrap_or(&"".to_string()).clone();
+
+    let auth_url = format!(
+        "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&scope={}&response_type=code&access_type=offline&prompt=consent{}",
+        client_id,
+        urlencoding::encode(&redirect_uri),
+        urlencoding::encode(scope),
+        if !state.is_empty() { format!("&state={}", urlencoding::encode(&state)) } else { "".to_string() }
+    );
+
+    Redirect::to(&auth_url)
+}
+
+async fn google_oauth_callback(
+    Query(query): Query<GoogleOAuthCallbackQuery>,
+    Extension(user_id): Extension<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let pool = &state.lock().await.db_pool;
+
+    if let Some(code) = query.code {
+        // Exchange code for tokens
+        let client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_else(|_| "YOUR_GOOGLE_CLIENT_ID".to_string());
+        let client_secret = std::env::var("GOOGLE_CLIENT_SECRET").unwrap_or_else(|_| "YOUR_GOOGLE_CLIENT_SECRET".to_string());
+        let redirect_uri = format!("{}/auth/google_oauth2/callback", std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string()));
+
+        let client = reqwest::Client::new();
+        let token_response = match client
+            .post("https://oauth2.googleapis.com/token")
+            .form(&[
+                ("client_id", client_id.as_str()),
+                ("client_secret", client_secret.as_str()),
+                ("code", &code),
+                ("grant_type", "authorization_code"),
+                ("redirect_uri", redirect_uri.as_str()),
+            ])
+            .send()
+            .await
+        {
+            Ok(resp) => resp,
+            Err(e) => {
+                eprintln!("Failed to exchange code for tokens: {}", e);
+                return Redirect::to("/dashboard?error=oauth_failed");
+            }
+        };
+
+        if !token_response.status().is_success() {
+            eprintln!("Token exchange failed: {}", token_response.status());
+            return Redirect::to("/dashboard?error=oauth_failed");
+        }
+
+        let token_data: serde_json::Value = match token_response.json().await {
+            Ok(data) => data,
+            Err(e) => {
+                eprintln!("Failed to parse token response: {}", e);
+                return Redirect::to("/dashboard?error=oauth_failed");
+            }
+        };
+
+        let access_token = token_data["access_token"].as_str().unwrap_or("").to_string();
+        let refresh_token = token_data["refresh_token"].as_str().map(|s| s.to_string());
+        let expires_in = token_data["expires_in"].as_u64().unwrap_or(3600);
+        let expires_at = Some(Utc::now() + chrono::Duration::seconds(expires_in as i64));
+
+        // Store tokens in database
+        let create_token = super::super::database::models::CreateOAuthToken {
+            user_id,
+            provider: "google".to_string(),
+            access_token,
+            refresh_token,
+            expires_at,
+        };
+
+        if let Err(e) = super::super::database::queries::OAuthTokenQueries::create_oauth_token(pool, create_token).await {
+            eprintln!("Failed to store OAuth token: {}", e);
+            return Redirect::to("/dashboard?error=token_storage_failed");
+        }
+
+        // Redirect back to dashboard or the original page
+        let redirect_url = if let Some(state) = query.state {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&state) {
+                if let Some(redir) = parsed["redir"].as_str() {
+                    format!("{}?google_drive_connected=1", redir)
+                } else {
+                    "/dashboard?google_drive_connected=1".to_string()
+                }
+            } else {
+                "/dashboard?google_drive_connected=1".to_string()
+            }
+        } else {
+            "/dashboard?google_drive_connected=1".to_string()
+        };
+
+        Redirect::to(&redirect_url)
+    } else {
+        Redirect::to("/dashboard?error=oauth_no_code")
+    }
 }

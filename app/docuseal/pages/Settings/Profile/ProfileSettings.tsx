@@ -1,27 +1,29 @@
 import { useState, useEffect } from 'react';
 import { Typography, Box, TextField, Button } from '@mui/material';
-import upstashService from '../../ConfigApi/upstashService';
+import upstashService from '../../../ConfigApi/upstashService';
 import toast from 'react-hot-toast';
+import CreateTemplateButton from '@/components/CreateTemplateButton';
+import SignatureSection from './SignatureSection';
+import { useAuth } from '@/contexts/AuthContext';
 
 const ProfileSettings = () => {
+  const { user } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [signature, setSignature] = useState('');
+  const [initials, setInitials] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
   useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const res = await upstashService.getMe();
-        setName(res.data.name);
-        setEmail(res.data.email);
-      } catch (err) {
-        toast.error('Failed to load user data');
-      }
-    };
-    fetchUser();
-  }, []);
+    if (user) {
+      setName(user.name || '');
+      setEmail(user.email || '');
+      setSignature(user.signature || '');
+      setInitials(user.initials || '');
+    }
+  }, [user]);
 
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
@@ -75,9 +77,9 @@ const ProfileSettings = () => {
               onChange={(e) => setEmail(e.target.value)}
               sx={{ mb: 2 }}
             />
-            <Button type="submit" variant="contained" color="primary">
-              Update Profile
-            </Button>
+            <CreateTemplateButton 
+                text ='Update Profile'
+            />
           </Box>
         </div>
         <div className="bg-white/5 border border-white/10 rounded-lg p-4 flex-1">
@@ -109,12 +111,26 @@ const ProfileSettings = () => {
               onChange={(e) => setConfirmPassword(e.target.value)}
               sx={{ mb: 2 }}
             />
-            <Button type="submit" variant="contained" color="primary">
-              Change Password
-            </Button>
+            <CreateTemplateButton 
+               text =' Change Password'
+            />
           </Box>
         </div>
       </Box>
+      <SignatureSection 
+        title="Signature" 
+        fieldType="signature" 
+        initialValue={signature}
+        onUpdate={(value) => setSignature(value)}
+        userName={name}
+      />
+      <SignatureSection 
+        title="Initials" 
+        fieldType="initials" 
+        initialValue={initials}
+        onUpdate={(value) => setInitials(value)}
+        userName={name}
+      />
     </Box>
   );
 };

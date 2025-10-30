@@ -5,16 +5,20 @@ interface CreateTemplateButtonProps {
   onClick?: () => void;
   text?: string;
   loading?: boolean;
+  disabled?: boolean;
   background ?: string;
   icon?: any;
+  width?: string;
 }
 
 const CreateTemplateButton: React.FC<CreateTemplateButtonProps> = ({
   onClick,
   text = '',
   loading = false,
+  disabled = false,
   background = 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
   icon = null,
+  width = 'auto',
 }) => {
   return (
     <Button
@@ -22,8 +26,9 @@ const CreateTemplateButton: React.FC<CreateTemplateButtonProps> = ({
       type='submit'
       onClick={onClick}
       variant="contained"
-      disabled={loading}
+      disabled={loading || disabled}
       sx={{
+        width: {width},
         background,
         color: 'white',
         fontWeight: '700',

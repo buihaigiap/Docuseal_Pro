@@ -198,3 +198,10 @@ pub struct CreateTemplateFromFileRequest {
     pub name: String,
     pub folder_id: Option<i64>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateTemplateFromGoogleDriveRequest {
+    pub google_drive_file_ids: Vec<String>,
+    pub name: Option<String>,
+    pub folder_id: Option<i64>,
+}

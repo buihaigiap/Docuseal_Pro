@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import GoogleDrivePicker from '../../components/GoogleDrivePicker';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-
+import CreateTemplateButton from '../../components/CreateTemplateButton';
 const EmptyState = () => {
   const [showGoogleDrivePicker, setShowGoogleDrivePicker] = useState(false);
 
@@ -93,19 +93,11 @@ const EmptyState = () => {
         </Typography>
 
         <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mb: 6 }}>
-          <Button
-            variant="contained"
-            startIcon={<FolderOpenIcon />}
+          <CreateTemplateButton
+            text="Google Drive"
             onClick={() => setShowGoogleDrivePicker(true)}
-            sx={{
-              background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
-              '&:hover': {
-                background: 'linear-gradient(135deg, #4338CA 0%, #6D28D9 100%)'
-              }
-            }}
-          >
-            Google Drive
-          </Button>
+            icon={<FolderOpenIcon />}
+          />
         </Box>
       </Box>
 

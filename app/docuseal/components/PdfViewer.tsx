@@ -109,6 +109,12 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
                       <img src={(f as any).signature_value} alt="Signature" className="object-contain mx-auto max-w-full max-h-full" />
                     </div>
                   </div>
+                ) : (f as any).signature_value.startsWith('blob:') || (f as any).signature_value.startsWith('http') ? (
+                  <div className={`flex justify-between w-full h-full gap-1 overflow-hidden ${isNarrow ? 'flex-row' : 'flex-col'}`}>
+                    <div className={`flex overflow-hidden ${isNarrow ? 'w-1/2' : 'flex-grow'}`} style={{ minHeight: '50%' }}>
+                      <img src={(f as any).signature_value} alt="Signature" className="object-contain mx-auto max-w-full max-h-full" />
+                    </div>
+                  </div>
                 ) : (f as any).signature_value.startsWith('[') || (f as any).signature_value.startsWith('{') ? (
                   <div className={`flex justify-between w-full h-full gap-1 overflow-hidden ${isNarrow ? 'flex-row' : 'flex-col'}`}>
                     <div className={`flex overflow-hidden ${isNarrow ? 'w-1/2' : 'flex-grow'}`} style={{ minHeight: '50%' }}>
@@ -156,6 +162,12 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
                     className="object-contain mx-auto w-full h-full"
                   />
                 ) : texts[f.id].startsWith('data:image/') ? (
+                  <div className={`flex justify-between w-full h-full gap-1 overflow-hidden ${isNarrow ? 'flex-row' : 'flex-col'}`}>
+                    <div className={`flex overflow-hidden ${isNarrow ? 'w-1/2' : 'flex-grow'}`} style={{ minHeight: '50%' }}>
+                      <img src={texts[f.id]} alt="Signature" className="object-contain mx-auto max-w-full max-h-full" />
+                    </div>
+                  </div>
+                ) : texts[f.id].startsWith('blob:') || texts[f.id].startsWith('http') ? (
                   <div className={`flex justify-between w-full h-full gap-1 overflow-hidden ${isNarrow ? 'flex-row' : 'flex-col'}`}>
                     <div className={`flex overflow-hidden ${isNarrow ? 'w-1/2' : 'flex-grow'}`} style={{ minHeight: '50%' }}>
                       <img src={texts[f.id]} alt="Signature" className="object-contain mx-auto max-w-full max-h-full" />

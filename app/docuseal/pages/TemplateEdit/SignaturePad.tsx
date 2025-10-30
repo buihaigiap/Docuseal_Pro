@@ -1,25 +1,41 @@
 import React, { useRef, useEffect, useState } from 'react';
 import SignatureCanvas from 'react-signature-canvas';
-import { TextField, Button, Box, Typography, Fade, Stack } from '@mui/material';
-import { PenLine, Type, Eraser } from 'lucide-react';
+import { TextField, Button, Box, Typography, Fade, Stack, Card, CardMedia } from '@mui/material';
+import { PenLine, Type, Eraser, Upload } from 'lucide-react';
+import upstashService from '../../ConfigApi/upstashService';
+import toast from 'react-hot-toast';
 
 interface SignaturePadProps {
   onSave: (dataUrl: string) => void;
   onClear?: () => void;
   initialData?: string;
+  onFileSelected?: (file: File | null) => void; // New prop for file handling
+  onUploadComplete?: () => void; // New prop to notify when upload is complete
 }
 
-const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialData }) => {
+const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialData, onFileSelected, onUploadComplete }) => {
   const sigPadRef = useRef<SignatureCanvas>(null);
   const [isEmpty, setIsEmpty] = useState(true);
-  const [mode, setMode] = useState<'draw' | 'type'>('draw');
+  const [mode, setMode] = useState<'draw' | 'type' | 'upload'>('draw');
   const [typedText, setTypedText] = useState('');
+  const [uploadedImage, setUploadedImage] = useState<string>('');
+  const [uploading, setUploading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (initialData) {
       if (initialData.startsWith('data:image/')) {
         setMode('draw');
         sigPadRef.current?.fromDataURL(initialData);
+        setIsEmpty(false);
+      } else if (initialData.startsWith('blob:')) {
+        // Handle local blob URLs from previous sessions
+        setMode('upload');
+        setUploadedImage(initialData);
+        setIsEmpty(false);
+      } else if (initialData.startsWith('http') || initialData.startsWith('/')) {
+        setMode('upload');
+        setUploadedImage(initialData);
         setIsEmpty(false);
       } else {
         try {
@@ -35,12 +51,29 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
     }
   }, [initialData]);
 
+  const cleanupBlobUrl = () => {
+    if (uploadedImage && uploadedImage.startsWith('blob:')) {
+      URL.revokeObjectURL(uploadedImage);
+    }
+  };
+
+  // Expose cleanup function to parent
+  useEffect(() => {
+    if (onUploadComplete) {
+      // This effect runs when onUploadComplete changes, but we don't need to do anything here
+      // The parent will call cleanupBlobUrl when upload is complete
+    }
+  }, [onUploadComplete]);
+
   const handleClear = () => {
     if (mode === 'draw') {
       sigPadRef.current?.clear();
       setIsEmpty(true);
-    } else {
+    } else if (mode === 'type') {
       setTypedText('');
+    } else if (mode === 'upload') {
+      setUploadedImage('');
+      setIsEmpty(true);
     }
     onClear?.();
   };
@@ -51,16 +84,38 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
       onSave(vectorData);
     } else if (mode === 'type') {
       onSave(typedText);
+    } else if (mode === 'upload') {
+      onSave(uploadedImage);
     }
   };
 
   const handleBegin = () => setIsEmpty(false);
 
-  const handleModeChange = (newMode: 'draw' | 'type') => {
+    const handleModeChange = (newMode: 'draw' | 'type' | 'upload') => {
     setMode(newMode);
-    if (newMode === 'draw') setTypedText('');
-    else sigPadRef.current?.clear();
+    if (newMode === 'draw') {
+      setTypedText('');
+      setUploadedImage('');
+    } else if (newMode === 'type') {
+      sigPadRef.current?.clear();
+      setUploadedImage('');
+    } else if (newMode === 'upload') {
+      sigPadRef.current?.clear();
+      setTypedText('');
+    }
     setIsEmpty(true);
+  };
+
+  const handleImageUpload = async (file: File) => {
+    // Store file locally for preview
+    setSelectedFile(file);
+    const blobUrl = URL.createObjectURL(file);
+    setUploadedImage(blobUrl); // Create local preview URL
+    setIsEmpty(false);
+    setMode('upload'); // Set mode to upload
+    
+    // Notify parent component about file selection (this will update texts)
+    onFileSelected?.(file);
   };
 
   return (
@@ -95,6 +150,15 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
           sx={{ textTransform: 'none', borderRadius: 2, px: 2 }}
         >
           Type
+        </Button>
+        <Button
+          startIcon={<Upload size={18} />}
+          variant={mode === 'upload' ? 'contained' : 'outlined'}
+          color="primary"
+          onClick={() => handleModeChange('upload')}
+          sx={{ textTransform: 'none', borderRadius: 2, px: 2 }}
+        >
+          Upload
         </Button>
         <Button
           startIcon={<Eraser size={18} />}
@@ -162,6 +226,57 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
               '& input': {  fontSize: '1.6rem', color: '#000' },
             }}
           />
+        </Box>
+      </Fade>
+
+      <Fade in={mode === 'upload'} unmountOnExit>
+        <Box sx={{ width: 420, mb: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                const maxSize = 5 * 1024 * 1024; // 5MB for signature images
+                if (file.size > maxSize) {
+                  toast.error(`File too large. Maximum allowed size is ${maxSize / (1024 * 1024)}MB.`);
+                  return;
+                }
+                await handleImageUpload(file);
+              }
+            }}
+            style={{ display: 'none' }}
+            id="signature-image-upload"
+            disabled={uploading}
+          />
+          {!uploadedImage && (
+            <label htmlFor="signature-image-upload">
+                <Button
+                  variant="outlined"
+                  component="span"
+                  fullWidth
+                  disabled={uploading}
+                  sx={{ textTransform: 'none', borderRadius: 2, py: 2 }}
+                >
+                  {uploading ? 'Uploading...' : 'Select Signature Image'}
+                </Button>
+              </label>
+          )}
+          
+
+          {uploadedImage && (
+            <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+              <Card sx={{ maxWidth: 300 }}>
+                <CardMedia
+                  component="img"
+                  height="140"
+                  image={uploadedImage}
+                  alt="Signature preview"
+                  sx={{ objectFit: 'contain' }}
+                />
+              </Card>
+            </Box>
+          )}
         </Box>
       </Fade>
     </Box>
