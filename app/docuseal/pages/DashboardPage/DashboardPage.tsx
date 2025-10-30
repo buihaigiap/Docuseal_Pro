@@ -18,6 +18,7 @@ const DashboardPage = () => {
   const [error, setError] = useState('');
   const [folders, setFolders] = useState<any[]>([]);
   const [showNewTemplateModal, setShowNewTemplateModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const { token } = useAuth();
   const fetchTemplates = async () => {
     if (!token) {
@@ -51,13 +52,25 @@ const DashboardPage = () => {
     fetchTemplates();
   }, [token]);
 
+  const filteredFolders = folders.filter(folder =>
+    folder.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredTemplates = templates.filter(template =>
+    template.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <Box sx={{
       marginTop: { xs: 4, md: 6 },
     }}>
       <Box >
         {/* Header Section */}
-        <DashboardHeader onCreateNew={() => setShowNewTemplateModal(true)} />
+        <DashboardHeader 
+          onCreateNew={() => setShowNewTemplateModal(true)} 
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+        />
 
         {/* Content Container */}
         <motion.div
@@ -65,14 +78,14 @@ const DashboardPage = () => {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ delay: 0.3, duration: 0.6, ease: "easeOut" }}
         >
-          <FoldersList folders={folders} />
+          <FoldersList folders={filteredFolders} />
 
           {loading ? (
             <DashboardLoading />
           ) : error ? (
             <DashboardError error={error} />
-          ) : templates.length > 0 ? (
-            <TemplatesGrid templates={templates} onRefresh={fetchTemplates} />
+          ) : filteredTemplates.length > 0 ? (
+            <TemplatesGrid templates={filteredTemplates} onRefresh={fetchTemplates} />
           ) : (
             <EmptyState />
           )}

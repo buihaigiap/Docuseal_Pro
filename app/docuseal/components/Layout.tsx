@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Avatar, Box, Menu, MenuItem } from '@mui/material';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import CreateTemplateButton from './CreateTemplateButton';
 
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
@@ -47,7 +48,11 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                             </div>
                             </div>
                         )}
-                        <Link to="/pricing" className="bg-gradient-to-r from-blue-600 to-indigo-500 text-white font-semibold px-4 py-2 rounded-lg text-sm hover:opacity-90 transition-opacity">UPRGADE</Link>
+                        <CreateTemplateButton
+                            text="UPGRADE"
+                            onClick={() => navigate('/pricing')}
+                        />
+                        {/* <Link to="/pricing" className="bg-gradient-to-r from-blue-600 to-indigo-500 text-white font-semibold px-4 py-2 rounded-lg text-sm hover:opacity-90 transition-opacity">UPRGADE</Link> */}
                         <Avatar onClick={handleMenuOpen} sx={{ cursor: 'pointer', bgcolor: 'purple.500' }}>{user?.name?.charAt(0).toUpperCase()}</Avatar>
                     </>
                 ) : (

@@ -1,10 +1,41 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState } from 'react';
 import { Box, Typography, Button } from '@mui/material';
 import { Add as AddIcon, FolderOpen as FolderOpenIcon } from '@mui/icons-material';
 import { motion } from 'framer-motion';
+import GoogleDrivePicker from '../../components/GoogleDrivePicker';
+import axios from 'axios';
+import toast from 'react-hot-toast';
 
 const EmptyState = () => {
+  const [showGoogleDrivePicker, setShowGoogleDrivePicker] = useState(false);
+
+  const handleGoogleDriveSelect = async (files: any[]) => {
+    if (files.length > 0) {
+      const file = files[0];
+      try {
+        // Create template from Google Drive file
+        const response = await axios.post('/api/templates/google_drive_documents', {
+          google_drive_file_ids: [file.id],
+          name: file.name.replace('.pdf', '')
+        }, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+
+        if (response.data.success) {
+          toast.success('Template created successfully!');
+          window.location.reload(); // Refresh to show new template
+        } else {
+          toast.error('Failed to create template');
+        }
+      } catch (error) {
+        console.error('Error creating template from Google Drive:', error);
+        toast.error('Failed to create template from Google Drive');
+      }
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
@@ -61,10 +92,28 @@ const EmptyState = () => {
           You don't have any document templates yet. Start by creating your first template to begin the document signing process!
         </Typography>
 
-        <Typography variant="body1" sx={{ color: '#64748b', mb: 6, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
-          Click the "Create New Template" button to upload a PDF and start the signing process.
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mb: 6 }}>
+          <Button
+            variant="contained"
+            startIcon={<FolderOpenIcon />}
+            onClick={() => setShowGoogleDrivePicker(true)}
+            sx={{
+              background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #4338CA 0%, #6D28D9 100%)'
+              }
+            }}
+          >
+            Google Drive
+          </Button>
+        </Box>
       </Box>
+
+      <GoogleDrivePicker
+        open={showGoogleDrivePicker}
+        onClose={() => setShowGoogleDrivePicker(false)}
+        onFileSelect={handleGoogleDriveSelect}
+      />
     </motion.div>
   );
 };

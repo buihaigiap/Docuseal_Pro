@@ -1,13 +1,15 @@
-import { Box, Typography } from '@mui/material';
-import { Add as AddIcon, Description as DescriptionIcon } from '@mui/icons-material';
+import { Box, Typography, TextField, InputAdornment } from '@mui/material';
+import { Add as AddIcon, Description as DescriptionIcon, Search as SearchIcon } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import CreateTemplateButton from '@/components/CreateTemplateButton';
 import { useRoleAccess } from '../../hooks/useRoleAccess';
 interface DashboardHeaderProps {
   onCreateNew?: () => void;
+  searchQuery: string;
+  onSearchChange: (query: string) => void;
 }
 
-const DashboardHeader: React.FC<DashboardHeaderProps> = ({ onCreateNew }) => {
+const DashboardHeader: React.FC<DashboardHeaderProps> = ({ onCreateNew, searchQuery, onSearchChange }) => {
   const hasAccess = useRoleAccess(['admin', 'editor' , 'member']);
 
   return (
@@ -52,19 +54,55 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ onCreateNew }) => {
             </Box>
           </Box>
         </Box>
-        {hasAccess && (
-          <motion.div
-            whileHover={{ scale: 1.08, y: -2 }}
-            whileTap={{ scale: 0.98 }}
-            transition={{ type: "spring", stiffness: 400, damping: 17 }}
-          >
-            <CreateTemplateButton
-              onClick={onCreateNew}
-              text="Create New Template"
-              icon={<AddIcon />}
-            />
-          </motion.div>
-        )}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <TextField
+            placeholder="Search folders or templates..."
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            variant="outlined"
+            size="small"
+            sx={{
+              minWidth: 250,
+              '& .MuiOutlinedInput-root': {
+                backgroundColor: 'rgba(30, 41, 59, 0.8)',
+                color: 'white',
+                '& fieldset': {
+                  borderColor: 'rgba(255, 255, 255, 0.23)',
+                },
+                '&:hover fieldset': {
+                  borderColor: 'rgba(255, 255, 255, 0.4)',
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: '#4F46E5',
+                },
+              },
+              '& .MuiInputBase-input::placeholder': {
+                color: '#94a3b8',
+                opacity: 1,
+              },
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ color: '#94a3b8' }} />
+                </InputAdornment>
+              ),
+            }}
+          />
+          {hasAccess && (
+            <motion.div
+              whileHover={{ scale: 1.08, y: -2 }}
+              whileTap={{ scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 400, damping: 17 }}
+            >
+              <CreateTemplateButton
+                onClick={onCreateNew}
+                text="Create New Template"
+                icon={<AddIcon />}
+              />
+            </motion.div>
+          )}
+        </Box>
       </Box>
     </motion.div>
   );
