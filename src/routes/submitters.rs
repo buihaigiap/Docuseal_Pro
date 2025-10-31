@@ -38,6 +38,9 @@ pub async fn get_submitters(
             let mut all_submitters = Vec::new();
             
             for db_submitter in db_submitters {
+                let reminder_config = db_submitter.reminder_config.as_ref()
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+                    
                 let submitter = crate::models::submitter::Submitter {
                     id: Some(db_submitter.id),
                     template_id: Some(db_submitter.template_id),
@@ -48,6 +51,9 @@ pub async fn get_submitters(
                     signed_at: db_submitter.signed_at,
                     token: db_submitter.token,
                     bulk_signatures: db_submitter.bulk_signatures,
+                    reminder_config,
+                    last_reminder_sent_at: db_submitter.last_reminder_sent_at,
+                    reminder_count: db_submitter.reminder_count,
                     created_at: db_submitter.created_at,
                     updated_at: db_submitter.updated_at,
                 };
@@ -94,6 +100,9 @@ pub async fn get_submitter(
                 _ => return ApiResponse::forbidden("User not found".to_string()),
             }
 
+            let reminder_config = db_submitter.reminder_config.as_ref()
+                .and_then(|v| serde_json::from_value(v.clone()).ok());
+                
             let submitter = crate::models::submitter::Submitter {
                 id: Some(db_submitter.id),
                 template_id: Some(db_submitter.template_id),
@@ -104,6 +113,9 @@ pub async fn get_submitter(
                 signed_at: db_submitter.signed_at,
                 token: db_submitter.token,
                 bulk_signatures: db_submitter.bulk_signatures,
+                reminder_config,
+                last_reminder_sent_at: db_submitter.last_reminder_sent_at,
+                reminder_count: db_submitter.reminder_count,
                 created_at: db_submitter.created_at,
                 updated_at: db_submitter.updated_at,
             };
@@ -178,6 +190,9 @@ pub async fn update_submitter(
 
             match SubmitterQueries::update_submitter(pool, submitter_id, payload.status.as_deref()).await {
                 Ok(Some(db_submitter)) => {
+                    let reminder_config = db_submitter.reminder_config.as_ref()
+                        .and_then(|v| serde_json::from_value(v.clone()).ok());
+                        
                     let submitter = crate::models::submitter::Submitter {
                         id: Some(db_submitter.id),
                         template_id: Some(db_submitter.template_id),
@@ -188,6 +203,9 @@ pub async fn update_submitter(
                         signed_at: db_submitter.signed_at,
                         token: db_submitter.token,
                         bulk_signatures: db_submitter.bulk_signatures,
+                        reminder_config,
+                        last_reminder_sent_at: db_submitter.last_reminder_sent_at,
+                        reminder_count: db_submitter.reminder_count,
                         created_at: db_submitter.created_at,
                         updated_at: db_submitter.updated_at,
                     };
@@ -277,6 +295,9 @@ pub async fn update_public_submitter(
         Ok(Some(db_submitter)) => {
             match SubmitterQueries::update_submitter(pool, db_submitter.id, None).await {
                 Ok(Some(updated_submitter)) => {
+                    let reminder_config = updated_submitter.reminder_config.as_ref()
+                        .and_then(|v| serde_json::from_value(v.clone()).ok());
+                        
                     let submitter = crate::models::submitter::Submitter {
                         id: Some(updated_submitter.id),
                         template_id: Some(updated_submitter.template_id),
@@ -287,6 +308,9 @@ pub async fn update_public_submitter(
                         signed_at: updated_submitter.signed_at,
                         token: updated_submitter.token,
                         bulk_signatures: updated_submitter.bulk_signatures,
+                        reminder_config,
+                        last_reminder_sent_at: updated_submitter.last_reminder_sent_at,
+                        reminder_count: updated_submitter.reminder_count,
                         created_at: updated_submitter.created_at,
                         updated_at: updated_submitter.updated_at,
                     };
@@ -320,6 +344,9 @@ pub async fn get_public_submitter(
 
     match SubmitterQueries::get_submitter_by_token(pool, &token).await {
         Ok(Some(db_submitter)) => {
+            let reminder_config = db_submitter.reminder_config.as_ref()
+                .and_then(|v| serde_json::from_value(v.clone()).ok());
+                
             let submitter = crate::models::submitter::Submitter {
                 id: Some(db_submitter.id),
                 template_id: Some(db_submitter.template_id),
@@ -330,6 +357,9 @@ pub async fn get_public_submitter(
                 signed_at: db_submitter.signed_at,
                 token: db_submitter.token,
                 bulk_signatures: db_submitter.bulk_signatures,
+                reminder_config,
+                last_reminder_sent_at: db_submitter.last_reminder_sent_at,
+                reminder_count: db_submitter.reminder_count,
                 created_at: db_submitter.created_at,
                 updated_at: db_submitter.updated_at,
             };
@@ -411,6 +441,9 @@ pub async fn submit_bulk_signatures(
                 payload.user_agent.as_deref(),
             ).await {
                 Ok(Some(updated_submitter)) => {
+                    let reminder_config = updated_submitter.reminder_config.as_ref()
+                        .and_then(|v| serde_json::from_value(v.clone()).ok());
+                        
                     let submitter = crate::models::submitter::Submitter {
                         id: Some(updated_submitter.id),
                         template_id: Some(updated_submitter.template_id),
@@ -421,6 +454,9 @@ pub async fn submit_bulk_signatures(
                         signed_at: updated_submitter.signed_at,
                         token: updated_submitter.token,
                         bulk_signatures: updated_submitter.bulk_signatures,
+                        reminder_config,
+                        last_reminder_sent_at: updated_submitter.last_reminder_sent_at,
+                        reminder_count: updated_submitter.reminder_count,
                         created_at: updated_submitter.created_at,
                         updated_at: updated_submitter.updated_at,
                     };

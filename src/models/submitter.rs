@@ -2,6 +2,34 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use utoipa::ToSchema;
 
+/// Configuration for automatic email reminders
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReminderConfig {
+    /// Hours after creation to send first reminder (default: 24)
+    #[serde(default = "default_first_reminder")]
+    pub first_reminder_hours: i32,
+    /// Hours after creation to send second reminder (default: 72)
+    #[serde(default = "default_second_reminder")]
+    pub second_reminder_hours: i32,
+    /// Hours after creation to send third reminder (default: 168 = 7 days)
+    #[serde(default = "default_third_reminder")]
+    pub third_reminder_hours: i32,
+}
+
+fn default_first_reminder() -> i32 { 24 }
+fn default_second_reminder() -> i32 { 72 }
+fn default_third_reminder() -> i32 { 168 }
+
+impl Default for ReminderConfig {
+    fn default() -> Self {
+        Self {
+            first_reminder_hours: 24,
+            second_reminder_hours: 72,
+            third_reminder_hours: 168,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Submitter {
     pub id: Option<i64>,
@@ -14,6 +42,11 @@ pub struct Submitter {
     pub token: String, // unique token for access
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bulk_signatures: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reminder_config: Option<ReminderConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_reminder_sent_at: Option<DateTime<Utc>>,
+    pub reminder_count: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -31,6 +64,8 @@ pub struct PublicUpdateSubmitterRequest {
 pub struct CreateSubmitterRequest {
     pub name: String,
     pub email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reminder_config: Option<ReminderConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

@@ -1,5 +1,35 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+// User Reminder Settings - per user default configuration
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DbUserReminderSettings {
+    pub id: i64,
+    pub user_id: i64,
+    pub first_reminder_hours: Option<i32>,  // NULL by default
+    pub second_reminder_hours: Option<i32>,  // NULL by default
+    pub third_reminder_hours: Option<i32>,  // NULL by default
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// Create user reminder settings request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateUserReminderSettings {
+    pub user_id: i64,
+    pub first_reminder_hours: Option<i32>,
+    pub second_reminder_hours: Option<i32>,
+    pub third_reminder_hours: Option<i32>,
+}
+
+// Update user reminder settings request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateUserReminderSettings {
+    pub first_reminder_hours: Option<i32>,
+    pub second_reminder_hours: Option<i32>,
+    pub third_reminder_hours: Option<i32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateUserInvitation {
     pub email: String,
@@ -164,6 +194,9 @@ pub struct DbSubmitter {
     pub bulk_signatures: Option<serde_json::Value>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    pub reminder_config: Option<serde_json::Value>,
+    pub last_reminder_sent_at: Option<DateTime<Utc>>,
+    pub reminder_count: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }// Create submitter request
@@ -175,6 +208,7 @@ pub struct CreateSubmitter {
     pub email: String,
     pub status: String,
     pub token: String,
+    pub reminder_config: Option<serde_json::Value>,
 }
 
 // Database-specific signature data model

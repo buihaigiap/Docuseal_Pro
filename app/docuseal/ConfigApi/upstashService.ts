@@ -171,8 +171,17 @@ const upstashService = {
     getUserAccounts : async (): Promise<any> => {
         const url = '/api/admin/members';
         return await axiosClient.get(url)
-    }
+    },
 
+    // Reminder Settings APIs
+    getReminderSettings: async (): Promise<any> => {
+        const url = '/api/reminder-settings';
+        return await axiosClient.get(url)
+    },
+    updateReminderSettings: async (data: any): Promise<any> => {
+        const url = '/api/reminder-settings';
+        return await axiosClient.put(url, data)
+    }
 
 }
 export default upstashService

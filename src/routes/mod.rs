@@ -5,3 +5,4 @@ pub mod submitters;
 // pub mod subscriptions; // Temporarily disabled
 pub mod stripe_webhook;
 pub mod subscription;
+pub mod reminder_settings;

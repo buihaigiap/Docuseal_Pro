@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { Box, List, ListItem, ListItemButton, ListItemText, Typography, Paper } from '@mui/material';
 import ProfileSettings from './Profile/ProfileSettings';
 import UsersSettings from './Activate/UsersSettings';
+import ReminderSettingsPage from './ReminderSettings/ReminderSettingsPage';
 
 const SettingsPage = () => {
   const location = useLocation();
@@ -9,6 +10,7 @@ const SettingsPage = () => {
   const menuItems = [
     { text: 'Profile', path: '/settings/profile' },
     { text: 'Users', path: '/settings/users' },
+    { text: 'Reminder Settings', path: '/settings/reminders' },
   ];
 
   return (
@@ -33,6 +35,7 @@ const SettingsPage = () => {
           <Routes>
             <Route path="profile" element={<ProfileSettings />} />
             <Route path="users" element={<UsersSettings />} />
+            <Route path="reminders" element={<ReminderSettingsPage />} />
             <Route index element={<Navigate to="profile" replace />} />
           </Routes>
         </Paper>

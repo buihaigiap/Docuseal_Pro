@@ -41,6 +41,7 @@ use crate::routes::submissions;
 use crate::routes::submitters;
 // use crate::routes::subscription;
 use crate::routes::stripe_webhook;
+use crate::routes::reminder_settings;
 use crate::common::jwt::auth_middleware;
 
 pub fn create_router() -> Router<AppState> {
@@ -60,6 +61,7 @@ pub fn create_router() -> Router<AppState> {
         // .route("/subscription/status", get(subscription::get_subscription_status))
         // .route("/subscription/payment-link", get(subscription::get_payment_link))
         .merge(submissions::create_submission_router())
+        .merge(reminder_settings::create_router())
         .layer(middleware::from_fn(auth_middleware));
 
     let public_routes = Router::new()

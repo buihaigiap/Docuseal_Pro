@@ -3,6 +3,7 @@ mod routes;
 mod services;
 mod models;
 mod database;
+mod constants;
 
 use axum::Router;
 use std::net::SocketAddr;
@@ -17,6 +18,7 @@ use utoipa::openapi::security::{HttpAuthScheme, Http, SecurityScheme};
 use routes::web::{create_router, AppState, AppStateData};
 use database::connection::establish_connection;
 use services::queue::PaymentQueue;
+use services::reminder_queue::ReminderQueue;
 use models::user::User;
 use models::template::Template;
 
@@ -67,7 +69,9 @@ use models::template::Template;
         routes::submitters::get_submitter,
         routes::submitters::update_submitter,
         routes::submitters::delete_submitter,
-        routes::submitters::get_me
+        routes::submitters::get_me,
+        routes::reminder_settings::get_reminder_settings,
+        routes::reminder_settings::update_reminder_settings
         // routes::subscription::get_subscription_status,
         // routes::subscription::get_payment_link
     ),
@@ -103,7 +107,11 @@ use models::template::Template;
             models::template::CreateFolderRequest,
             models::template::UpdateFolderRequest,
             models::submitter::PublicSubmitterFieldsResponse,
-            models::submitter::PublicSubmitterSignaturesResponse
+            models::submitter::PublicSubmitterSignaturesResponse,
+            models::submitter::ReminderConfig,
+            routes::reminder_settings::UserReminderSettingsResponse,
+            routes::reminder_settings::UpdateReminderSettingsRequest,
+            common::responses::ApiResponse<routes::reminder_settings::UserReminderSettingsResponse>
             // models::user::UserSubscriptionStatus,
             // models::user::CreatePaymentRequest,
             // routes::subscription::SubscriptionStatusResponse,
@@ -150,8 +158,26 @@ async fn main() {
 
     // Initialize services
     let db_pool_arc = Arc::new(Mutex::new(pool.clone()));
-    let payment_queue = PaymentQueue::new(db_pool_arc);
+    let payment_queue = PaymentQueue::new(db_pool_arc.clone());
     let otp_cache = crate::services::cache::OtpCache::new();
+    
+    // Initialize email service for reminders
+    let email_service = match crate::services::email::EmailService::new() {
+        Ok(service) => service,
+        Err(e) => {
+            eprintln!("⚠️  Warning: Failed to initialize email service: {}", e);
+            eprintln!("⚠️  Reminder emails will not be sent. Please configure SMTP settings.");
+            // Create a fallback - we'll handle this gracefully in the reminder queue
+            crate::services::email::EmailService::new().unwrap_or_else(|_| {
+                panic!("Email service is required for the application to run");
+            })
+        }
+    };
+    
+    // Get base URL for signature links
+    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let reminder_queue = ReminderQueue::new(db_pool_arc.clone(), email_service, base_url);
+    
     let app_state_data = AppStateData {
         db_pool: pool,
         payment_queue: payment_queue.clone(),
@@ -160,9 +186,18 @@ async fn main() {
     let app_state: AppState = Arc::new(Mutex::new(app_state_data));
 
     // Start the payment queue processor
+    let payment_queue_clone = payment_queue.clone();
     tokio::spawn(async move {
-        payment_queue.process_parallel(5).await; // Xử lý tối đa 5 payment cùng lúc
+        payment_queue_clone.process_parallel(5).await; // Xử lý tối đa 5 payment cùng lúc
     });
+
+    // Start the reminder queue processor
+    let reminder_queue_clone = reminder_queue.clone();
+    tokio::spawn(async move {
+        reminder_queue_clone.start_processing().await;
+    });
+    
+    println!("✅ Background services started (Payment Queue, Reminder Queue)");
 
     // Create API routes
     let api_routes = create_router();

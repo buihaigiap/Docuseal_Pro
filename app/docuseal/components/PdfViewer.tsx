@@ -26,7 +26,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
   onPageChange,
   scale: initialScale = 1.5,
 }) => {
-
+  console.log('fields' , fields)
   const [currentPage, setCurrentPage] = useState(page || 1);
   const [scale, setScale] = useState(initialScale);
   const pdfRef = useRef<PdfDisplayRef>(null);
@@ -54,19 +54,6 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-  const getFontSize = (text: string, maxWidth: number, maxHeight: number, initialFontSize: number) => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return initialFontSize;
-    let fontSize = initialFontSize;
-    ctx.font = `normal normal normal ${fontSize}px Helvetica, Arial, sans-serif`;
-    while (ctx.measureText(text).width > maxWidth && fontSize > 8) {
-      fontSize -= 1;
-      ctx.font = `normal normal normal ${fontSize}px Helvetica, Arial, sans-serif`;
-    }
-    return fontSize;
-  };
-  console.log('Rendering DocumentViewer with fields:', fields);
   return (
     <div className="flex flex-col items-center">
       <PdfDisplay
@@ -82,17 +69,16 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
         {fields.filter(f => f?.position?.page === currentPage)?.map((f, index) => {
           // Position data is in absolute pixels, need to multiply by scale
           const isNarrow = f.position.h > 0 && (f.position.w / f.position.h) > 6;
-          
           return (
             <div
-            key={f.id}
-            className={`absolute ${(f as any).signature_value ? '' : 'border-2 border-blue-500 bg-blue-500 bg-opacity-20 hover:bg-opacity-40 cursor-pointer'}`}
-            style={{
-              left: `${f.position.x * scale}px`,
-              top: `${f.position.y * scale}px`,
-              width: `${f.position.width * scale}px`,
-              height: `${f.position.height * scale}px`,
-            }}
+              key={f.id}
+              className={`absolute ${(f as any).signature_value ? '' : 'border-2 border-blue-500 bg-blue-500 bg-opacity-20 hover:bg-opacity-40 cursor-pointer'}`}
+              style={{
+                left: `${f.position.x * scale}px`,
+                top: `${f.position.y * scale}px`,
+                width: `${f.position.width * scale}px`,
+                height: `${f.position.height * scale}px`,
+              }}
             onClick={() => !(f as any).signature_value && onFieldClick && onFieldClick(f)}
           >
             <div className={`w-full h-full flex ${(f as any).field_type === "initials" ? " items-start" : "items-center "} text-md text-black font-semibold`}>
@@ -235,6 +221,9 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
         );
         })}
       </PdfDisplay>
+      {/* <Box>
+
+      </Box> */}
     </div>
   );
 };

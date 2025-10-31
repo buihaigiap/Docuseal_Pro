@@ -88,6 +88,37 @@ pub async fn create_submission(
 
             for submitter in &payload.submitters {
                 let token = generate_token();
+                
+                // Get reminder config: use provided config or user's default settings
+                let reminder_config_json = if let Some(config) = &submitter.reminder_config {
+                    // Use explicitly provided config
+                    serde_json::to_value(config).ok()
+                } else {
+                    // Get user's default reminder settings
+                    match crate::database::queries::UserReminderSettingsQueries::get_or_create_default(pool, user_id).await {
+                        Ok(user_settings) => {
+                            // Check if all hours are configured (not NULL) - auto enabled
+                            if let (Some(first), Some(second), Some(third)) = (
+                                user_settings.first_reminder_hours,
+                                user_settings.second_reminder_hours,
+                                user_settings.third_reminder_hours
+                            ) {
+                                // Convert user settings to ReminderConfig
+                                let config = crate::models::submitter::ReminderConfig {
+                                    first_reminder_hours: first,
+                                    second_reminder_hours: second,
+                                    third_reminder_hours: third,
+                                };
+                                serde_json::to_value(&config).ok()
+                            } else {
+                                // Hours not configured yet - reminders disabled
+                                None
+                            }
+                        }
+                        _ => None, // Error getting settings
+                    }
+                };
+                
                 let create_submitter = CreateSubmitter {
                     template_id: payload.template_id,
                     user_id: user_id,
@@ -95,10 +126,14 @@ pub async fn create_submission(
                     email: submitter.email.clone(),
                     status: "pending".to_string(),
                     token: token.clone(),
+                    reminder_config: reminder_config_json,
                 };
 
                 match SubmitterQueries::create_submitter(pool, create_submitter).await {
                     Ok(db_submitter) => {
+                        let reminder_config = db_submitter.reminder_config.as_ref()
+                            .and_then(|v| serde_json::from_value(v.clone()).ok());
+                            
                         let submitter_api = Submitter {
                             id: Some(db_submitter.id),
                             template_id: Some(db_submitter.template_id),
@@ -109,6 +144,9 @@ pub async fn create_submission(
                             signed_at: db_submitter.signed_at,
                             token: db_submitter.token,
                             bulk_signatures: db_submitter.bulk_signatures,
+                            reminder_config,
+                            last_reminder_sent_at: db_submitter.last_reminder_sent_at,
+                            reminder_count: db_submitter.reminder_count,
                             created_at: db_submitter.created_at,
                             updated_at: db_submitter.updated_at,
                         };

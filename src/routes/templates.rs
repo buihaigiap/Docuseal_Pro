@@ -125,18 +125,26 @@ pub async fn get_template_full_info(
                         .filter(|db_sub| db_sub.user_id == user_id)
                         .collect();
 
-                    let submitters = filtered_submitters.into_iter().map(|db_sub| crate::models::submitter::Submitter {
-                        id: Some(db_sub.id),
-                        template_id: Some(db_sub.template_id),
-                        user_id: Some(db_sub.user_id),
-                        name: db_sub.name,
-                        email: db_sub.email,
-                        status: db_sub.status,
-                        signed_at: db_sub.signed_at,
-                        token: db_sub.token,
-                        bulk_signatures: db_sub.bulk_signatures,
-                        created_at: db_sub.created_at,
-                        updated_at: db_sub.updated_at,
+                    let submitters = filtered_submitters.into_iter().map(|db_sub| {
+                        let reminder_config = db_sub.reminder_config.as_ref()
+                            .and_then(|v| serde_json::from_value(v.clone()).ok());
+                            
+                        crate::models::submitter::Submitter {
+                            id: Some(db_sub.id),
+                            template_id: Some(db_sub.template_id),
+                            user_id: Some(db_sub.user_id),
+                            name: db_sub.name,
+                            email: db_sub.email,
+                            status: db_sub.status,
+                            signed_at: db_sub.signed_at,
+                            token: db_sub.token,
+                            bulk_signatures: db_sub.bulk_signatures,
+                            reminder_config,
+                            last_reminder_sent_at: db_sub.last_reminder_sent_at,
+                            reminder_count: db_sub.reminder_count,
+                            created_at: db_sub.created_at,
+                            updated_at: db_sub.updated_at,
+                        }
                     }).collect::<Vec<_>>();
 
                     // Group submitters by creation time proximity (within 1 minute)

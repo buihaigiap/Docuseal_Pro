@@ -356,8 +356,8 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
               Loading Document...</span>
             </div>
           }
-          {/* Document Content */}
           {renderContent()}
+          
       </div>
     </div>
   );

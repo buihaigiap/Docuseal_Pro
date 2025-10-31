@@ -208,6 +208,204 @@ impl EmailService {
         Ok(())
     }
 
+    pub async fn send_signature_reminder(
+        &self,
+        to_email: &str,
+        to_name: &str,
+        submission_name: &str,
+        signature_link: &str,
+        reminder_number: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        if self.test_mode {
+            println!("TEST MODE: Would send reminder #{} to {} ({}) with link: {}", reminder_number, to_email, to_name, signature_link);
+            return Ok(());
+        }
+
+        let subject = format!("Nhắc nhở ký tài liệu (Lần {}): {}", reminder_number, submission_name);
+
+        let html_body = format!(
+            r#"
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nhắc nhở ký tài liệu</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #f8f9fa;
+            padding: 20px;
+        }}
+        .container {{
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }}
+        .header {{
+            text-align: center;
+            margin-bottom: 30px;
+        }}
+        .header h1 {{
+            color: #ff9800;
+            margin-bottom: 10px;
+        }}
+        .reminder-badge {{
+            display: inline-block;
+            padding: 5px 15px;
+            background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+            color: white;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }}
+        .content {{
+            margin-bottom: 30px;
+        }}
+        .button {{
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: bold;
+            text-align: center;
+            margin: 20px 0;
+        }}
+        .footer {{
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e9ecef;
+            font-size: 14px;
+            color: #6c757d;
+            text-align: center;
+        }}
+        .warning {{
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }}
+        .urgent {{
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <span class="reminder-badge">📧 Nhắc nhở lần {}</span>
+            <h1>⏰ Nhắc nhở ký tài liệu</h1>
+            <p>Xin chào <strong>{}</strong>,</p>
+        </div>
+
+        <div class="content">
+            <p>Chúng tôi nhận thấy rằng bạn chưa hoàn thành việc ký tài liệu <strong>"{}"</strong>.</p>
+
+            <div class="{}">
+                <strong>{}:</strong> {}
+            </div>
+
+            <p>Vui lòng nhấp vào nút bên dưới để truy cập và hoàn thành việc ký tài liệu:</p>
+
+            <a href="{}" class="button">📝 Ký tài liệu ngay</a>
+
+            <p>Nếu nút trên không hoạt động, bạn có thể sao chép và dán link sau vào trình duyệt:</p>
+            <p style="word-break: break-all; background: #f8f9fa; padding: 10px; border-radius: 5px; font-family: monospace;">{}</p>
+        </div>
+
+        <div class="footer">
+            <p>Đây là email nhắc nhở tự động từ hệ thống DocuSeal Pro.</p>
+            <p>Nếu bạn đã hoàn thành việc ký, vui lòng bỏ qua email này.</p>
+            <p>&copy; 2025 DocuSeal Pro. Tất cả quyền được bảo lưu.</p>
+        </div>
+    </div>
+</body>
+</html>
+            "#,
+            reminder_number,
+            to_name,
+            submission_name,
+            if reminder_number >= 3 { "urgent" } else { "warning" },
+            if reminder_number >= 3 { "Nhắc nhở cuối cùng" } else { "Lưu ý" },
+            if reminder_number >= 3 {
+                "Đây là lần nhắc nhở cuối cùng. Vui lòng hoàn thành việc ký trong thời gian sớm nhất để tránh việc yêu cầu bị hủy."
+            } else {
+                "Link ký tài liệu này chỉ có hiệu lực trong thời gian giới hạn. Vui lòng hoàn thành việc ký sớm nhất có thể."
+            },
+            signature_link,
+            signature_link
+        );
+
+        let text_body = format!(
+            "Nhắc nhở lần {} - Xin chào {},\n\n\
+            Bạn chưa hoàn thành việc ký tài liệu '{}'.\n\n\
+            {}.\n\n\
+            Vui lòng truy cập link sau để ký tài liệu:\n\
+            {}\n\n\
+            Trân trọng,\n\
+            DocuSeal Pro",
+            reminder_number,
+            to_name,
+            submission_name,
+            if reminder_number >= 3 {
+                "Đây là lần nhắc nhở cuối cùng"
+            } else {
+                "Link này chỉ có hiệu lực trong thời gian giới hạn"
+            },
+            signature_link
+        );
+
+        let email = Message::builder()
+            .from(format!("{} <{}>", self.from_name, self.from_email).parse()?)
+            .to(format!("{} <{}>", to_name, to_email).parse()?)
+            .subject(subject)
+            .multipart(
+                lettre::message::MultiPart::alternative()
+                    .singlepart(
+                        lettre::message::SinglePart::builder()
+                            .header(lettre::message::header::ContentType::TEXT_PLAIN)
+                            .body(text_body),
+                    )
+                    .singlepart(
+                        lettre::message::SinglePart::builder()
+                            .header(lettre::message::header::ContentType::TEXT_HTML)
+                            .body(html_body),
+                    ),
+            )?;
+
+        let creds = Credentials::new(self.smtp_username.clone(), self.smtp_password.clone());
+
+        let mailer = if self.use_tls {
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&self.smtp_host)?
+                .credentials(creds)
+                .build()
+        } else {
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&self.smtp_host)?
+                .credentials(creds)
+                .build()
+        };
+
+        mailer.send(email).await?;
+        println!("Reminder email #{} sent successfully to: {}", reminder_number, to_email);
+
+        Ok(())
+    }
+
     pub async fn send_user_activation_email(
         &self,
         to_email: &str,
