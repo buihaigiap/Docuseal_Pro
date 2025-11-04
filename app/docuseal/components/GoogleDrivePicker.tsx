@@ -43,21 +43,16 @@ const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
   }, [open, onClose, onFileSelect]);
 
   const handleOAuth = () => {
+    // Get current JWT token from localStorage
+    const token = localStorage.getItem('token');
+    
     // Redirect to Google OAuth
-    const params = new URLSearchParams({
-      access_type: 'offline',
-      include_granted_scopes: 'true',
-      prompt: 'consent',
-      scope: [
-        'https://www.googleapis.com/auth/userinfo.email',
-        'https://www.googleapis.com/auth/drive.file'
-      ].join(' '),
-      state: JSON.stringify({
-        redir: window.location.pathname
-      })
+    const state = JSON.stringify({
+      redir: window.location.pathname,
+      token: token // Include JWT token in state
     });
 
-    window.location.href = `/auth/google_oauth2?${params.toString()}`;
+    window.location.href = `/auth/google_oauth2?state=${encodeURIComponent(state)}`;
   };
 
   return (
@@ -79,7 +74,7 @@ const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
           borderRadius: 2,
           boxShadow: 24,
           width: '100%',
-          maxWidth: 600,
+          maxWidth: 650,
           maxHeight: '80vh',
           display: 'flex',
           flexDirection: 'column'
@@ -100,7 +95,7 @@ const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
             Google Drive
           </Typography>
           <Button onClick={onClose} size="small">
-            <CloseIcon />
+            <CloseIcon  sx={{color : 'white'}}/>
           </Button>
         </Box>
 
@@ -163,6 +158,19 @@ const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
                   borderRadius: '0 0 8px 8px'
                 }}
                 title="Google Drive Picker"
+              />
+              {/* Overlay to cover Google Picker's close button */}
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  width: 60,
+                  height: 60,
+                  bgcolor: 'white',
+                  zIndex: 9999,
+                  pointerEvents: 'none'
+                }}
               />
             </>
           )}

@@ -138,16 +138,62 @@ pub async fn get_submitter(
 pub async fn get_me(
     State(state): State<AppState>,
     Extension(user_id): Extension<i64>,
-) -> (StatusCode, Json<ApiResponse<crate::models::user::User>>) {
+) -> (StatusCode, Json<serde_json::Value>) {
     let pool = &state.lock().await.db_pool;
 
     match UserQueries::get_user_by_id(pool, user_id).await {
         Ok(Some(db_user)) => {
             let user = crate::models::user::User::from(db_user);
-            ApiResponse::success(user, "Current user retrieved successfully".to_string())
+            
+            // Get OAuth tokens for this user
+            let oauth_tokens = match crate::database::queries::OAuthTokenQueries::get_oauth_token(pool, user_id, "google").await {
+                Ok(Some(token)) => {
+                    vec![serde_json::json!({
+                        "provider": token.provider,
+                        "access_token": token.access_token,
+                        "expires_at": token.expires_at,
+                    })]
+                },
+                _ => vec![],
+            };
+            
+            let response = serde_json::json!({
+                "success": true,
+                "message": "Current user retrieved successfully",
+                "data": {
+                    "id": user.id,
+                    "name": user.name,
+                    "email": user.email,
+                    "role": user.role,
+                    "is_active": user.is_active,
+                    "subscription_status": user.subscription_status,
+                    "subscription_expires_at": user.subscription_expires_at,
+                    "free_usage_count": user.free_usage_count,
+                    "signature": user.signature,
+                    "initials": user.initials,
+                    "created_at": user.created_at,
+                    "oauth_tokens": oauth_tokens,
+                }
+            });
+            
+            (StatusCode::OK, Json(response))
         }
-        Ok(None) => ApiResponse::not_found("User not found".to_string()),
-        Err(e) => ApiResponse::internal_error(format!("Failed to get user: {}", e)),
+        Ok(None) => {
+            let response = serde_json::json!({
+                "success": false,
+                "message": "User not found",
+                "data": null
+            });
+            (StatusCode::NOT_FOUND, Json(response))
+        },
+        Err(e) => {
+            let response = serde_json::json!({
+                "success": false,
+                "message": format!("Failed to get user: {}", e),
+                "data": null
+            });
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response))
+        },
     }
 }
 

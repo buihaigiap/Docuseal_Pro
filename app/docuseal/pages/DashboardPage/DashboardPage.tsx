@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Template } from '../../types';
 import upstashService from '../../ConfigApi/upstashService';
-import { Box } from '@mui/material';
+import { Box, CircularProgress } from '@mui/material';
 import { motion } from 'framer-motion';
+import toast from 'react-hot-toast';
 import DashboardHeader from './DashboardHeader';
-import DashboardLoading from './DashboardLoading';
 import DashboardError from './DashboardError';
 import TemplatesGrid from './TemplatesGrid';
 import EmptyState from './EmptyState';
@@ -20,6 +20,17 @@ const DashboardPage = () => {
   const [showNewTemplateModal, setShowNewTemplateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const { token } = useAuth();
+
+  // Check if we just returned from Google OAuth
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('google_drive_connected') === '1') {
+      // Remove the query parameter
+      window.history.replaceState({}, '', window.location.pathname);
+      toast.success('Google Drive connected successfully!');
+    }
+  }, []);
+
   const fetchTemplates = async () => {
     if (!token) {
         setError("Authentication token not found.");
@@ -80,14 +91,19 @@ const DashboardPage = () => {
         >
           <FoldersList folders={filteredFolders} />
 
-          {loading ? (
-            <DashboardLoading />
+        {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+              <CircularProgress size={60} />
+            </Box>
           ) : error ? (
             <DashboardError error={error} />
-          ) : filteredTemplates.length > 0 ? (
-            <TemplatesGrid templates={filteredTemplates} onRefresh={fetchTemplates} />
           ) : (
-            <EmptyState />
+            <>
+              {filteredTemplates.length > 0 && (
+                <TemplatesGrid templates={filteredTemplates} onRefresh={fetchTemplates} />
+              )}
+              <EmptyState />
+            </>
           )}
         </motion.div>
       </Box>

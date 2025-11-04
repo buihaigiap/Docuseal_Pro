@@ -1067,7 +1067,8 @@ async fn google_oauth_init(
     let client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_else(|_| "YOUR_GOOGLE_CLIENT_ID".to_string());
     let redirect_uri = format!("{}/auth/google_oauth2/callback", std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string()));
 
-    let scope = "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file";
+    // Use drive.readonly to read user's files (not just app-created files)
+    let scope = "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.readonly";
     let state = params.get("state").unwrap_or(&"".to_string()).clone();
 
     let auth_url = format!(
@@ -1083,10 +1084,35 @@ async fn google_oauth_init(
 
 async fn google_oauth_callback(
     Query(query): Query<GoogleOAuthCallbackQuery>,
-    Extension(user_id): Extension<i64>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     let pool = &state.lock().await.db_pool;
+
+    // Extract user_id from state
+    let user_id = if let Some(state_str) = &query.state {
+        if let Ok(state_json) = serde_json::from_str::<serde_json::Value>(state_str) {
+            if let Some(token) = state_json["token"].as_str() {
+                // Verify JWT and extract user_id
+                let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "your-super-secret-jwt-key-change-this-in-production".to_string());
+                match crate::common::jwt::verify_jwt(token, &secret) {
+                    Ok(claims) => claims.sub,
+                    Err(_) => {
+                        eprintln!("Invalid JWT token in state");
+                        return Redirect::to("/?error=invalid_token");
+                    }
+                }
+            } else {
+                eprintln!("No token in state");
+                return Redirect::to("/?error=no_token");
+            }
+        } else {
+            eprintln!("Invalid state JSON");
+            return Redirect::to("/?error=invalid_state");
+        }
+    } else {
+        eprintln!("No state provided");
+        return Redirect::to("/?error=no_state");
+    };
 
     if let Some(code) = query.code {
         // Exchange code for tokens
@@ -1110,20 +1136,20 @@ async fn google_oauth_callback(
             Ok(resp) => resp,
             Err(e) => {
                 eprintln!("Failed to exchange code for tokens: {}", e);
-                return Redirect::to("/dashboard?error=oauth_failed");
+                return Redirect::to("/?error=oauth_failed");
             }
         };
 
         if !token_response.status().is_success() {
             eprintln!("Token exchange failed: {}", token_response.status());
-            return Redirect::to("/dashboard?error=oauth_failed");
+            return Redirect::to("/?error=oauth_failed");
         }
 
         let token_data: serde_json::Value = match token_response.json().await {
             Ok(data) => data,
             Err(e) => {
                 eprintln!("Failed to parse token response: {}", e);
-                return Redirect::to("/dashboard?error=oauth_failed");
+                return Redirect::to("/?error=oauth_failed");
             }
         };
 
@@ -1132,18 +1158,46 @@ async fn google_oauth_callback(
         let expires_in = token_data["expires_in"].as_u64().unwrap_or(3600);
         let expires_at = Some(Utc::now() + chrono::Duration::seconds(expires_in as i64));
 
-        // Store tokens in database
-        let create_token = super::super::database::models::CreateOAuthToken {
-            user_id,
-            provider: "google".to_string(),
-            access_token,
-            refresh_token,
-            expires_at,
-        };
+        // Check if token already exists, then update instead of create
+        println!("🔍 Checking for existing OAuth token for user_id={}, provider=google", user_id);
+        match super::super::database::queries::OAuthTokenQueries::get_oauth_token(pool, user_id, "google").await {
+            Ok(Some(existing_token)) => {
+                println!("✅ Found existing token (id={}), updating...", existing_token.id);
+                // Update existing token
+                if let Err(e) = super::super::database::queries::OAuthTokenQueries::update_oauth_token(
+                    pool,
+                    user_id,
+                    "google",
+                    &access_token,
+                    refresh_token.as_deref(),
+                    expires_at
+                ).await {
+                    eprintln!("❌ Failed to update OAuth token: {}", e);
+                    return Redirect::to("/?error=token_update_failed");
+                }
+                println!("✅ Successfully updated OAuth token");
+            },
+            Ok(None) => {
+                println!("ℹ️ No existing token found, creating new one...");
+                // Create new token
+                let create_token = super::super::database::models::CreateOAuthToken {
+                    user_id,
+                    provider: "google".to_string(),
+                    access_token,
+                    refresh_token,
+                    expires_at,
+                };
 
-        if let Err(e) = super::super::database::queries::OAuthTokenQueries::create_oauth_token(pool, create_token).await {
-            eprintln!("Failed to store OAuth token: {}", e);
-            return Redirect::to("/dashboard?error=token_storage_failed");
+                if let Err(e) = super::super::database::queries::OAuthTokenQueries::create_oauth_token(pool, create_token).await {
+                    eprintln!("❌ Failed to create OAuth token: {}", e);
+                    return Redirect::to("/?error=token_storage_failed");
+                }
+                println!("✅ Successfully created new OAuth token");
+            },
+            Err(e) => {
+                eprintln!("❌ Database error while checking token: {}", e);
+                return Redirect::to("/?error=token_check_failed");
+            }
         }
 
         // Redirect back to dashboard or the original page
@@ -1152,17 +1206,17 @@ async fn google_oauth_callback(
                 if let Some(redir) = parsed["redir"].as_str() {
                     format!("{}?google_drive_connected=1", redir)
                 } else {
-                    "/dashboard?google_drive_connected=1".to_string()
+                    "/?google_drive_connected=1".to_string()
                 }
             } else {
-                "/dashboard?google_drive_connected=1".to_string()
+                "/?google_drive_connected=1".to_string()
             }
         } else {
-            "/dashboard?google_drive_connected=1".to_string()
+            "/?google_drive_connected=1".to_string()
         };
 
         Redirect::to(&redirect_url)
     } else {
-        Redirect::to("/dashboard?error=oauth_no_code")
+        Redirect::to("/?error=oauth_no_code")
     }
 }

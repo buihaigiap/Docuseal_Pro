@@ -41,7 +41,7 @@ pub struct CreateUserInvitation {
 // OAuth token model for Google Drive integration
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DbOAuthToken {
-    pub id: i64,
+    pub id: i32,  // Changed from i64 to match database INTEGER type
     pub user_id: i64,
     pub provider: String, // "google"
     pub access_token: String,

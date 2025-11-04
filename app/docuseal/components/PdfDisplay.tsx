@@ -148,8 +148,10 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
 
         contentType = unifiedResponse.headers.get("content-type") || "";
 
+        console.log("Content-Type:", contentType);
+        console.log("Response data:", response.data);
 
-        if (contentType === "application/json" || contentType === "application/pdf") {
+        if (contentType.includes("application/json") || contentType === "application/pdf") {
           await loadImages(response);
         } else if (contentType.startsWith("image/")) {
           await loadImage(filePath || documentUrl);
@@ -169,7 +171,15 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
 
     const loadImages = async (response: any) => {
       const data = response.data;
-      if (data && data.pages && Array.isArray(data.pages)) {
+      
+      // Handle single image response (new format)
+      if (data && data.type === "image" && data.url) {
+        const fullUrl = data.url.startsWith('http') ? data.url : `${API_BASE_URL}${data.url}`;
+        setDocState({ type: "image", content: fullUrl });
+        // Don't call onLoad here - wait for image to actually load
+      }
+      // Handle multi-page PDF response
+      else if (data && data.pages && Array.isArray(data.pages)) {
         const fullUrls = data.pages.map((url: string) => url.startsWith('http') ? url : `${API_BASE_URL}${url}`);
         setDocState({ type: "images", content: fullUrls, currentPage: 1, numPages: data.total_pages });
         setThumbnails(fullUrls);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, Typography, Button } from '@mui/material';
 import { Add as AddIcon, FolderOpen as FolderOpenIcon } from '@mui/icons-material';
 import { motion } from 'framer-motion';
@@ -9,10 +9,23 @@ import CreateTemplateButton from '../../components/CreateTemplateButton';
 const EmptyState = () => {
   const [showGoogleDrivePicker, setShowGoogleDrivePicker] = useState(false);
 
+  // Check if we just returned from Google OAuth
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('google_drive_connected') === '1') {
+      // Remove the query parameter
+      window.history.replaceState({}, '', window.location.pathname);
+      // Auto-open the picker
+      setShowGoogleDrivePicker(true);
+      toast.success('Google Drive connected successfully!');
+    }
+  }, []);
+
   const handleGoogleDriveSelect = async (files: any[]) => {
     if (files.length > 0) {
       const file = files[0];
       try {
+        console.log('Creating template from Google Drive file:', file);
         // Create template from Google Drive file
         const response = await axios.post('/api/templates/google_drive_documents', {
           google_drive_file_ids: [file.id],
@@ -23,15 +36,21 @@ const EmptyState = () => {
           }
         });
 
+        console.log('Google Drive template response:', response.data);
+
         if (response.data.success) {
           toast.success('Template created successfully!');
           window.location.reload(); // Refresh to show new template
         } else {
-          toast.error('Failed to create template');
+          const errorMsg = response.data.message || 'Failed to create template';
+          console.error('Template creation failed:', errorMsg);
+          toast.error(errorMsg);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error creating template from Google Drive:', error);
-        toast.error('Failed to create template from Google Drive');
+        const errorMsg = error.response?.data?.message || error.message || 'Failed to create template from Google Drive';
+        console.error('Error details:', error.response?.data);
+        toast.error(errorMsg);
       }
     }
   };
@@ -45,54 +64,22 @@ const EmptyState = () => {
       <Box sx={{
         textAlign: 'center',
       }}>
-        <Box sx={{
-          width: { xs: 80, sm: 120 },
-          height: { xs: 80, sm: 120 },
-          borderRadius: '50%',
-          background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          mx: 'auto',
-          mb: { xs: 4, sm: 6 },
-          boxShadow: '0 20px 60px rgba(79, 70, 229, 0.3)',
-          position: 'relative',
-          '&::before': {
-            content: '""',
-            position: 'absolute',
-            inset: 0,
-            borderRadius: '50%',
-            padding: '3px',
-            background: 'linear-gradient(135deg, rgba(255,255,255,0.3), rgba(255,255,255,0.1))',
-            mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-            maskComposite: 'subtract'
-          }
-        }}>
+        <Box>
           <FolderOpenIcon sx={{ fontSize: { xs: 40, sm: 60 }, color: 'white' }} />
         </Box>
 
         <Typography
           variant="h3"
-          component="h2"
+          component="h3"
           fontWeight="800"
-          sx={{
-            color: 'white',
-            mb: 3,
-            fontSize: { xs: '1.5rem', sm: '2rem', md: '2.5rem' },
-            background: 'linear-gradient(135deg, #ffffff 0%, #e2e8f0 100%)',
-            backgroundClip: 'text',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent'
-          }}
         >
-          Welcome to Letmesign
+          Upload a New Document
         </Typography>
 
-        <Typography variant="h6" sx={{ color: '#94a3b8', mb: 4, maxWidth: 600, mx: 'auto', lineHeight: 1.6, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
-          You don't have any document templates yet. Start by creating your first template to begin the document signing process!
+        <Typography variant="h5" sx={{ color: '#94a3b8', mb: 2, maxWidth: 600, mx: 'auto', lineHeight: 1.6, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+          Click to upload or drag and drop
         </Typography>
-
-        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mb: 6 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
           <CreateTemplateButton
             text="Google Drive"
             onClick={() => setShowGoogleDrivePicker(true)}

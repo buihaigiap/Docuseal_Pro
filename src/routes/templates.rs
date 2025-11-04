@@ -332,7 +332,8 @@ pub fn create_template_router() -> Router<AppState> {
     let public_routes = Router::new()
         .route("/files/upload/public", post(upload_file_public))
         .route("/files/preview/*key", get(preview_file))
-        .route("/files/previews/*key", get(download_file_public)); // Public download for preview images
+        .route("/files/previews/*key", get(download_file_public)) // Public download for preview images
+        .route("/files/*key", get(download_file)); // Public download for all files
 
     // Authenticated routes
     let auth_routes = Router::new()
@@ -366,7 +367,6 @@ pub fn create_template_router() -> Router<AppState> {
         .route("/templates/:template_id/fields/:field_id", delete(delete_template_field))
         // File upload must come before wildcard route
         .route("/files/upload", post(upload_file))
-        .route("/files/*key", get(download_file))
         .layer(middleware::from_fn(auth_middleware));
 
     // Merge public and authenticated routes
@@ -1203,7 +1203,7 @@ pub async fn create_template(
     let pool = &state.lock().await.db_pool;
 
     // Decode base64 document
-    let document_data = match base64::decode(&payload.document) {
+    let document_data = match general_purpose::STANDARD.decode(&payload.document) {
         Ok(data) => data,
         Err(e) => return ApiResponse::bad_request(format!("Invalid base64 document: {}", e)),
     };
@@ -1470,9 +1470,13 @@ pub async fn create_template_from_google_drive(
     Extension(user_id): Extension<i64>,
     Json(payload): Json<CreateTemplateFromGoogleDriveRequest>,
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
+    eprintln!("🚀 create_template_from_google_drive called for user_id={}", user_id);
+    eprintln!("📁 Google Drive file IDs: {:?}", payload.google_drive_file_ids);
+    
     let pool = &state.lock().await.db_pool;
 
     // Initialize storage service
+    eprintln!("💾 Initializing storage...");
     let storage = match StorageService::new().await {
         Ok(storage) => storage,
         Err(e) => return ApiResponse::internal_error(format!("Failed to initialize storage: {}", e)),
@@ -1486,72 +1490,155 @@ pub async fn create_template_from_google_drive(
     let file_id = &payload.google_drive_file_ids[0];
 
     // Get OAuth token for the user
+    eprintln!("🔑 Getting OAuth token for user_id={}...", user_id);
     let oauth_token = match crate::database::queries::OAuthTokenQueries::get_oauth_token(pool, user_id, "google").await {
         Ok(Some(token)) => {
+            eprintln!("✅ OAuth token found, expires_at: {:?}", token.expires_at);
             // Check if token is expired
             if let Some(expires_at) = token.expires_at {
                 if expires_at < chrono::Utc::now() {
+                    eprintln!("❌ Token expired!");
                     return ApiResponse::bad_request("Google Drive access token expired. Please reconnect your Google Drive.".to_string());
                 }
             }
             token
         },
-        Ok(None) => return ApiResponse::bad_request("Google Drive not connected. Please connect your Google Drive first.".to_string()),
-        Err(e) => return ApiResponse::internal_error(format!("Database error: {}", e)),
+        Ok(None) => {
+            eprintln!("❌ No OAuth token found!");
+            return ApiResponse::bad_request("Google Drive not connected. Please connect your Google Drive first.".to_string());
+        },
+        Err(e) => {
+            eprintln!("❌ Database error: {}", e);
+            return ApiResponse::internal_error(format!("Database error: {}", e));
+        },
     };
 
-    // Download file from Google Drive
+    // Create HTTP client
     let client = reqwest::Client::new();
-    let download_url = format!("https://www.googleapis.com/drive/v3/files/{}?alt=media", file_id);
 
-    let response = match client
-        .get(&download_url)
-        .header("Authorization", format!("Bearer {}", oauth_token.access_token))
-        .send()
-        .await
-    {
-        Ok(resp) => resp,
-        Err(e) => return ApiResponse::internal_error(format!("Failed to download file from Google Drive: {}", e)),
-    };
-
-    if !response.status().is_success() {
-        return ApiResponse::bad_request("Failed to download file from Google Drive. The file may not exist or you may not have permission.".to_string());
-    }
-
-    let pdf_data = match response.bytes().await {
-        Ok(bytes) => bytes.to_vec(),
-        Err(e) => return ApiResponse::internal_error(format!("Failed to read file data: {}", e)),
-    };
-
-    // Get file metadata to extract filename
-    let metadata_url = format!("https://www.googleapis.com/drive/v3/files/{}", file_id);
+    // Get file metadata first to check MIME type
+    let metadata_url = format!("https://www.googleapis.com/drive/v3/files/{}?fields=name,mimeType", file_id);
+    eprintln!("🔍 Getting metadata from: {}", metadata_url);
     let metadata_response = match client
         .get(&metadata_url)
         .header("Authorization", format!("Bearer {}", oauth_token.access_token))
         .send()
         .await
     {
-        Ok(resp) => resp,
-        Err(e) => return ApiResponse::internal_error(format!("Failed to get file metadata: {}", e)),
+        Ok(resp) => {
+            eprintln!("📡 Metadata response status: {}", resp.status());
+            resp
+        },
+        Err(e) => {
+            eprintln!("❌ Failed to get metadata: {}", e);
+            return ApiResponse::internal_error(format!("Failed to get file metadata: {}", e));
+        }
     };
+
+    if !metadata_response.status().is_success() {
+        let status = metadata_response.status();
+        eprintln!("❌ Metadata request failed with status: {}", status);
+        let error_body = metadata_response.text().await.unwrap_or_default();
+        eprintln!("❌ Error body: {}", error_body);
+        return ApiResponse::bad_request(format!("Failed to get file metadata. Status: {}. You may need to grant additional permissions.", status));
+    }
 
     let metadata: serde_json::Value = match metadata_response.json().await {
-        Ok(json) => json,
-        Err(e) => return ApiResponse::internal_error(format!("Failed to parse metadata: {}", e)),
+        Ok(json) => {
+            eprintln!("✅ Metadata received: {}", serde_json::to_string_pretty(&json).unwrap_or_default());
+            json
+        },
+        Err(e) => {
+            eprintln!("❌ Failed to parse metadata JSON: {}", e);
+            return ApiResponse::internal_error(format!("Failed to parse metadata: {}", e));
+        }
     };
 
-    let filename = metadata["name"].as_str().unwrap_or("document.pdf").to_string();
+    let filename = metadata["name"].as_str().unwrap_or("document").to_string();
+    let mime_type = metadata["mimeType"].as_str().unwrap_or("");
+    eprintln!("📄 File name: {}, MIME type: {}", filename, mime_type);
+
+    // Check if it's a Google Workspace file that needs export
+    let (download_url, export_mime_type) = if mime_type.starts_with("application/vnd.google-apps.") {
+        eprintln!("🔄 Google Workspace file detected, using export API");
+        let export_type = match mime_type {
+            "application/vnd.google-apps.document" => "application/pdf",
+            "application/vnd.google-apps.spreadsheet" => "application/pdf",
+            "application/vnd.google-apps.presentation" => "application/pdf",
+            "application/vnd.google-apps.drawing" => "application/pdf",
+            _ => {
+                eprintln!("❌ Unsupported Google Workspace type: {}", mime_type);
+                return ApiResponse::bad_request(format!("Unsupported Google Workspace file type: {}", mime_type));
+            }
+        };
+        // URL encode the MIME type for the export API
+        let encoded_mime = urlencoding::encode(export_type);
+        (format!("https://www.googleapis.com/drive/v3/files/{}/export?mimeType={}", file_id, encoded_mime), export_type)
+    } else {
+        (format!("https://www.googleapis.com/drive/v3/files/{}?alt=media", file_id), mime_type)
+    };
+
+    // Download or export the file
+    eprintln!("⬇️ Downloading from: {}", download_url);
+    let response = match client
+        .get(&download_url)
+        .header("Authorization", format!("Bearer {}", oauth_token.access_token))
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            eprintln!("📡 Got response, status: {}", resp.status());
+            resp
+        },
+        Err(e) => {
+            eprintln!("❌ Failed to download: {}", e);
+            return ApiResponse::internal_error(format!("Failed to download file: {}", e));
+        },
+    };
+
+    if !response.status().is_success() {
+        eprintln!("❌ Download failed with status: {}", response.status());
+        return ApiResponse::bad_request("Failed to download file from Google Drive. The file may not exist or you may not have permission.".to_string());
+    }
+
+    let file_data = match response.bytes().await {
+        Ok(bytes) => bytes.to_vec(),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to read file data: {}", e)),
+    };
+    eprintln!("✅ Downloaded {} bytes from Google Drive", file_data.len());
+
+    // Add appropriate extension if Google Workspace file was exported
+    let final_filename = if mime_type.starts_with("application/vnd.google-apps.") && !filename.ends_with(".pdf") {
+        format!("{}.pdf", filename)
+    } else {
+        filename.clone()
+    };
+
+    // Determine content type from export type or original MIME
+    let content_type = if mime_type.starts_with("application/vnd.google-apps.") {
+        export_mime_type
+    } else {
+        get_content_type_from_filename(&final_filename)
+    };
+    eprintln!("📋 Final filename: {}, Content type: {}", final_filename, content_type);
 
     // Upload file to storage
-    let file_key = match storage.upload_file(pdf_data, &filename, "application/pdf").await {
-        Ok(key) => key,
-        Err(e) => return ApiResponse::internal_error(format!("Failed to upload file: {}", e)),
+    let file_key = match storage.upload_file(file_data.clone(), &final_filename, content_type).await {
+        Ok(key) => {
+            eprintln!("✅ File uploaded to storage: {}", key);
+            key
+        },
+        Err(e) => {
+            eprintln!("❌ Failed to upload file: {}", e);
+            return ApiResponse::internal_error(format!("Failed to upload file: {}", e));
+        }
     };
 
-    // Generate unique slug
-    let slug = format!("gdrive-{}-{}", filename.replace(".pdf", "").to_lowercase().replace(" ", "-"), chrono::Utc::now().timestamp());
+    // Generate unique slug - remove file extension for slug
+    let name_without_ext = final_filename.rsplit_once('.').map(|(name, _)| name).unwrap_or(&final_filename);
+    let slug = format!("gdrive-{}-{}", name_without_ext.to_lowercase().replace(" ", "-"), chrono::Utc::now().timestamp());
 
-    let template_name = payload.name.unwrap_or_else(|| filename.replace(".pdf", ""));
+    let template_name = payload.name.unwrap_or_else(|| name_without_ext.to_string());
 
     // Create template in database
     let create_template = CreateTemplate {
@@ -1560,9 +1647,9 @@ pub async fn create_template_from_google_drive(
         user_id: user_id,
         folder_id: payload.folder_id,
         documents: Some(serde_json::json!([{
-            "filename": filename,
-            "content_type": "application/pdf",
-            "size": 0,
+            "filename": final_filename,
+            "content_type": content_type,
+            "size": file_data.len(),
             "url": file_key
         }])),
     };
@@ -1818,12 +1905,10 @@ pub async fn convert_db_template_to_template_with_fields(
         (status = 200, description = "File downloaded successfully"),
         (status = 404, description = "File not found")
     ),
-    security(("bearer_auth" = [])),
     tag = "files"
 )]
 pub async fn download_file(
     Path(key): Path<String>,
-    Extension(_user_id): Extension<i64>,
 ) -> Response<Body> {
     // Initialize storage service
     let storage = match StorageService::new().await {
@@ -2028,9 +2113,46 @@ pub async fn preview_file(
         }
     };
     
-    // If no page number specified, return JSON with all page URLs
+    // If no page number specified, check if file is PDF or image
     if page_number.is_none() {
-        // Download the PDF to get page count
+        // Check file extension to determine if it's a PDF or image
+        let is_pdf = file_key.to_lowercase().ends_with(".pdf");
+        
+        if !is_pdf {
+            // For non-PDF files (images), return URL in JSON
+            // Check if file exists
+            match storage.download_file(&file_key).await {
+                Ok(_) => {
+                    // File exists, return URL
+                    let file_url = format!("/api/files/{}", file_key);
+                    let json_response = serde_json::json!({
+                        "url": file_url,
+                        "type": "image"
+                    });
+                    
+                    let response = Response::builder()
+                        .status(StatusCode::OK)
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Expose-Headers", "*")
+                        .body(Body::from(json_response.to_string()))
+                        .unwrap();
+                    return response;
+                }
+                Err(e) => {
+                    eprintln!("Failed to download file: {:?}", e);
+                    let response = Response::builder()
+                        .status(StatusCode::NOT_FOUND)
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(Body::from(serde_json::json!({"error": "File not found"}).to_string()))
+                        .unwrap();
+                    return response;
+                }
+            };
+        }
+        
+        // For PDF files, download to get page count
         let pdf_data = match storage.download_file(&file_key).await {
             Ok(data) => data,
             Err(e) => {
