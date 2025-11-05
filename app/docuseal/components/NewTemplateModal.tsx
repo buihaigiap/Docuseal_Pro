@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import upstashService from '../ConfigApi/upstashService';
 import { Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button, CircularProgress, Box, Alert, styled, Typography } from '@mui/material';
 import { CloudUpload as CloudUploadIcon } from '@mui/icons-material';
+import { useTranslation } from 'react-i18next';
 
 const Input = styled('input')({
   display: 'none',
@@ -22,6 +23,7 @@ const NewTemplateModal: React.FC<NewTemplateModalProps> = ({ open, onClose, fold
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -32,7 +34,7 @@ const NewTemplateModal: React.FC<NewTemplateModalProps> = ({ open, onClose, fold
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file || !templateName) {
-      setError('Both file and template name are required.');
+      setError(t('templates.errors.nameAndFileRequired'));
       return;
     }
     setError('');
@@ -45,7 +47,7 @@ const NewTemplateModal: React.FC<NewTemplateModalProps> = ({ open, onClose, fold
 
       const uploadData = await upstashService.uploadFile(uploadFormData);
       if (!uploadData.success) {
-        throw new Error(uploadData.message || 'Failed to upload file.');
+        throw new Error(uploadData.message || t('templates.errors.uploadFailed'));
       }
 
       const fileId = uploadData.data.id;
@@ -61,10 +63,10 @@ const NewTemplateModal: React.FC<NewTemplateModalProps> = ({ open, onClose, fold
         onClose();
         navigate(`/templates/${templateData.data.id}`);
       } else {
-        throw new Error(templateData.message || 'Failed to create template.');
+        throw new Error(templateData.message || t('templates.errors.createFailed'));
       }
     } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred.');
+      setError(err.message || t('templates.errors.unexpectedError'));
     } finally {
       setLoading(false);
     }
@@ -79,7 +81,7 @@ const NewTemplateModal: React.FC<NewTemplateModalProps> = ({ open, onClose, fold
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Create New Template</DialogTitle>
+      <DialogTitle>{t('templates.modal.title')}</DialogTitle>
       <DialogContent>
         <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1 }}>
           <TextField
@@ -87,12 +89,12 @@ const NewTemplateModal: React.FC<NewTemplateModalProps> = ({ open, onClose, fold
             required
             fullWidth
             id="templateName"
-            label="Template Name"
+            label={t('templates.modal.nameLabel')}
             name="templateName"
             autoFocus
             value={templateName}
             onChange={(e) => setTemplateName(e.target.value)}
-            placeholder="e.g., Sales Contract"
+            placeholder={t('templates.modal.namePlaceholder')}
           />
           <Box
             sx={{
@@ -108,16 +110,16 @@ const NewTemplateModal: React.FC<NewTemplateModalProps> = ({ open, onClose, fold
           >
             <CloudUploadIcon sx={{ fontSize: 48, color: 'grey.500', mb: 1 }} />
             <Typography variant="h6" color="text.secondary">
-              {file ? file.name : 'Drag & drop a file or click to select'}
+              {file ? file.name : t('templates.modal.dragDropText')}
             </Typography>
             <label htmlFor="contained-button-file">
               <Input accept="application/pdf" id="contained-button-file" type="file" onChange={handleFileChange} />
               <Button variant="contained" component="span" sx={{ mt: 2 }}>
-                Upload File
+                {t('templates.modal.uploadButton')}
               </Button>
             </label>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              PDF only
+              {t('templates.modal.pdfOnly')}
             </Typography>
           </Box>
           {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
@@ -136,7 +138,7 @@ const NewTemplateModal: React.FC<NewTemplateModalProps> = ({ open, onClose, fold
                "&:hover": { backgroundColor: "#334155" },
             }}
             >
-                Cancel
+                {t('common.cancel')}
             </Button>
         <Box sx={{ position: 'relative' }}>
        <Button
@@ -157,7 +159,7 @@ const NewTemplateModal: React.FC<NewTemplateModalProps> = ({ open, onClose, fold
             onClick={handleSubmit}
             disabled={loading || !file || !templateName}
             >
-             Create Template
+             {t('templates.modal.createButton')}
         </Button>
 
           {loading && (

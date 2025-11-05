@@ -9,7 +9,9 @@ import { PDFDocument, rgb } from 'pdf-lib';
 import { Box, Button, CircularProgress, Typography, Paper, Grid, Alert, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { Trash2 , Copy } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 const TemplateDetailPage = () => {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { token } = useAuth();
@@ -133,22 +135,22 @@ const TemplateDetailPage = () => {
     e.preventDefault();
     const submitters = Object.entries(partnerEmails).map(([partner, email]) => ({ name: partner, email }));
     if (submitters.some(s => !s.email)) {
-      setSnackbar({open: true, message: 'Please fill in all email addresses.', severity: 'warning'});
+      setSnackbar({open: true, message: t('templates.detail.errors.fillAllEmails'), severity: 'warning'});
       return;
     }
 
     try {
       const data = await upstashService.createSubmission({ template_id: parseInt(id!), submitters });
       if (data.success) {
-        setSnackbar({open: true, message: 'Submission created successfully! Signers have been invited.', severity: 'success'});
+        setSnackbar({open: true, message: t('templates.detail.success.submissionCreated'), severity: 'success'});
         fetchTemplateInfo();
         setPartnerEmails(Object.fromEntries(Object.keys(partnerEmails).map(p => [p, ''])));
         setShowInviteModal(false);
       } else {
-        setSnackbar({open: true, message: data.error || 'Error creating submission', severity: 'error'});
+        setSnackbar({open: true, message: data.error || t('templates.detail.errors.submissionCreationFailed'), severity: 'error'});
       }
     } catch (err) {
-      setSnackbar({open: true, message: 'An unexpected error occurred.', severity: 'error'});
+      setSnackbar({open: true, message: t('templates.detail.errors.unexpectedError'), severity: 'error'});
     } finally {
     }
   };
@@ -162,13 +164,13 @@ const TemplateDetailPage = () => {
       const signaturesData = await upstashService.getSubmissionSignatures(submitter.token);
       
       if (!signaturesData.bulk_signatures || signaturesData.bulk_signatures.length === 0) {
-        throw new Error('No signatures found for this submission');
+        throw new Error(t('templates.detail.errors.noSignaturesFound'));
       }
 
       // Fetch the original PDF
       const pdfUrl = signaturesData.template_info.document.url;
       if (!pdfUrl) {
-        throw new Error('PDF URL not found');
+        throw new Error(t('templates.detail.errors.pdfUrlNotFound'));
       }
 
       const pdfResponse = await upstashService.previewFile(pdfUrl);
@@ -301,7 +303,7 @@ const TemplateDetailPage = () => {
 
     } catch (err: any) {
       console.error('Download error:', err);
-      setSnackbar({open: true, message: `Failed to download PDF: ${err.message}`, severity: 'error'});
+      setSnackbar({open: true, message: `${t('templates.detail.errors.downloadFailed')}: ${err.message}`, severity: 'error'});
     }
   };
 
@@ -309,14 +311,14 @@ const TemplateDetailPage = () => {
     try {
       const data = await upstashService.deleteSubmitter(submitterId);
       if (data.success) {
-        setSnackbar({open: true, message: 'Submitter deleted successfully!', severity: 'success'});
+        setSnackbar({open: true, message: t('templates.detail.success.submitterDeleted'), severity: 'success'});
         fetchTemplateInfo(); // Refresh the template info to update the UI
       } else {
-        setSnackbar({open: true, message: data.message || 'Error deleting submitter', severity: 'error'});
+        setSnackbar({open: true, message: data.message || t('templates.detail.errors.submitterDeletionFailed'), severity: 'error'});
       }
     } catch (err) {
       console.error('Delete error:', err);
-      setSnackbar({open: true, message: 'An unexpected error occurred while deleting the submitter.', severity: 'error'});
+      setSnackbar({open: true, message: t('templates.detail.errors.unexpectedDeleteError'), severity: 'error'});
     }
   };
 
@@ -324,37 +326,37 @@ const TemplateDetailPage = () => {
     try {
       const data = await upstashService.cloneTemplate(id);
       if (data.success) {
-        setSnackbar({open: true, message: 'Template cloned successfully!', severity: 'success'});
+        setSnackbar({open: true, message: t('templates.detail.success.templateCloned'), severity: 'success'});
         navigate(`/templates/${data.data.id}`);
       } else {
-        setSnackbar({open: true, message: data.error || 'Error cloning template', severity: 'error'});
+        setSnackbar({open: true, message: data.error || t('templates.detail.errors.templateCloneFailed'), severity: 'error'});
       }
     } catch (err) {
-      setSnackbar({open: true, message: 'An unexpected error occurred while cloning.', severity: 'error'});
+      setSnackbar({open: true, message: t('templates.detail.errors.unexpectedCloneError'), severity: 'error'});
     }
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Are you sure you want to delete the template "${templateInfo?.template.name}"? This action cannot be undone.`)) {
+    if (!confirm(t('templates.detail.confirm.deleteTemplate', { name: templateInfo?.template.name }))) {
       return;
     }
 
     try {
       const data = await upstashService.deleteTemplate(parseInt(id!));
       if (data.success) {
-        setSnackbar({open: true, message: 'Template deleted successfully!', severity: 'success'});
+        setSnackbar({open: true, message: t('templates.detail.success.templateDeleted'), severity: 'success'});
         navigate('/'); // Navigate back to dashboard after deletion
       } else {
-        setSnackbar({open: true, message: data.error || 'Error deleting template', severity: 'error'});
+        setSnackbar({open: true, message: data.error || t('templates.detail.errors.templateDeletionFailed'), severity: 'error'});
       }
     } catch (err) {
-      setSnackbar({open: true, message: 'An unexpected error occurred while deleting the template.', severity: 'error'});
+      setSnackbar({open: true, message: t('templates.detail.errors.unexpectedTemplateDeleteError'), severity: 'error'});
     }
   };
 
-  if (loading) return <div className="text-center p-8">Loading template...</div>;
+  if (loading) return <div className="text-center p-8">{t('templates.loading')}</div>;
   if (error) return <div className="text-center text-red-500 p-8 bg-gray-800 rounded-lg">{error}</div>;
-  if (!templateInfo) return <div className="text-center p-8">Template not found.</div>;
+  if (!templateInfo) return <div className="text-center p-8">{t('templates.notFound')}</div>;
 
   return (
     <Box
@@ -368,7 +370,7 @@ const TemplateDetailPage = () => {
           <div >
             <Typography
               variant={isMobile ? "h5" : "h3"} component="h1" gutterBottom>
-            Templates: {templateInfo?.template.name}
+            {t('templates.detail.title')}: {templateInfo?.template.name}
             </Typography>
           </div>
           <Grid >
@@ -378,7 +380,7 @@ const TemplateDetailPage = () => {
                 { color: 'grey.300' }
               }
               variant="outlined" onClick={() => setShowInviteModal(true)}>
-                Invite to Sign
+                {t('templates.detail.inviteToSign')}
               </Button>
               <Button 
                 sx={
@@ -387,7 +389,7 @@ const TemplateDetailPage = () => {
                 startIcon={<Copy size={16} />}
                 variant="outlined"
                 onClick={handleClone}>
-                  Clone
+                  {t('templates.detail.clone')}
               </Button>
               <Button 
               sx={
@@ -396,11 +398,11 @@ const TemplateDetailPage = () => {
               startIcon={<Trash2 size={16} />}
               variant="outlined"
                onClick={handleDelete}>
-                Delete
+                {t('templates.detail.delete')}
               </Button>
 
               <Button variant="contained" onClick={() => navigate(`/templates/${id}/editor`)}>
-                Edit Template
+                {t('templates.detail.editTemplate')}
               </Button>
             </Box>
           </Grid>
@@ -415,9 +417,9 @@ const TemplateDetailPage = () => {
           {templateInfo.signatures && templateInfo.signatures.length > 0 ? (
             <div className="space-y-6">
               <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-semibold">Signing Status</h2>
+                <h2 className="text-2xl font-semibold">{t('templates.detail.signingStatus')}</h2>
                 <button onClick={() => setShowInviteModal(true)} className="px-4 py-2 font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700">
-                  Add Recipients
+                  {t('templates.detail.addRecipients')}
                 </button>
               </div>
               <div className="space-y-4">
@@ -425,9 +427,9 @@ const TemplateDetailPage = () => {
                   <div key={signatureIndex} className="bg-white/5 border border-white/10 rounded-lg p-4 border">
                     <div className="flex items-center justify-between mb-3 text-gray-500">
                       <h3 className="text-lg font-medium text-white">
-                        {signature.type === 'bulk' ? 'Bulk Signature' : 'Single Signature'} 
+                        {signature.type === 'bulk' ? t('templates.detail.bulkSignature') : t('templates.detail.singleSignature')} 
                         <span className="text-sm  ml-2">
-                          ({signature.parties.length} parties)
+                          ({signature.parties.length} {t('templates.detail.parties')})
                         </span>
                       </h3>
                       <span className={`px-3 py-1 text-xs font-bold rounded-full uppercase ${
@@ -475,7 +477,7 @@ const TemplateDetailPage = () => {
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                 </svg>
-                                DOWNLOAD
+                                {t('templates.detail.download')}
                               </button>
                             )}
                             <button 
@@ -486,23 +488,23 @@ const TemplateDetailPage = () => {
                                  rounded-full hover:bg-gray-800
                                   hover:text-white transition-colors"
                             >
-                              VIEW
+                              {t('templates.detail.view')}
                             </button>
                             <button 
                               onClick={async (e) => {
                                 e.stopPropagation();
-                                if (confirm(`Are you sure you want to delete this bulk signature with ${signature.parties.length} parties?`)) {
+                                if (confirm(t('templates.detail.confirm.deleteBulkSignature', { count: signature.parties.length }))) {
                                   try {
                                     // Delete all parties in the bulk signature
                                     const deletePromises = signature.parties.map(party => 
                                       upstashService.deleteSubmitter(party.id)
                                     );
                                     await Promise.all(deletePromises);
-                                    setSnackbar({open: true, message: 'Bulk signature deleted successfully!', severity: 'success'});
+                                    setSnackbar({open: true, message: t('templates.detail.success.bulkSignatureDeleted'), severity: 'success'});
                                     fetchTemplateInfo();
                                   } catch (err) {
                                     console.error('Bulk delete error:', err);
-                                    setSnackbar({open: true, message: 'An error occurred while deleting the bulk signature.', severity: 'error'});
+                                    setSnackbar({open: true, message: t('templates.detail.errors.bulkSignatureDeletionFailed'), severity: 'error'});
                                   }
                                 }
                               }}
@@ -547,7 +549,7 @@ const TemplateDetailPage = () => {
                                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                   </svg>
-                                  SIGN NOW
+                                  {t('templates.detail.signNow')}
                                 </button>
                               )}
                               {(party.status === 'signed' || party.status === 'completed') && (
@@ -582,7 +584,7 @@ const TemplateDetailPage = () => {
                                 <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    if (confirm(`Are you sure you want to delete the submission for ${party.email}?`)) {
+                                    if (confirm(t('templates.detail.confirm.deleteSubmission', { email: party.email }))) {
                                       handleDeleteSubmitter(party.id);
                                     }
                                   }}
@@ -602,10 +604,10 @@ const TemplateDetailPage = () => {
             </div>
           ) : (
             <div className="text-center py-12">
-              <h2 className="text-2xl font-semibold mb-4">No Signers Yet</h2>
-              <p className="text-gray-400 mb-6">Send this document to recipients for signing.</p>
+              <h2 className="text-2xl font-semibold mb-4">{t('templates.detail.emptyState.title')}</h2>
+              <p className="text-gray-400 mb-6">{t('templates.detail.emptyState.description')}</p>
               <button onClick={() => setShowInviteModal(true)} className="px-6 py-3 font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700">
-                Send to Recipients
+                {t('templates.detail.emptyState.sendToRecipients')}
               </button>
             </div>
           )}

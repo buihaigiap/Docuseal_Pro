@@ -3,6 +3,7 @@ import { Add as AddIcon, Description as DescriptionIcon, Search as SearchIcon } 
 import { motion } from 'framer-motion';
 import CreateTemplateButton from '@/components/CreateTemplateButton';
 import { useRoleAccess } from '../../hooks/useRoleAccess';
+import { useTranslation } from 'react-i18next';
 interface DashboardHeaderProps {
   onCreateNew?: () => void;
   searchQuery: string;
@@ -11,7 +12,7 @@ interface DashboardHeaderProps {
 
 const DashboardHeader: React.FC<DashboardHeaderProps> = ({ onCreateNew, searchQuery, onSearchChange }) => {
   const hasAccess = useRoleAccess(['admin', 'editor' , 'member']);
-
+  const { t, i18n } = useTranslation();
   return (
     <motion.div
       initial={{ opacity: 0, y: -30 }}
@@ -46,17 +47,17 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ onCreateNew, searchQu
                 component="h3"
                 fontWeight="800"
               >
-                Dashboard
+                {t('navigation.dashboard')}
               </Typography>
               <Typography variant="h6" sx={{ color: '#94a3b8', fontWeight: 400, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
-                Manage your document templates
+                {t('dashboard.subtitle')}
               </Typography>
             </Box>
           </Box>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <TextField
-            placeholder="Search folders or templates..."
+            placeholder={t('dashboard.searchPlaceholder')}
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             variant="outlined"
@@ -97,7 +98,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ onCreateNew, searchQu
             >
               <CreateTemplateButton
                 onClick={onCreateNew}
-                text="Create New Template"
+                text={t('templates.create')}
                 icon={<AddIcon />}
               />
             </motion.div>

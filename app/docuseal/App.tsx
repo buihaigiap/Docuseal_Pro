@@ -15,6 +15,7 @@ import FolderPage from './pages/DashboardPage/FolderPage';
 import SettingsPage from './pages/Settings/SettingsPage';
 import { Toaster } from "react-hot-toast";
 import ActivatePage from './pages/Settings/Activate/ActivatePage';
+import './src/i18n';
 
 // Fix: Replaced the old PrivateRoute component with a new layout route component.
 // This uses `<Outlet />` to render child routes if the user is authenticated, resolving the errors.

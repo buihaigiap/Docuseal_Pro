@@ -292,3 +292,22 @@ pub struct CreatePaymentRecord {
     pub metadata: Option<serde_json::Value>,
 }
 
+// Global settings model for non-multi-tenant settings
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct DbGlobalSettings {
+    pub id: i32,
+    pub company_name: Option<String>,
+    pub timezone: Option<String>,
+    pub locale: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// Update global settings request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateGlobalSettings {
+    pub company_name: Option<String>,
+    pub timezone: Option<String>,
+    pub locale: Option<String>,
+}
+

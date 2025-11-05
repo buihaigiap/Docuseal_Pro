@@ -20,7 +20,9 @@ use crate::models::user::User;
 use crate::models::role::Role;
 use crate::database::connection::DbPool;
 use crate::database::models::CreateUser;
+use crate::database::models::{DbGlobalSettings, UpdateGlobalSettings};
 use crate::database::queries::UserQueries;
+use crate::database::queries::GlobalSettingsQueries;
 use crate::common::jwt::{generate_jwt, decode_jwt, Claims};
 
 use crate::services::queue::PaymentQueue;
@@ -54,6 +56,8 @@ pub fn create_router() -> Router<AppState> {
         .route("/auth/users", post(invite_user_handler))
         .route("/auth/change-password", put(change_password_handler))
         .route("/auth/profile", put(update_user_profile_handler))
+        .route("/settings/basic-info", get(get_basic_settings_handler))
+        .route("/settings/basic-info", put(update_basic_settings_handler))
         .route("/submitters", get(submitters::get_submitters))
         .route("/submitters/:id", get(submitters::get_submitter))
         .route("/submitters/:id", put(submitters::update_submitter))
@@ -1218,5 +1222,86 @@ async fn google_oauth_callback(
         Redirect::to(&redirect_url)
     } else {
         Redirect::to("/?error=oauth_no_code")
+    }
+}
+
+// Update basic settings request struct
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct UpdateBasicSettingsRequest {
+    pub company_name: Option<String>,
+    pub timezone: Option<String>,
+    pub locale: Option<String>,
+}
+
+// Get basic settings handler
+#[utoipa::path(
+    get,
+    path = "/api/settings/basic-info",
+    responses(
+        (status = 200, description = "Basic settings retrieved successfully", body = ApiResponse<DbGlobalSettings>),
+        (status = 401, description = "Unauthorized", body = ApiResponse<DbGlobalSettings>),
+        (status = 500, description = "Internal server error", body = ApiResponse<DbGlobalSettings>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "settings"
+)]
+pub async fn get_basic_settings_handler(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<ApiResponse<DbGlobalSettings>>) {
+    let pool = &state.lock().await.db_pool;
+
+    match GlobalSettingsQueries::get_global_settings(pool).await {
+        Ok(Some(settings)) => ApiResponse::success(settings, "Basic settings retrieved successfully".to_string()),
+        Ok(None) => {
+            // Create default settings if not exist
+            if let Err(e) = GlobalSettingsQueries::create_default_global_settings(pool).await {
+                return ApiResponse::internal_error(format!("Failed to create default settings: {}", e));
+            }
+            // Try to get again
+            match GlobalSettingsQueries::get_global_settings(pool).await {
+                Ok(Some(settings)) => ApiResponse::success(settings, "Basic settings retrieved successfully".to_string()),
+                _ => ApiResponse::internal_error("Failed to retrieve settings after creation".to_string()),
+            }
+        }
+        Err(e) => ApiResponse::internal_error(format!("Database error: {}", e)),
+    }
+}
+
+// Update basic settings handler
+#[utoipa::path(
+    put,
+    path = "/api/settings/basic-info",
+    request_body = UpdateBasicSettingsRequest,
+    responses(
+        (status = 200, description = "Basic settings updated successfully", body = ApiResponse<String>),
+        (status = 400, description = "Invalid request data", body = ApiResponse<String>),
+        (status = 401, description = "Unauthorized", body = ApiResponse<String>),
+        (status = 500, description = "Internal server error", body = ApiResponse<String>)
+    ),
+    security(("bearer_auth" = [])),
+    tag = "settings"
+)]
+pub async fn update_basic_settings_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<UpdateBasicSettingsRequest>,
+) -> (StatusCode, Json<ApiResponse<String>>) {
+    let pool = &state.lock().await.db_pool;
+
+    // Ensure settings exist
+    if let Ok(None) = GlobalSettingsQueries::get_global_settings(pool).await {
+        if let Err(e) = GlobalSettingsQueries::create_default_global_settings(pool).await {
+            return ApiResponse::internal_error(format!("Failed to create default settings: {}", e));
+        }
+    }
+
+    let update_data = UpdateGlobalSettings {
+        company_name: payload.company_name,
+        timezone: payload.timezone,
+        locale: payload.locale,
+    };
+
+    match GlobalSettingsQueries::update_global_settings(pool, update_data).await {
+        Ok(_) => ApiResponse::success("Settings updated".to_string(), "Basic settings updated successfully".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to update settings: {}", e)),
     }
 }

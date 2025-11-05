@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Avatar, Box, Menu, MenuItem } from '@mui/material';
 import { Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import CreateTemplateButton from './CreateTemplateButton';
 
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
+  const { t } = useTranslation();
   const { isAuthenticated, isLoading, logout, user } = useAuth();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -66,7 +68,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                             </div>
                         )}
                         <CreateTemplateButton
-                            text="UPGRADE"
+                            text={t('common.upgrade')}
                             onClick={() => navigate('/pricing')}
                         />
                         {/* <Link to="/pricing" className="bg-gradient-to-r from-blue-600 to-indigo-500 text-white font-semibold px-4 py-2 rounded-lg text-sm hover:opacity-90 transition-opacity">UPRGADE</Link> */}
@@ -74,9 +76,9 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                     </>
                 ) : (
                     <>
-                    <Link to="/login" className={navLinkClasses}>Login</Link>
+                    <Link to="/login" className={navLinkClasses}>{t('auth.login')}</Link>
                     <Link to="/register" className="bg-gradient-to-r from-purple-600 to-blue-500 text-white font-semibold px-4 py-2 rounded-lg text-sm hover:opacity-90 transition-opacity">
-                        Register
+                        {t('auth.register')}
                     </Link>
                     </>
                 )}
@@ -118,8 +120,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                     minWidth : 250
                 } }}
             >
-                <MenuItem onClick={() => navigate('/settings')}>Settings</MenuItem>
-                <MenuItem onClick={handleLogout}>Logout</MenuItem>
+                <MenuItem onClick={() => navigate('/settings')}>{t('navigation.settings')}</MenuItem>
+                <MenuItem onClick={handleLogout}>{t('auth.logout')}</MenuItem>
             </Menu>
 
 
@@ -131,18 +133,18 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                 {isAuthenticated ? (
                     <>
                     <div className="px-3 py-2">
-                        <span className="text-white">Welcome, {user?.name}</span>
+                        <span className="text-white">{t('common.welcome')}, {user?.name}</span>
                     </div>
-                    <Link to="/" onClick={() => setIsMobileMenuOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium text-slate-300 hover:text-white hover:bg-white/10">Dashboard</Link>
-                    <Link to="/pricing" onClick={() => setIsMobileMenuOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium bg-blue-600 text-white hover:bg-blue-700">Pricing</Link>
+                    <Link to="/" onClick={() => setIsMobileMenuOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium text-slate-300 hover:text-white hover:bg-white/10">{t('navigation.dashboard')}</Link>
+                    <Link to="/pricing" onClick={() => setIsMobileMenuOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium bg-blue-600 text-white hover:bg-blue-700">{t('navigation.pricing')}</Link>
                     <button onClick={handleLogout} className="w-full text-left block px-3 py-2 rounded-md text-base font-medium text-slate-300 hover:text-white hover:bg-white/10">
-                        Logout
+                        {t('auth.logout')}
                     </button>
                     </>
                 ) : (
                     <>
-                    <Link to="/login" onClick={() => setIsMobileMenuOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium text-slate-300 hover:text-white hover:bg-white/10">Login</Link>
-                    <Link to="/register" onClick={() => setIsMobileMenuOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium text-slate-300 hover:text-white hover:bg-white/10">Register</Link>
+                    <Link to="/login" onClick={() => setIsMobileMenuOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium text-slate-300 hover:text-white hover:bg-white/10">{t('auth.login')}</Link>
+                    <Link to="/register" onClick={() => setIsMobileMenuOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium text-slate-300 hover:text-white hover:bg-white/10">{t('auth.register')}</Link>
                     </>
                 )}
                 </div>

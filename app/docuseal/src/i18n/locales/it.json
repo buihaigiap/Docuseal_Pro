@@ -1,0 +1,164 @@
+{
+  "common": {
+    "save": "Salva",
+    "cancel": "Annulla",
+    "delete": "Elimina",
+    "edit": "Modifica",
+    "add": "Aggiungi",
+    "loading": "Caricamento...",
+    "error": "Errore",
+    "success": "Successo",
+    "confirm": "Conferma",
+    "yes": "Sì",
+    "no": "No",
+    "upgrade": "AGGIORNAMENTO",
+    "welcome": "Benvenuto"
+  },
+  "navigation": {
+    "dashboard": "Dashboard",
+    "templates": "Modelli",
+    "submissions": "Invii",
+    "settings": "Impostazioni",
+    "profile": "Profilo",
+    "users": "Utenti",
+    "general": "Generale",
+    "reminders": "Promemoria",
+    "pricing": "Prezzi"
+  },
+  "dashboard": {
+    "subtitle": "Gestisci i tuoi modelli di documenti",
+    "searchPlaceholder": "Cerca cartelle o modelli...",
+    "emptyState": {
+      "title": "Carica un nuovo documento",
+      "subtitle": "Fai clic per caricare o trascina e rilascia",
+      "googleDriveButton": "Google Drive"
+    }
+  },
+  "settings": {
+    "title": "Impostazioni",
+    "general": {
+      "title": "Impostazioni generali",
+      "companyName": "Nome azienda",
+      "timeZone": "Fuso orario",
+      "language": "Lingua/Localizzazione",
+      "basicInfo": "Informazioni di base",
+      "update": "Aggiorna impostazioni",
+      "updating": "Aggiornamento...",
+      "updated": "Impostazioni aggiornate con successo",
+      "updateFailed": "Errore nell'aggiornamento delle impostazioni"
+    },
+    "profile": {
+      "title": "Impostazioni profilo",
+      "updateProfile": "Aggiorna profilo",
+      "changePassword": "Cambia password",
+      "name": "Nome",
+      "email": "Email",
+      "currentPassword": "Password attuale",
+      "newPassword": "Nuova password",
+      "confirmPassword": "Conferma password",
+      "profileUpdated": "Profilo aggiornato con successo",
+      "passwordChanged": "Password cambiata con successo"
+    }
+  },
+  "auth": {
+    "login": "Accedi",
+    "register": "Registrati",
+    "logout": "Esci",
+    "email": "Email",
+    "password": "Password",
+    "forgotPassword": "Password dimenticata?",
+    "resetPassword": "Reimposta password",
+    "activateAccount": "Attiva account"
+  },
+  "templates": {
+    "title": "Modelli",
+    "create": "Crea modello",
+    "edit": "Modifica modello",
+    "delete": "Elimina modello",
+    "name": "Nome",
+    "description": "Descrizione",
+    "fields": "Campi",
+    "preview": "Anteprima",
+    "modal": {
+      "title": "Crea nuovo modello",
+      "nameLabel": "Nome del modello",
+      "namePlaceholder": "es. Contratto di vendita",
+      "dragDropText": "Trascina e rilascia un file o fai clic per selezionare",
+      "uploadButton": "Carica file",
+      "pdfOnly": "Solo PDF",
+      "createButton": "Crea modello"
+    },
+    "errors": {
+      "nameAndFileRequired": "Il nome del modello e il file sono obbligatori",
+      "uploadFailed": "Caricamento file fallito",
+      "invalidFileType": "Sono ammessi solo file PDF",
+      "templateCreationFailed": "Creazione modello fallita"
+    },
+    "detail": {
+      "title": "Modelli",
+      "inviteToSign": "Invita a firmare",
+      "clone": "Clona",
+      "delete": "Elimina",
+      "editTemplate": "Modifica modello",
+      "viewTemplate": "Visualizza modello",
+      "signingStatus": "Stato firma",
+      "addRecipients": "Aggiungi destinatari",
+      "bulkSignature": "Firma collettiva",
+      "singleSignature": "Firma singola",
+      "parties": "parti",
+      "download": "SCARICA",
+      "view": "VISUALIZZA",
+      "signNow": "FIRMA ORA",
+      "loading": "Caricamento modello...",
+      "notFound": "Modello non trovato.",
+      "emptyState": {
+        "title": "Ancora nessun firmatario",
+        "description": "Invia questo documento ai destinatari per la firma.",
+        "sendToRecipients": "Invia ai destinatari"
+      },
+      "success": {
+        "submissionCreated": "Invio creato con successo! I firmatari sono stati invitati.",
+        "submitterDeleted": "Firmatario eliminato con successo!",
+        "templateCloned": "Modello clonato con successo!",
+        "templateDeleted": "Modello eliminato con successo!",
+        "bulkSignatureDeleted": "Firma collettiva eliminata con successo!"
+      },
+      "errors": {
+        "fillAllEmails": "Si prega di compilare tutti gli indirizzi e-mail.",
+        "submissionCreationFailed": "Errore nella creazione dell'invio",
+        "unexpectedError": "Si è verificato un errore imprevisto.",
+        "noSignaturesFound": "Nessuna firma trovata per questo invio",
+        "pdfUrlNotFound": "URL PDF non trovato",
+        "downloadFailed": "Download PDF fallito",
+        "submitterDeletionFailed": "Errore nell'eliminazione del firmatario",
+        "unexpectedDeleteError": "Si è verificato un errore imprevisto durante l'eliminazione del firmatario.",
+        "templateCloneFailed": "Errore nella clonazione del modello",
+        "unexpectedCloneError": "Si è verificato un errore imprevisto durante la clonazione.",
+        "templateDeletionFailed": "Errore nell'eliminazione del modello",
+        "unexpectedTemplateDeleteError": "Si è verificato un errore imprevisto durante l'eliminazione del modello.",
+        "bulkSignatureDeletionFailed": "Si è verificato un errore durante l'eliminazione della firma collettiva.",
+        "freeUsageLimitReached": "Limite di utilizzo gratuito raggiunto. Effettua l'upgrade per continuare."
+      },
+      "confirm": {
+        "deleteTemplate": "Sei sicuro di voler eliminare il modello \"{{name}}\"? Questa azione non può essere annullata.",
+        "deleteBulkSignature": "Sei sicuro di voler eliminare questa firma collettiva con {{count}} parti?",
+        "deleteSubmission": "Sei sicuro di voler eliminare l'invio per {{email}}?"
+      }
+    }
+  },
+  "googleDrive": {
+    "title": "Google Drive",
+    "connectTitle": "Connetti Google Drive",
+    "connectDescription": "Connetti il tuo Google Drive per caricare documenti direttamente dal tuo archivio cloud.",
+    "connectButton": "Connetti Google Drive"
+  },
+  "submissions": {
+    "title": "Invii",
+    "status": "Stato",
+    "pending": "In attesa",
+    "completed": "Completato",
+    "rejected": "Rifiutato",
+    "sign": "Firma",
+    "download": "Scarica"
+  }
+}

@@ -1,23 +1,27 @@
 import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { Box, List, ListItem, ListItemButton, ListItemText, Typography, Paper } from '@mui/material';
+import { useTranslation } from 'react-i18next';
 import ProfileSettings from './Profile/ProfileSettings';
 import UsersSettings from './Activate/UsersSettings';
 import ReminderSettingsPage from './ReminderSettings/ReminderSettingsPage';
+import GeneralSettings from './GeneralSettings';
 
 const SettingsPage = () => {
+  const { t } = useTranslation();
   const location = useLocation();
 
   const menuItems = [
-    { text: 'Profile', path: '/settings/profile' },
-    { text: 'Users', path: '/settings/users' },
-    { text: 'Reminder Settings', path: '/settings/reminders' },
+    { text: t('navigation.general'), path: '/settings/general' },
+    { text: t('navigation.profile'), path: '/settings/profile' },
+    { text: t('navigation.users'), path: '/settings/users' },
+    { text: t('navigation.reminders'), path: '/settings/reminders' },
   ];
 
   return (
     <Box sx={{ display: 'flex', minHeight: 'calc(100vh - 4rem)', color: 'white', gap: 2  , p: 2}}>
       <Box sx={{ width: 250}}>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Settings
+          {t('settings.title')}
         </Typography>
         <List sx={{ '& .MuiListItem-root': { mb: 1 } }}>
           {menuItems.map((item) => (
@@ -33,10 +37,11 @@ const SettingsPage = () => {
         <Paper 
         sx={{ p: 3, bgcolor: 'rgba(13, 7, 31, 0.9)', color: 'white', borderRadius: 2, backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
           <Routes>
+            <Route path="general" element={<GeneralSettings />} />
             <Route path="profile" element={<ProfileSettings />} />
             <Route path="users" element={<UsersSettings />} />
             <Route path="reminders" element={<ReminderSettingsPage />} />
-            <Route index element={<Navigate to="profile" replace />} />
+            <Route index element={<Navigate to="general" replace />} />
           </Routes>
         </Paper>
       </Box>

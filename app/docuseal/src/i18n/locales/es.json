@@ -1,0 +1,164 @@
+{
+  "common": {
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "add": "Agregar",
+    "loading": "Cargando...",
+    "error": "Error",
+    "success": "Éxito",
+    "confirm": "Confirmar",
+    "yes": "Sí",
+    "no": "No",
+    "upgrade": "ACTUALIZAR",
+    "welcome": "Bienvenido"
+  },
+  "navigation": {
+    "dashboard": "Panel de control",
+    "templates": "Plantillas",
+    "submissions": "Envíos",
+    "settings": "Configuración",
+    "profile": "Perfil",
+    "users": "Usuarios",
+    "general": "General",
+    "reminders": "Recordatorios",
+    "pricing": "Precios"
+  },
+  "dashboard": {
+    "subtitle": "Gestiona tus plantillas de documentos",
+    "searchPlaceholder": "Buscar carpetas o plantillas...",
+    "emptyState": {
+      "title": "Subir un nuevo documento",
+      "subtitle": "Haz clic para subir o arrastra y suelta",
+      "googleDriveButton": "Google Drive"
+    }
+  },
+  "settings": {
+    "title": "Configuración",
+    "general": {
+      "title": "Configuración general",
+      "companyName": "Nombre de la empresa",
+      "timeZone": "Zona horaria",
+      "language": "Idioma/Localización",
+      "basicInfo": "Información básica",
+      "update": "Actualizar configuración",
+      "updating": "Actualizando...",
+      "updated": "Configuración actualizada exitosamente",
+      "updateFailed": "Error al actualizar la configuración"
+    },
+    "profile": {
+      "title": "Configuración del perfil",
+      "updateProfile": "Actualizar perfil",
+      "changePassword": "Cambiar contraseña",
+      "name": "Nombre",
+      "email": "Email",
+      "currentPassword": "Contraseña actual",
+      "newPassword": "Nueva contraseña",
+      "confirmPassword": "Confirmar contraseña",
+      "profileUpdated": "Perfil actualizado exitosamente",
+      "passwordChanged": "Contraseña cambiada exitosamente"
+    }
+  },
+  "auth": {
+    "login": "Iniciar sesión",
+    "register": "Registrarse",
+    "logout": "Cerrar sesión",
+    "email": "Email",
+    "password": "Contraseña",
+    "forgotPassword": "¿Olvidaste tu contraseña?",
+    "resetPassword": "Restablecer contraseña",
+    "activateAccount": "Activar cuenta"
+  },
+  "templates": {
+    "title": "Plantillas",
+    "create": "Crear plantilla",
+    "edit": "Editar plantilla",
+    "delete": "Eliminar plantilla",
+    "name": "Nombre",
+    "description": "Descripción",
+    "fields": "Campos",
+    "preview": "Vista previa",
+    "modal": {
+      "title": "Crear nueva plantilla",
+      "nameLabel": "Nombre de la plantilla",
+      "namePlaceholder": "ej. Contrato de venta",
+      "dragDropText": "Arrastra y suelta un archivo o haz clic para seleccionar",
+      "uploadButton": "Subir archivo",
+      "pdfOnly": "Solo PDF",
+      "createButton": "Crear plantilla"
+    },
+    "errors": {
+      "nameAndFileRequired": "El nombre de la plantilla y el archivo son obligatorios",
+      "uploadFailed": "Error al subir el archivo",
+      "invalidFileType": "Solo se permiten archivos PDF",
+      "templateCreationFailed": "Error al crear la plantilla"
+    },
+    "detail": {
+      "title": "Plantillas",
+      "inviteToSign": "Invitar a firmar",
+      "clone": "Clonar",
+      "delete": "Eliminar",
+      "editTemplate": "Editar plantilla",
+      "viewTemplate": "Ver plantilla",
+      "signingStatus": "Estado de firma",
+      "addRecipients": "Agregar destinatarios",
+      "bulkSignature": "Firma masiva",
+      "singleSignature": "Firma única",
+      "parties": "partes",
+      "download": "DESCARGAR",
+      "view": "VER",
+      "signNow": "FIRMAR AHORA",
+      "loading": "Cargando plantilla...",
+      "notFound": "Plantilla no encontrada.",
+      "emptyState": {
+        "title": "Aún no hay firmantes",
+        "description": "Envíe este documento a los destinatarios para firmar.",
+        "sendToRecipients": "Enviar a destinatarios"
+      },
+      "success": {
+        "submissionCreated": "¡Envío creado exitosamente! Los firmantes han sido invitados.",
+        "submitterDeleted": "¡Firmante eliminado exitosamente!",
+        "templateCloned": "¡Plantilla clonada exitosamente!",
+        "templateDeleted": "¡Plantilla eliminada exitosamente!",
+        "bulkSignatureDeleted": "¡Firma masiva eliminada exitosamente!"
+      },
+      "errors": {
+        "fillAllEmails": "Por favor complete todas las direcciones de correo electrónico.",
+        "submissionCreationFailed": "Error al crear el envío",
+        "unexpectedError": "Ocurrió un error inesperado.",
+        "noSignaturesFound": "No se encontraron firmas para este envío",
+        "pdfUrlNotFound": "URL del PDF no encontrada",
+        "downloadFailed": "Error al descargar el PDF",
+        "submitterDeletionFailed": "Error al eliminar el firmante",
+        "unexpectedDeleteError": "Ocurrió un error inesperado al eliminar el firmante.",
+        "templateCloneFailed": "Error al clonar la plantilla",
+        "unexpectedCloneError": "Ocurrió un error inesperado al clonar.",
+        "templateDeletionFailed": "Error al eliminar la plantilla",
+        "unexpectedTemplateDeleteError": "Ocurrió un error inesperado al eliminar la plantilla.",
+        "bulkSignatureDeletionFailed": "Ocurrió un error al eliminar la firma masiva.",
+        "freeUsageLimitReached": "Límite de uso gratuito alcanzado. Actualice para continuar."
+      },
+      "confirm": {
+        "deleteTemplate": "¿Está seguro de que desea eliminar la plantilla \"{{name}}\"? Esta acción no se puede deshacer.",
+        "deleteBulkSignature": "¿Está seguro de que desea eliminar esta firma masiva con {{count}} partes?",
+        "deleteSubmission": "¿Está seguro de que desea eliminar el envío para {{email}}?"
+      }
+    }
+  },
+  "googleDrive": {
+    "title": "Google Drive",
+    "connectTitle": "Conectar Google Drive",
+    "connectDescription": "Conecta tu Google Drive para subir documentos directamente desde tu almacenamiento en la nube.",
+    "connectButton": "Conectar Google Drive"
+  },
+  "submissions": {
+    "title": "Envíos",
+    "status": "Estado",
+    "pending": "Pendiente",
+    "completed": "Completado",
+    "rejected": "Rechazado",
+    "sign": "Firmar",
+    "download": "Descargar"
+  }
+}

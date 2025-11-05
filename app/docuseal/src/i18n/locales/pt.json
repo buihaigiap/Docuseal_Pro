@@ -1,0 +1,164 @@
+{
+  "common": {
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "delete": "Excluir",
+    "edit": "Editar",
+    "add": "Adicionar",
+    "loading": "Carregando...",
+    "error": "Erro",
+    "success": "Sucesso",
+    "confirm": "Confirmar",
+    "yes": "Sim",
+    "no": "Não",
+    "upgrade": "ATUALIZAR",
+    "welcome": "Bem-vindo"
+  },
+  "navigation": {
+    "dashboard": "Painel de controle",
+    "templates": "Modelos",
+    "submissions": "Submissões",
+    "settings": "Configurações",
+    "profile": "Perfil",
+    "users": "Usuários",
+    "general": "Geral",
+    "reminders": "Lembretes",
+    "pricing": "Preços"
+  },
+  "dashboard": {
+    "subtitle": "Gerencie seus modelos de documentos",
+    "searchPlaceholder": "Pesquisar pastas ou modelos...",
+    "emptyState": {
+      "title": "Enviar um novo documento",
+      "subtitle": "Clique para enviar ou arraste e solte",
+      "googleDriveButton": "Google Drive"
+    }
+  },
+  "settings": {
+    "title": "Configurações",
+    "general": {
+      "title": "Configurações gerais",
+      "companyName": "Nome da empresa",
+      "timeZone": "Fuso horário",
+      "language": "Idioma/Localização",
+      "basicInfo": "Informações básicas",
+      "update": "Atualizar configurações",
+      "updating": "Atualizando...",
+      "updated": "Configurações atualizadas com sucesso",
+      "updateFailed": "Falha ao atualizar configurações"
+    },
+    "profile": {
+      "title": "Configurações do perfil",
+      "updateProfile": "Atualizar perfil",
+      "changePassword": "Alterar senha",
+      "name": "Nome",
+      "email": "Email",
+      "currentPassword": "Senha atual",
+      "newPassword": "Nova senha",
+      "confirmPassword": "Confirmar senha",
+      "profileUpdated": "Perfil atualizado com sucesso",
+      "passwordChanged": "Senha alterada com sucesso"
+    }
+  },
+  "auth": {
+    "login": "Entrar",
+    "register": "Registrar",
+    "logout": "Sair",
+    "email": "Email",
+    "password": "Senha",
+    "forgotPassword": "Esqueceu a senha?",
+    "resetPassword": "Redefinir senha",
+    "activateAccount": "Ativar conta"
+  },
+  "templates": {
+    "title": "Modelos",
+    "create": "Criar modelo",
+    "edit": "Editar modelo",
+    "delete": "Excluir modelo",
+    "name": "Nome",
+    "description": "Descrição",
+    "fields": "Campos",
+    "preview": "Visualizar",
+    "modal": {
+      "title": "Criar novo modelo",
+      "nameLabel": "Nome do modelo",
+      "namePlaceholder": "ex. Contrato de venda",
+      "dragDropText": "Arraste e solte um arquivo ou clique para selecionar",
+      "uploadButton": "Enviar arquivo",
+      "pdfOnly": "Apenas PDF",
+      "createButton": "Criar modelo"
+    },
+    "errors": {
+      "nameAndFileRequired": "O nome do modelo e o arquivo são obrigatórios",
+      "uploadFailed": "Falha ao enviar o arquivo",
+      "invalidFileType": "Apenas arquivos PDF são permitidos",
+      "templateCreationFailed": "Falha ao criar o modelo"
+    },
+    "detail": {
+      "title": "Modelos",
+      "inviteToSign": "Convidar para assinar",
+      "clone": "Clonar",
+      "delete": "Excluir",
+      "editTemplate": "Editar modelo",
+      "viewTemplate": "Ver modelo",
+      "signingStatus": "Status de assinatura",
+      "addRecipients": "Adicionar destinatários",
+      "bulkSignature": "Assinatura em massa",
+      "singleSignature": "Assinatura única",
+      "parties": "partes",
+      "download": "BAIXAR",
+      "view": "VER",
+      "signNow": "ASSINAR AGORA",
+      "loading": "Carregando modelo...",
+      "notFound": "Modelo não encontrado.",
+      "emptyState": {
+        "title": "Ainda não há signatários",
+        "description": "Envie este documento aos destinatários para assinatura.",
+        "sendToRecipients": "Enviar aos destinatários"
+      },
+      "success": {
+        "submissionCreated": "Envio criado com sucesso! Os signatários foram convidados.",
+        "submitterDeleted": "Signatário excluído com sucesso!",
+        "templateCloned": "Modelo clonado com sucesso!",
+        "templateDeleted": "Modelo excluído com sucesso!",
+        "bulkSignatureDeleted": "Assinatura em massa excluída com sucesso!"
+      },
+      "errors": {
+        "fillAllEmails": "Por favor, preencha todos os endereços de e-mail.",
+        "submissionCreationFailed": "Erro ao criar o envio",
+        "unexpectedError": "Ocorreu um erro inesperado.",
+        "noSignaturesFound": "Nenhuma assinatura encontrada para este envio",
+        "pdfUrlNotFound": "URL do PDF não encontrada",
+        "downloadFailed": "Falha ao baixar o PDF",
+        "submitterDeletionFailed": "Erro ao excluir o signatário",
+        "unexpectedDeleteError": "Ocorreu um erro inesperado ao excluir o signatário.",
+        "templateCloneFailed": "Erro ao clonar o modelo",
+        "unexpectedCloneError": "Ocorreu um erro inesperado ao clonar.",
+        "templateDeletionFailed": "Erro ao excluir o modelo",
+        "unexpectedTemplateDeleteError": "Ocorreu um erro inesperado ao excluir o modelo.",
+        "bulkSignatureDeletionFailed": "Ocorreu um erro ao excluir a assinatura em massa.",
+        "freeUsageLimitReached": "Limite de uso gratuito atingido. Faça upgrade para continuar."
+      },
+      "confirm": {
+        "deleteTemplate": "Tem certeza de que deseja excluir o modelo \"{{name}}\"? Esta ação não pode ser desfeita.",
+        "deleteBulkSignature": "Tem certeza de que deseja excluir esta assinatura em massa com {{count}} partes?",
+        "deleteSubmission": "Tem certeza de que deseja excluir o envio para {{email}}?"
+      }
+    }
+  },
+  "googleDrive": {
+    "title": "Google Drive",
+    "connectTitle": "Conectar Google Drive",
+    "connectDescription": "Conecte seu Google Drive para enviar documentos diretamente do seu armazenamento em nuvem.",
+    "connectButton": "Conectar Google Drive"
+  },
+  "submissions": {
+    "title": "Submissões",
+    "status": "Status",
+    "pending": "Pendente",
+    "completed": "Concluído",
+    "rejected": "Rejeitado",
+    "sign": "Assinar",
+    "download": "Baixar"
+  }
+}

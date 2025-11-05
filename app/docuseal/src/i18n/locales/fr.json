@@ -1,0 +1,164 @@
+{
+  "common": {
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "add": "Ajouter",
+    "loading": "Chargement...",
+    "error": "Erreur",
+    "success": "Succès",
+    "confirm": "Confirmer",
+    "yes": "Oui",
+    "no": "Non",
+    "upgrade": "MISE À NIVEAU",
+    "welcome": "Bienvenue"
+  },
+  "navigation": {
+    "dashboard": "Tableau de bord",
+    "templates": "Modèles",
+    "submissions": "Soumissions",
+    "settings": "Paramètres",
+    "profile": "Profil",
+    "users": "Utilisateurs",
+    "general": "Général",
+    "reminders": "Rappels",
+    "pricing": "Tarification"
+  },
+  "dashboard": {
+    "subtitle": "Gérez vos modèles de documents",
+    "searchPlaceholder": "Rechercher des dossiers ou des modèles...",
+    "emptyState": {
+      "title": "Téléverser un nouveau document",
+      "subtitle": "Cliquez pour téléverser ou glissez-déposez",
+      "googleDriveButton": "Google Drive"
+    }
+  },
+  "settings": {
+    "title": "Paramètres",
+    "general": {
+      "title": "Paramètres généraux",
+      "companyName": "Nom de l'entreprise",
+      "timeZone": "Fuseau horaire",
+      "language": "Langue/Localisation",
+      "basicInfo": "Informations de base",
+      "update": "Mettre à jour les paramètres",
+      "updating": "Mise à jour...",
+      "updated": "Paramètres mis à jour avec succès",
+      "updateFailed": "Échec de la mise à jour des paramètres"
+    },
+    "profile": {
+      "title": "Paramètres du profil",
+      "updateProfile": "Mettre à jour le profil",
+      "changePassword": "Changer le mot de passe",
+      "name": "Nom",
+      "email": "Email",
+      "currentPassword": "Mot de passe actuel",
+      "newPassword": "Nouveau mot de passe",
+      "confirmPassword": "Confirmer le mot de passe",
+      "profileUpdated": "Profil mis à jour avec succès",
+      "passwordChanged": "Mot de passe changé avec succès"
+    }
+  },
+  "auth": {
+    "login": "Connexion",
+    "register": "S'inscrire",
+    "logout": "Déconnexion",
+    "email": "Email",
+    "password": "Mot de passe",
+    "forgotPassword": "Mot de passe oublié ?",
+    "resetPassword": "Réinitialiser le mot de passe",
+    "activateAccount": "Activer le compte"
+  },
+  "templates": {
+    "title": "Modèles",
+    "create": "Créer un modèle",
+    "edit": "Modifier le modèle",
+    "delete": "Supprimer le modèle",
+    "name": "Nom",
+    "description": "Description",
+    "fields": "Champs",
+    "preview": "Aperçu",
+    "modal": {
+      "title": "Créer un nouveau modèle",
+      "nameLabel": "Nom du modèle",
+      "namePlaceholder": "ex. : Contrat de vente",
+      "dragDropText": "Glissez-déposez un fichier ou cliquez pour sélectionner",
+      "uploadButton": "Téléverser un fichier",
+      "pdfOnly": "PDF uniquement",
+      "createButton": "Créer un modèle"
+    },
+    "errors": {
+      "nameAndFileRequired": "Le nom du modèle et le fichier sont requis",
+      "uploadFailed": "Échec du téléversement du fichier",
+      "invalidFileType": "Seuls les fichiers PDF sont autorisés",
+      "templateCreationFailed": "Échec de la création du modèle"
+    },
+    "detail": {
+      "title": "Modèles",
+      "inviteToSign": "Inviter à signer",
+      "clone": "Cloner",
+      "delete": "Supprimer",
+      "editTemplate": "Modifier le modèle",
+      "viewTemplate": "Voir le modèle",
+      "signingStatus": "Statut de signature",
+      "addRecipients": "Ajouter des destinataires",
+      "bulkSignature": "Signature groupée",
+      "singleSignature": "Signature unique",
+      "parties": "parties",
+      "download": "TÉLÉCHARGER",
+      "view": "VOIR",
+      "signNow": "SIGNER MAINTENANT",
+      "loading": "Chargement du modèle...",
+      "notFound": "Modèle introuvable.",
+      "emptyState": {
+        "title": "Aucun signataire pour le moment",
+        "description": "Envoyez ce document aux destinataires pour signature.",
+        "sendToRecipients": "Envoyer aux destinataires"
+      },
+      "success": {
+        "submissionCreated": "Soumission créée avec succès ! Les signataires ont été invités.",
+        "submitterDeleted": "Signataire supprimé avec succès !",
+        "templateCloned": "Modèle cloné avec succès !",
+        "templateDeleted": "Modèle supprimé avec succès !",
+        "bulkSignatureDeleted": "Signature groupée supprimée avec succès !"
+      },
+      "errors": {
+        "fillAllEmails": "Veuillez remplir toutes les adresses e-mail.",
+        "submissionCreationFailed": "Erreur lors de la création de la soumission",
+        "unexpectedError": "Une erreur inattendue s'est produite.",
+        "noSignaturesFound": "Aucune signature trouvée pour cette soumission",
+        "pdfUrlNotFound": "URL PDF introuvable",
+        "downloadFailed": "Échec du téléchargement du PDF",
+        "submitterDeletionFailed": "Erreur lors de la suppression du signataire",
+        "unexpectedDeleteError": "Une erreur inattendue s'est produite lors de la suppression du signataire.",
+        "templateCloneFailed": "Erreur lors du clonage du modèle",
+        "unexpectedCloneError": "Une erreur inattendue s'est produite lors du clonage.",
+        "templateDeletionFailed": "Erreur lors de la suppression du modèle",
+        "unexpectedTemplateDeleteError": "Une erreur inattendue s'est produite lors de la suppression du modèle.",
+        "bulkSignatureDeletionFailed": "Une erreur s'est produite lors de la suppression de la signature groupée.",
+        "freeUsageLimitReached": "Limite d'utilisation gratuite atteinte. Veuillez passer à la version supérieure pour continuer."
+      },
+      "confirm": {
+        "deleteTemplate": "Êtes-vous sûr de vouloir supprimer le modèle \"{{name}}\" ? Cette action ne peut pas être annulée.",
+        "deleteBulkSignature": "Êtes-vous sûr de vouloir supprimer cette signature groupée avec {{count}} parties ?",
+        "deleteSubmission": "Êtes-vous sûr de vouloir supprimer la soumission pour {{email}} ?"
+      }
+    }
+  },
+  "googleDrive": {
+    "title": "Google Drive",
+    "connectTitle": "Connecter Google Drive",
+    "connectDescription": "Connectez votre Google Drive pour téléverser des documents directement depuis votre stockage cloud.",
+    "connectButton": "Connecter Google Drive"
+  },
+  "submissions": {
+    "title": "Soumissions",
+    "status": "Statut",
+    "pending": "En attente",
+    "completed": "Terminé",
+    "rejected": "Rejeté",
+    "sign": "Signer",
+    "download": "Télécharger"
+  }
+}

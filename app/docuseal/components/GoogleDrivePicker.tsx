@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Box, Modal, Button, Typography, CircularProgress } from '@mui/material';
 import { Close as CloseIcon, CloudUpload as CloudUploadIcon } from '@mui/icons-material';
+import { useTranslation } from 'react-i18next';
 
 interface GoogleDrivePickerProps {
   open: boolean;
@@ -13,6 +14,7 @@ const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
   onClose,
   onFileSelect
 }) => {
+  const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(true);
   const [showOAuth, setShowOAuth] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -92,7 +94,7 @@ const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
           }}
         >
           <Typography variant="h6" component="h2">
-            Google Drive
+            {t('googleDrive.title')}
           </Typography>
           <Button onClick={onClose} size="small">
             <CloseIcon  sx={{color : 'white'}}/>
@@ -114,17 +116,17 @@ const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
             >
               <CloudUploadIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
               <Typography variant="h6" gutterBottom>
-                Connect Google Drive
+                {t('googleDrive.connectTitle')}
               </Typography>
               <Typography variant="body2" color="text.secondary" textAlign="center" mb={3}>
-                Connect your Google Drive to upload documents directly from your cloud storage.
+                {t('googleDrive.connectDescription')}
               </Typography>
               <Button
                 variant="contained"
                 onClick={handleOAuth}
                 startIcon={<CloudUploadIcon />}
               >
-                Connect Google Drive
+                {t('googleDrive.connectButton')}
               </Button>
             </Box>
           ) : (

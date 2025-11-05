@@ -1,0 +1,164 @@
+{
+  "common": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "add": "Hinzufügen",
+    "loading": "Laden...",
+    "error": "Fehler",
+    "success": "Erfolg",
+    "confirm": "Bestätigen",
+    "yes": "Ja",
+    "no": "Nein",
+    "upgrade": "UPGRADE",
+    "welcome": "Willkommen"
+  },
+  "navigation": {
+    "dashboard": "Dashboard",
+    "templates": "Vorlagen",
+    "submissions": "Einreichungen",
+    "settings": "Einstellungen",
+    "profile": "Profil",
+    "users": "Benutzer",
+    "general": "Allgemein",
+    "reminders": "Erinnerungen",
+    "pricing": "Preise"
+  },
+  "dashboard": {
+    "subtitle": "Verwalten Sie Ihre Dokumentvorlagen",
+    "searchPlaceholder": "Ordner oder Vorlagen suchen...",
+    "emptyState": {
+      "title": "Neues Dokument hochladen",
+      "subtitle": "Klicken Sie zum Hochladen oder ziehen und ablegen",
+      "googleDriveButton": "Google Drive"
+    }
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "general": {
+      "title": "Allgemeine Einstellungen",
+      "companyName": "Firmenname",
+      "timeZone": "Zeitzone",
+      "language": "Sprache/Lokalisierung",
+      "basicInfo": "Grundinformationen",
+      "update": "Einstellungen aktualisieren",
+      "updating": "Aktualisierung...",
+      "updated": "Einstellungen erfolgreich aktualisiert",
+      "updateFailed": "Fehler beim Aktualisieren der Einstellungen"
+    },
+    "profile": {
+      "title": "Profileinstellungen",
+      "updateProfile": "Profil aktualisieren",
+      "changePassword": "Passwort ändern",
+      "name": "Name",
+      "email": "Email",
+      "currentPassword": "Aktuelles Passwort",
+      "newPassword": "Neues Passwort",
+      "confirmPassword": "Passwort bestätigen",
+      "profileUpdated": "Profil erfolgreich aktualisiert",
+      "passwordChanged": "Passwort erfolgreich geändert"
+    }
+  },
+  "auth": {
+    "login": "Anmelden",
+    "register": "Registrieren",
+    "logout": "Abmelden",
+    "email": "Email",
+    "password": "Passwort",
+    "forgotPassword": "Passwort vergessen?",
+    "resetPassword": "Passwort zurücksetzen",
+    "activateAccount": "Konto aktivieren"
+  },
+  "templates": {
+    "title": "Vorlagen",
+    "create": "Vorlage erstellen",
+    "edit": "Vorlage bearbeiten",
+    "delete": "Vorlage löschen",
+    "name": "Name",
+    "description": "Beschreibung",
+    "fields": "Felder",
+    "preview": "Vorschau",
+    "modal": {
+      "title": "Neue Vorlage erstellen",
+      "nameLabel": "Vorlagenname",
+      "namePlaceholder": "z.B. Verkaufsvertrag",
+      "dragDropText": "Datei ziehen und ablegen oder klicken zum Auswählen",
+      "uploadButton": "Datei hochladen",
+      "pdfOnly": "Nur PDF",
+      "createButton": "Vorlage erstellen"
+    },
+    "errors": {
+      "nameAndFileRequired": "Vorlagenname und Datei sind erforderlich",
+      "uploadFailed": "Datei-Upload fehlgeschlagen",
+      "invalidFileType": "Nur PDF-Dateien sind erlaubt",
+      "templateCreationFailed": "Vorlage konnte nicht erstellt werden"
+    },
+    "detail": {
+      "title": "Vorlagen",
+      "inviteToSign": "Zum Unterschreiben einladen",
+      "clone": "Klonen",
+      "delete": "Löschen",
+      "editTemplate": "Vorlage bearbeiten",
+      "viewTemplate": "Vorlage anzeigen",
+      "signingStatus": "Signaturstatus",
+      "addRecipients": "Empfänger hinzufügen",
+      "bulkSignature": "Massenunterschrift",
+      "singleSignature": "Einzelunterschrift",
+      "parties": "Parteien",
+      "download": "HERUNTERLADEN",
+      "view": "ANSEHEN",
+      "signNow": "JETZT UNTERSCHREIBEN",
+      "loading": "Vorlage wird geladen...",
+      "notFound": "Vorlage nicht gefunden.",
+      "emptyState": {
+        "title": "Noch keine Unterzeichner",
+        "description": "Senden Sie dieses Dokument zur Unterzeichnung an die Empfänger.",
+        "sendToRecipients": "An Empfänger senden"
+      },
+      "success": {
+        "submissionCreated": "Einreichung erfolgreich erstellt! Unterzeichner wurden eingeladen.",
+        "submitterDeleted": "Unterzeichner erfolgreich gelöscht!",
+        "templateCloned": "Vorlage erfolgreich geklont!",
+        "templateDeleted": "Vorlage erfolgreich gelöscht!",
+        "bulkSignatureDeleted": "Massenunterschrift erfolgreich gelöscht!"
+      },
+      "errors": {
+        "fillAllEmails": "Bitte füllen Sie alle E-Mail-Adressen aus.",
+        "submissionCreationFailed": "Fehler beim Erstellen der Einreichung",
+        "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten.",
+        "noSignaturesFound": "Keine Unterschriften für diese Einreichung gefunden",
+        "pdfUrlNotFound": "PDF-URL nicht gefunden",
+        "downloadFailed": "PDF-Download fehlgeschlagen",
+        "submitterDeletionFailed": "Fehler beim Löschen des Unterzeichners",
+        "unexpectedDeleteError": "Ein unerwarteter Fehler ist beim Löschen des Unterzeichners aufgetreten.",
+        "templateCloneFailed": "Fehler beim Klonen der Vorlage",
+        "unexpectedCloneError": "Ein unerwarteter Fehler ist beim Klonen aufgetreten.",
+        "templateDeletionFailed": "Fehler beim Löschen der Vorlage",
+        "unexpectedTemplateDeleteError": "Beim Löschen der Vorlage ist ein unerwarteter Fehler aufgetreten.",
+        "bulkSignatureDeletionFailed": "Beim Löschen der Massensignatur ist ein Fehler aufgetreten.",
+        "freeUsageLimitReached": "Kostenloses Nutzungslimit erreicht. Bitte upgraden Sie, um fortzufahren."
+      },
+      "confirm": {
+        "deleteTemplate": "Sind Sie sicher, dass Sie die Vorlage \"{{name}}\" löschen möchten? Diese Aktion kann nicht rückgängig gemacht werden.",
+        "deleteBulkSignature": "Sind Sie sicher, dass Sie diese Massenunterschrift mit {{count}} Parteien löschen möchten?",
+        "deleteSubmission": "Sind Sie sicher, dass Sie die Einreichung für {{email}} löschen möchten?"
+      }
+    }
+  },
+  "googleDrive": {
+    "title": "Google Drive",
+    "connectTitle": "Google Drive verbinden",
+    "connectDescription": "Verbinden Sie Ihren Google Drive, um Dokumente direkt aus Ihrem Cloud-Speicher hochzuladen.",
+    "connectButton": "Google Drive verbinden"
+  },
+  "submissions": {
+    "title": "Einreichungen",
+    "status": "Status",
+    "pending": "Ausstehend",
+    "completed": "Abgeschlossen",
+    "rejected": "Abgelehnt",
+    "sign": "Unterzeichnen",
+    "download": "Herunterladen"
+  }
+}

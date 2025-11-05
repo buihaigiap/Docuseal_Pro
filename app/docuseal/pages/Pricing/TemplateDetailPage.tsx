@@ -11,7 +11,9 @@ import toast from 'react-hot-toast';
 import { canTemplate, useRoleAccess } from '../../hooks/useRoleAccess';
 import SigningStatus from './TemplateDetailComponents/SigningStatus';
 import { downloadSignedPDF as downloadSignedPDFFunc } from './TemplateDetailComponents/downloadUtils';
+import { useTranslation } from 'react-i18next';
 const TemplateDetailPage = () => {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { token  , user} = useAuth();
@@ -122,7 +124,7 @@ const TemplateDetailPage = () => {
     e.preventDefault();
     const submitters = Object.entries(partnerEmails).map(([partner, email]) => ({ name: partner, email }));
     if (submitters.some(s => !s.email)) {
-      toast.error('Please fill in all email addresses.');
+      toast.error(t('templates.detail.errors.fillAllEmails'));
       return;
     }
     setSubmitting(true);
@@ -130,13 +132,13 @@ const TemplateDetailPage = () => {
       const data = await upstashService.createSubmission({ template_id: parseInt(id!), submitters });
       console.log('Create submission response:', data);
       if (data.success) {
-        toast.success('Submission created successfully! Signers have been invited.');
+        toast.success(t('templates.detail.success.submissionCreated'));
         fetchTemplateInfo();
         setPartnerEmails(Object.fromEntries(Object.keys(partnerEmails).map(p => [p, ''])));
         setShowInviteModal(false);
       }
       if(user?.free_usage_count === 10) {
-        toast.error('Free usage limit reached');
+        toast.error(t('templates.detail.errors.freeUsageLimitReached'));
         navigate(`/pricing`);
         return;
       }
@@ -157,14 +159,14 @@ const downloadSignedPDF = async (submitter: Submitter, pdfUrl?: string) => {
     try {
       const data = await upstashService.deleteSubmitter(submitterId);
       if (data.success) {
-        toast.success('Submitter deleted successfully!');
+        toast.success(t('templates.detail.success.submitterDeleted'));
         fetchTemplateInfo(); // Refresh the template info to update the UI
       } else {
-        toast.error(data.message || 'Error deleting submitter');
+        toast.error(data.message || t('templates.detail.errors.submitterDeletionFailed'));
       }
     } catch (err) {
       console.error('Delete error:', err);
-      toast.error('An unexpected error occurred while deleting the submitter.');
+      toast.error(t('templates.detail.errors.unexpectedDeleteError'));
     }
   };
 
@@ -172,31 +174,31 @@ const downloadSignedPDF = async (submitter: Submitter, pdfUrl?: string) => {
     try {
       const data = await upstashService.cloneTemplate(id);
       if (data.success) {
-        toast.success('Template cloned successfully!');
+        toast.success(t('templates.detail.success.templateCloned'));
         navigate(`/templates/${data.data.id}`);
       } else {
-        toast.error(data.error || 'Error cloning template');
+        toast.error(data.error || t('templates.detail.errors.templateCloneFailed'));
       }
     } catch (err) {
-      toast.error('An unexpected error occurred while cloning.');
+      toast.error(t('templates.detail.errors.unexpectedCloneError'));
     }
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Are you sure you want to delete the template "${templateInfo?.template.name}"? This action cannot be undone.`)) {
+    if (!confirm(t('templates.detail.confirm.deleteTemplate', { name: templateInfo?.template.name }))) {
       return;
     }
 
     try {
       const data = await upstashService.deleteTemplate(parseInt(id!));
       if (data.success) {
-        toast.success('Template deleted successfully!');
+        toast.success(t('templates.detail.success.templateDeleted'));
         navigate('/');
       } else {
-        toast.error(data.error || 'Error deleting template');
+        toast.error(data.error || t('templates.detail.errors.templateDeletionFailed'));
       }
     } catch (err) {
-      toast.error('An unexpected error occurred while deleting the template.');
+      toast.error(t('templates.detail.errors.unexpectedTemplateDeleteError'));
     }
   };
 
@@ -208,7 +210,7 @@ const downloadSignedPDF = async (submitter: Submitter, pdfUrl?: string) => {
           <div >
             <Typography
               variant={isMobile ? "h5" : "h3"} component="h1" gutterBottom>
-              Templates: {templateInfo?.template.name}
+              {t('templates.detail.title')}: {templateInfo?.template.name}
             </Typography>
           </div>
           <Grid >
@@ -218,7 +220,7 @@ const downloadSignedPDF = async (submitter: Submitter, pdfUrl?: string) => {
                 { color: 'grey.300' }
               }
               variant="outlined" onClick={() => setShowInviteModal(true)}>
-                Invite to Sign
+                {t('templates.detail.inviteToSign')}
               </Button>
               {!hasAccess && (
                 <>
@@ -230,7 +232,7 @@ const downloadSignedPDF = async (submitter: Submitter, pdfUrl?: string) => {
                       startIcon={<Copy size={16} />}
                       variant="outlined"
                       onClick={handleClone}>
-                        Clone
+                        {t('templates.detail.clone')}
                     </Button>
                   )}
                 </>
@@ -245,14 +247,14 @@ const downloadSignedPDF = async (submitter: Submitter, pdfUrl?: string) => {
                       startIcon={<Trash2 size={16} />}
                       variant="outlined"
                       onClick={handleDelete}>
-                        Delete
+                        {t('templates.detail.delete')}
                     </Button>
                   )}
                  </>
                )}
 
               <Button variant="contained" onClick={() => navigate(`/templates/${id}/editor`)}>
-                 {!checkRole || hasAccess ? 'View Template' : 'Edit Template'}
+                 {!checkRole || hasAccess ? t('templates.detail.viewTemplate') : t('templates.detail.editTemplate')}
               </Button>
             </Box>
           </Grid>

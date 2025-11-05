@@ -1,8 +1,7 @@
 use sqlx::{PgPool, Row};
 use chrono::{Utc, DateTime};
 
-use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan, DbTemplateFolder, CreateTemplateFolder, DbSubmissionField, CreateSubmissionField};
-use crate::models::role::Role;
+use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan, DbTemplateFolder, CreateTemplateFolder, DbSubmissionField, CreateSubmissionField, DbGlobalSettings, UpdateGlobalSettings};
 
 // Structured query implementations for better organization
 pub struct UserQueries;
@@ -11,6 +10,7 @@ pub struct TemplateFolderQueries;
 pub struct TemplateFieldQueries;
 pub struct SubmitterQueries;
 pub struct SubmissionFieldQueries;
+pub struct GlobalSettingsQueries;
 
 impl UserQueries {
     pub async fn get_user_by_id(pool: &PgPool, id: i64) -> Result<Option<DbUser>, sqlx::Error> {
@@ -895,6 +895,7 @@ impl TemplateFieldQueries {
         .bind(&field_data.options)
         .bind(&field_data.metadata)
         .bind(&field_data.partner)
+        .bind(now)
         .bind(now)
         .bind(now)
         .fetch_one(pool)
@@ -1877,6 +1878,7 @@ impl OAuthTokenQueries {
         })
     }
 
+
     pub async fn update_oauth_token(pool: &PgPool, user_id: i64, provider: &str, access_token: &str, refresh_token: Option<&str>, expires_at: Option<DateTime<Utc>>) -> Result<(), sqlx::Error> {
         let now = Utc::now();
 
@@ -1889,6 +1891,66 @@ impl OAuthTokenQueries {
         .bind(now)
         .bind(user_id)
         .bind(provider)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+}
+
+impl GlobalSettingsQueries {
+    pub async fn get_global_settings(pool: &PgPool) -> Result<Option<DbGlobalSettings>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT id, company_name, timezone, locale, created_at, updated_at FROM global_settings WHERE id = 1"
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(DbGlobalSettings {
+                id: row.try_get("id")?,
+                company_name: row.try_get("company_name")?,
+                timezone: row.try_get("timezone")?,
+                locale: row.try_get("locale")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn update_global_settings(pool: &PgPool, settings: UpdateGlobalSettings) -> Result<(), sqlx::Error> {
+        let now = Utc::now();
+
+        sqlx::query(
+            r#"
+            UPDATE global_settings
+            SET company_name = $1, timezone = $2, locale = $3, updated_at = $4
+            WHERE id = 1
+            "#
+        )
+        .bind(settings.company_name)
+        .bind(settings.timezone)
+        .bind(settings.locale)
+        .bind(now)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn create_default_global_settings(pool: &PgPool) -> Result<(), sqlx::Error> {
+        let now = Utc::now();
+
+        sqlx::query(
+            r#"
+            INSERT INTO global_settings (id, company_name, timezone, locale, created_at, updated_at)
+            VALUES (1, 'DocuSeal', 'UTC', 'en-US', $1, $2)
+            ON CONFLICT (id) DO NOTHING
+            "#
+        )
+        .bind(now)
+        .bind(now)
         .execute(pool)
         .await?;
 

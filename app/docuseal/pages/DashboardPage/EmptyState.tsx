@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { Box, Typography, Button } from '@mui/material';
-import { Add as AddIcon, FolderOpen as FolderOpenIcon } from '@mui/icons-material';
+import { useState, useEffect } from 'react';
+import { Box, Typography } from '@mui/material';
+import {  FolderOpen as FolderOpenIcon } from '@mui/icons-material';
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import GoogleDrivePicker from '../../components/GoogleDrivePicker';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import CreateTemplateButton from '../../components/CreateTemplateButton';
 const EmptyState = () => {
+  const { t } = useTranslation();
   const [showGoogleDrivePicker, setShowGoogleDrivePicker] = useState(false);
 
   // Check if we just returned from Google OAuth
@@ -35,8 +37,6 @@ const EmptyState = () => {
             Authorization: `Bearer ${localStorage.getItem('token')}`
           }
         });
-
-        console.log('Google Drive template response:', response.data);
 
         if (response.data.success) {
           toast.success('Template created successfully!');
@@ -73,18 +73,18 @@ const EmptyState = () => {
           component="h3"
           fontWeight="800"
         >
-          Upload a New Document
+          {t('dashboard.emptyState.title')}
         </Typography>
 
         <Typography variant="h5" sx={{ color: '#94a3b8', mb: 2, maxWidth: 600, mx: 'auto', lineHeight: 1.6, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
-          Click to upload or drag and drop
+          {t('dashboard.emptyState.subtitle')}
         </Typography>
         <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
           <CreateTemplateButton
-            text="Google Drive"
+            text={t('dashboard.emptyState.googleDriveButton')}
             onClick={() => setShowGoogleDrivePicker(true)}
             icon={<FolderOpenIcon />}
-          />
+          /> 
         </Box>
       </Box>
 

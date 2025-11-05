@@ -181,6 +181,16 @@ const upstashService = {
     updateReminderSettings: async (data: any): Promise<any> => {
         const url = '/api/reminder-settings';
         return await axiosClient.put(url, data)
+    },
+
+    // Basic Settings APIs
+    getBasicSettings: async (): Promise<any> => {
+        const url = '/api/settings/basic-info';
+        return await axiosClient.get(url)
+    },
+    updateBasicSettings: async (data: any): Promise<any> => {
+        const url = '/api/settings/basic-info';
+        return await axiosClient.put(url, data)
     }
 
 }

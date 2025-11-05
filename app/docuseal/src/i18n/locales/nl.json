@@ -1,0 +1,164 @@
+{
+  "common": {
+    "save": "Opslaan",
+    "cancel": "Annuleren",
+    "delete": "Verwijderen",
+    "edit": "Bewerken",
+    "add": "Toevoegen",
+    "loading": "Laden...",
+    "error": "Fout",
+    "success": "Succes",
+    "confirm": "Bevestigen",
+    "yes": "Ja",
+    "no": "Nee",
+    "upgrade": "UPGRADE",
+    "welcome": "Welkom"
+  },
+  "navigation": {
+    "dashboard": "Dashboard",
+    "templates": "Sjablonen",
+    "submissions": "Inzendingen",
+    "settings": "Instellingen",
+    "profile": "Profiel",
+    "users": "Gebruikers",
+    "general": "Algemeen",
+    "reminders": "Herinneringen",
+    "pricing": "Prijzen"
+  },
+  "dashboard": {
+    "subtitle": "Beheer uw documentsjablonen",
+    "searchPlaceholder": "Zoek mappen of sjablonen...",
+    "emptyState": {
+      "title": "Upload een nieuw document",
+      "subtitle": "Klik om te uploaden of sleep en plaats",
+      "googleDriveButton": "Google Drive"
+    }
+  },
+  "settings": {
+    "title": "Instellingen",
+    "general": {
+      "title": "Algemene instellingen",
+      "companyName": "Bedrijfsnaam",
+      "timeZone": "Tijdzone",
+      "language": "Taal/Lokalisatie",
+      "basicInfo": "Basisinformatie",
+      "update": "Instellingen bijwerken",
+      "updating": "Bijwerken...",
+      "updated": "Instellingen succesvol bijgewerkt",
+      "updateFailed": "Fout bij het bijwerken van instellingen"
+    },
+    "profile": {
+      "title": "Profielinstellingen",
+      "updateProfile": "Profiel bijwerken",
+      "changePassword": "Wachtwoord wijzigen",
+      "name": "Naam",
+      "email": "Email",
+      "currentPassword": "Huidig wachtwoord",
+      "newPassword": "Nieuw wachtwoord",
+      "confirmPassword": "Wachtwoord bevestigen",
+      "profileUpdated": "Profiel succesvol bijgewerkt",
+      "passwordChanged": "Wachtwoord succesvol gewijzigd"
+    }
+  },
+  "auth": {
+    "login": "Inloggen",
+    "register": "Registreren",
+    "logout": "Uitloggen",
+    "email": "Email",
+    "password": "Wachtwoord",
+    "forgotPassword": "Wachtwoord vergeten?",
+    "resetPassword": "Wachtwoord opnieuw instellen",
+    "activateAccount": "Account activeren"
+  },
+  "templates": {
+    "title": "Sjablonen",
+    "create": "Sjabloon maken",
+    "edit": "Sjabloon bewerken",
+    "delete": "Sjabloon verwijderen",
+    "name": "Naam",
+    "description": "Beschrijving",
+    "fields": "Velden",
+    "preview": "Voorvertoning",
+    "modal": {
+      "title": "Nieuwe sjabloon maken",
+      "nameLabel": "Sjabloonnaam",
+      "namePlaceholder": "bijv. Verkoopcontract",
+      "dragDropText": "Sleep een bestand of klik om te selecteren",
+      "uploadButton": "Bestand uploaden",
+      "pdfOnly": "Alleen PDF",
+      "createButton": "Sjabloon maken"
+    },
+    "errors": {
+      "nameAndFileRequired": "Sjabloonnaam en bestand zijn verplicht",
+      "uploadFailed": "Bestand uploaden mislukt",
+      "invalidFileType": "Alleen PDF-bestanden zijn toegestaan",
+      "templateCreationFailed": "Sjabloon maken mislukt"
+    },
+    "detail": {
+      "title": "Sjablonen",
+      "inviteToSign": "Uitnodigen om te ondertekenen",
+      "clone": "Klonen",
+      "delete": "Verwijderen",
+      "editTemplate": "Sjabloon bewerken",
+      "viewTemplate": "Sjabloon bekijken",
+      "signingStatus": "Ondertekeningsstatus",
+      "addRecipients": "Ontvangers toevoegen",
+      "bulkSignature": "Bulkondertekening",
+      "singleSignature": "Enkele ondertekening",
+      "parties": "partijen",
+      "download": "DOWNLOADEN",
+      "view": "BEKIJKEN",
+      "signNow": "NU ONDERTEKENEN",
+      "loading": "Sjabloon laden...",
+      "notFound": "Sjabloon niet gevonden.",
+      "emptyState": {
+        "title": "Nog geen ondertekenaars",
+        "description": "Stuur dit document naar ontvangers om te ondertekenen.",
+        "sendToRecipients": "Verstuur naar ontvangers"
+      },
+      "success": {
+        "submissionCreated": "Verzending succesvol aangemaakt! Ondertekenaars zijn uitgenodigd.",
+        "submitterDeleted": "Ondertekenaar succesvol verwijderd!",
+        "templateCloned": "Sjabloon succesvol gekloond!",
+        "templateDeleted": "Sjabloon succesvol verwijderd!",
+        "bulkSignatureDeleted": "Bulkondertekening succesvol verwijderd!"
+      },
+      "errors": {
+        "fillAllEmails": "Vul alle e-mailadressen in.",
+        "submissionCreationFailed": "Fout bij het aanmaken van verzending",
+        "unexpectedError": "Er is een onverwachte fout opgetreden.",
+        "noSignaturesFound": "Geen handtekeningen gevonden voor deze verzending",
+        "pdfUrlNotFound": "PDF-URL niet gevonden",
+        "downloadFailed": "PDF downloaden mislukt",
+        "submitterDeletionFailed": "Fout bij het verwijderen van ondertekenaar",
+        "unexpectedDeleteError": "Er is een onverwachte fout opgetreden bij het verwijderen van de ondertekenaar.",
+        "templateCloneFailed": "Fout bij het klonen van sjabloon",
+        "unexpectedCloneError": "Er is een onverwachte fout opgetreden bij het klonen.",
+        "templateDeletionFailed": "Fout bij verwijderen sjabloon",
+        "unexpectedTemplateDeleteError": "Er is een onverwachte fout opgetreden bij het verwijderen van het sjabloon.",
+        "bulkSignatureDeletionFailed": "Er is een fout opgetreden bij het verwijderen van de bulksignatuur.",
+        "freeUsageLimitReached": "Gratis gebruikslimiet bereikt. Upgrade om door te gaan."
+      },
+      "confirm": {
+        "deleteTemplate": "Weet u zeker dat u het sjabloon \"{{name}}\" wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.",
+        "deleteBulkSignature": "Weet u zeker dat u deze bulkondertekening met {{count}} partijen wilt verwijderen?",
+        "deleteSubmission": "Weet u zeker dat u de verzending voor {{email}} wilt verwijderen?"
+      }
+    }
+  },
+  "googleDrive": {
+    "title": "Google Drive",
+    "connectTitle": "Google Drive verbinden",
+    "connectDescription": "Verbind uw Google Drive om documenten rechtstreeks uit uw cloudopslag te uploaden.",
+    "connectButton": "Google Drive verbinden"
+  },
+  "submissions": {
+    "title": "Inzendingen",
+    "status": "Status",
+    "pending": "In afwachting",
+    "completed": "Voltooid",
+    "rejected": "Afgewezen",
+    "sign": "Ondertekenen",
+    "download": "Downloaden"
+  }
+}
