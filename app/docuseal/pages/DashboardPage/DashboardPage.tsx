@@ -11,6 +11,7 @@ import TemplatesGrid from './TemplatesGrid';
 import EmptyState from './EmptyState';
 import FoldersList from '../../components/FoldersList';
 import NewTemplateModal from '../../components/NewTemplateModal';
+import TwoFactorSetup from '../../components/TwoFactorSetup';
 
 const DashboardPage = () => {
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -19,8 +20,9 @@ const DashboardPage = () => {
   const [folders, setFolders] = useState<any[]>([]);
   const [showNewTemplateModal, setShowNewTemplateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const { token } = useAuth();
-
+  const [globalSettings, setGlobalSettings] = useState<any>(null);
+  const [requires2FA, setRequires2FA] = useState(false);
+  const { token, user, refreshUser } = useAuth();
   // Check if we just returned from Google OAuth
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -63,13 +65,69 @@ const DashboardPage = () => {
     fetchTemplates();
   }, [token]);
 
-  const filteredFolders = folders.filter(folder =>
+  // Check 2FA requirements
+  useEffect(() => {
+    const check2FARequirements = async () => {
+      if (!user) {
+        console.log('check2FARequirements: no user, skipping');
+        return;
+      }
+
+      console.log('check2FARequirements: checking for user', user.email, 'two_factor_enabled:', user.two_factor_enabled);
+
+      try {
+        const settingsResponse = await upstashService.getBasicSettings();
+        if (settingsResponse.success) {
+          setGlobalSettings(settingsResponse.data);
+          const force2FA = settingsResponse.data.force_2fa_with_authenticator_app;
+          const has2FA = user.two_factor_enabled;
+          const newRequires2FA = force2FA && !has2FA;
+
+          console.log('check2FARequirements: force2FA:', force2FA, 'has2FA:', has2FA, 'newRequires2FA:', newRequires2FA);
+          setRequires2FA(newRequires2FA);
+        } else {
+          console.log('check2FARequirements: failed to get settings');
+        }
+      } catch (err) {
+        console.error('Failed to fetch global settings:', err);
+      }
+    };
+
+    check2FARequirements();
+  }, [user]);
+
+  const handle2FASuccess = async () => {
+    console.log('2FA setup success, refreshing user data');
+    console.log('User before refresh:', user?.two_factor_enabled);
+
+    // Refresh user data to get updated 2FA status
+    await refreshUser();
+
+    console.log('User after refresh:', user?.two_factor_enabled);
+
+    // Force re-check of 2FA requirements by triggering useEffect
+    // We can do this by temporarily setting requires2FA to trigger re-evaluation
+    setRequires2FA(false);
+
+    // Refresh templates data after 2FA setup
+    console.log('Refreshing templates after 2FA setup');
+    await fetchTemplates();
+    console.log('Templates refreshed');
+  };  const filteredFolders = folders.filter(folder =>
     folder.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const filteredTemplates = templates.filter(template =>
     template.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  // Show 2FA setup if required
+  console.log('DashboardPage render, requires2FA:', requires2FA, 'loading:', loading, 'templates length:', templates.length);
+  if (requires2FA) {
+    console.log('Showing 2FA setup screen');
+    return <TwoFactorSetup onSuccess={handle2FASuccess} />;
+  }
+
+  console.log('Showing dashboard content');
 
   return (
     <Box sx={{

@@ -1,0 +1,24 @@
+                                            Table "public.global_settings"
+                     Column                     |           Type           | Collation | Nullable |      Default      
+------------------------------------------------+--------------------------+-----------+----------+-------------------
+ id                                             | integer                  |           | not null | 1
+ company_name                                   | text                     |           |          | 
+ timezone                                       | text                     |           |          | 
+ locale                                         | text                     |           |          | 
+ created_at                                     | timestamp with time zone |           |          | CURRENT_TIMESTAMP
+ updated_at                                     | timestamp with time zone |           |          | CURRENT_TIMESTAMP
+ force_2fa_with_authenticator_app               | boolean                  |           |          | false
+ add_signature_id_to_the_documents              | boolean                  |           |          | false
+ require_signing_reason                         | boolean                  |           |          | false
+ allow_typed_text_signatures                    | boolean                  |           |          | true
+ allow_to_resubmit_completed_forms              | boolean                  |           |          | false
+ allow_to_decline_documents                     | boolean                  |           |          | false
+ remember_and_pre_fill_signatures               | boolean                  |           |          | false
+ require_authentication_for_file_download_links | boolean                  |           |          | false
+ combine_completed_documents_and_audit_log      | boolean                  |           |          | false
+ expirable_file_download_links                  | boolean                  |           |          | false
+Indexes:
+    "global_settings_pkey" PRIMARY KEY, btree (id)
+Check constraints:
+    "global_settings_id_check" CHECK (id = 1)
+

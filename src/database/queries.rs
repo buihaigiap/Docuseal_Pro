@@ -15,7 +15,7 @@ pub struct GlobalSettingsQueries;
 impl UserQueries {
     pub async fn get_user_by_id(pool: &PgPool, id: i64) -> Result<Option<DbUser>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, email, password_hash, role, is_active, activation_token, subscription_status, subscription_expires_at, free_usage_count, signature, initials, created_at, updated_at FROM users WHERE id = $1"
+            "SELECT id, name, email, password_hash, role, is_active, activation_token, subscription_status, subscription_expires_at, free_usage_count, signature, initials, two_factor_secret, two_factor_enabled, created_at, updated_at FROM users WHERE id = $1"
         )
         .bind(id)
         .fetch_optional(pool)
@@ -35,6 +35,8 @@ impl UserQueries {
                 free_usage_count: row.try_get("free_usage_count")?,
                 signature: row.try_get("signature")?,
                 initials: row.try_get("initials")?,
+                two_factor_secret: row.try_get("two_factor_secret")?,
+                two_factor_enabled: row.try_get("two_factor_enabled")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             })),
@@ -50,7 +52,8 @@ impl UserQueries {
             INSERT INTO users (name, email, password_hash, role, is_active, activation_token, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING id, name, email, password_hash, role, is_active, activation_token, subscription_status, 
-                     subscription_expires_at, free_usage_count, signature, initials, created_at, updated_at
+                     subscription_expires_at, free_usage_count, signature, initials, two_factor_secret, 
+                     two_factor_enabled, created_at, updated_at
             "#
         )
         .bind(&user_data.name)
@@ -77,6 +80,8 @@ impl UserQueries {
             free_usage_count: row.try_get("free_usage_count")?,
             signature: row.try_get("signature")?,
             initials: row.try_get("initials")?,
+            two_factor_secret: row.try_get("two_factor_secret")?,
+            two_factor_enabled: row.try_get("two_factor_enabled")?,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
         })
@@ -84,7 +89,7 @@ impl UserQueries {
 
     pub async fn get_user_by_email(pool: &PgPool, email: &str) -> Result<Option<DbUser>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, email, password_hash, role, is_active, activation_token, subscription_status, subscription_expires_at, free_usage_count, signature, initials, created_at, updated_at FROM users WHERE email = $1"
+            "SELECT id, name, email, password_hash, role, is_active, activation_token, subscription_status, subscription_expires_at, free_usage_count, signature, initials, two_factor_secret, two_factor_enabled, created_at, updated_at FROM users WHERE email = $1"
         )
         .bind(email)
         .fetch_optional(pool)
@@ -104,6 +109,8 @@ impl UserQueries {
                 free_usage_count: row.try_get("free_usage_count")?,
                 signature: row.try_get("signature")?,
                 initials: row.try_get("initials")?,
+                two_factor_secret: row.try_get("two_factor_secret")?,
+                two_factor_enabled: row.try_get("two_factor_enabled")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             })),
@@ -1901,7 +1908,7 @@ impl OAuthTokenQueries {
 impl GlobalSettingsQueries {
     pub async fn get_global_settings(pool: &PgPool) -> Result<Option<DbGlobalSettings>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, company_name, timezone, locale, created_at, updated_at FROM global_settings WHERE id = 1"
+            "SELECT id, company_name, timezone, locale, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at FROM global_settings WHERE id = 1"
         )
         .fetch_optional(pool)
         .await?;
@@ -1912,6 +1919,16 @@ impl GlobalSettingsQueries {
                 company_name: row.try_get("company_name")?,
                 timezone: row.try_get("timezone")?,
                 locale: row.try_get("locale")?,
+                force_2fa_with_authenticator_app: row.try_get("force_2fa_with_authenticator_app")?,
+                add_signature_id_to_the_documents: row.try_get("add_signature_id_to_the_documents")?,
+                require_signing_reason: row.try_get("require_signing_reason")?,
+                allow_typed_text_signatures: row.try_get("allow_typed_text_signatures")?,
+                allow_to_resubmit_completed_forms: row.try_get("allow_to_resubmit_completed_forms")?,
+                allow_to_decline_documents: row.try_get("allow_to_decline_documents")?,
+                remember_and_pre_fill_signatures: row.try_get("remember_and_pre_fill_signatures")?,
+                require_authentication_for_file_download_links: row.try_get("require_authentication_for_file_download_links")?,
+                combine_completed_documents_and_audit_log: row.try_get("combine_completed_documents_and_audit_log")?,
+                expirable_file_download_links: row.try_get("expirable_file_download_links")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             })),
@@ -1925,13 +1942,29 @@ impl GlobalSettingsQueries {
         sqlx::query(
             r#"
             UPDATE global_settings
-            SET company_name = $1, timezone = $2, locale = $3, updated_at = $4
+            SET company_name = $1, timezone = $2, locale = $3, 
+                force_2fa_with_authenticator_app = $4, add_signature_id_to_the_documents = $5, 
+                require_signing_reason = $6, allow_typed_text_signatures = $7, 
+                allow_to_resubmit_completed_forms = $8, allow_to_decline_documents = $9, 
+                remember_and_pre_fill_signatures = $10, require_authentication_for_file_download_links = $11, 
+                combine_completed_documents_and_audit_log = $12, expirable_file_download_links = $13, 
+                updated_at = $14
             WHERE id = 1
             "#
         )
         .bind(settings.company_name)
         .bind(settings.timezone)
         .bind(settings.locale)
+        .bind(settings.force_2fa_with_authenticator_app)
+        .bind(settings.add_signature_id_to_the_documents)
+        .bind(settings.require_signing_reason)
+        .bind(settings.allow_typed_text_signatures)
+        .bind(settings.allow_to_resubmit_completed_forms)
+        .bind(settings.allow_to_decline_documents)
+        .bind(settings.remember_and_pre_fill_signatures)
+        .bind(settings.require_authentication_for_file_download_links)
+        .bind(settings.combine_completed_documents_and_audit_log)
+        .bind(settings.expirable_file_download_links)
         .bind(now)
         .execute(pool)
         .await?;
@@ -1944,8 +1977,15 @@ impl GlobalSettingsQueries {
 
         sqlx::query(
             r#"
-            INSERT INTO global_settings (id, company_name, timezone, locale, created_at, updated_at)
-            VALUES (1, 'DocuSeal', 'UTC', 'en-US', $1, $2)
+            INSERT INTO global_settings (id, company_name, timezone, locale, 
+                force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, 
+                allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, 
+                remember_and_pre_fill_signatures, require_authentication_for_file_download_links, 
+                combine_completed_documents_and_audit_log, expirable_file_download_links, 
+                created_at, updated_at)
+            VALUES (1, 'DocuSeal', 'UTC', 'en-US', 
+                FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, 
+                $1, $2)
             ON CONFLICT (id) DO NOTHING
             "#
         )

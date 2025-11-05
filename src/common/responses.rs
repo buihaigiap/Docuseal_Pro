@@ -125,6 +125,14 @@ pub struct LoginResponse {
     pub user: super::super::models::user::User,
 }
 
+/// 2FA required response
+#[derive(Serialize, ToSchema)]
+pub struct TwoFactorRequiredResponse {
+    pub requires_2fa: bool,
+    pub temp_token: String, // Temporary token for 2FA verification
+    pub user_id: i64,
+}
+
 impl ApiResponse<LoginResponse> {
     /// 200 OK - Login success response
     pub fn login_success(login_data: LoginResponse, message: String) -> (StatusCode, Json<Self>) {
@@ -135,6 +143,22 @@ impl ApiResponse<LoginResponse> {
                 status_code: 200,
                 message,
                 data: Some(login_data),
+                error: None,
+            }),
+        )
+    }
+}
+
+impl ApiResponse<TwoFactorRequiredResponse> {
+    /// 200 OK - 2FA required response
+    pub fn two_factor_required(tfa_data: TwoFactorRequiredResponse, message: String) -> (StatusCode, Json<Self>) {
+        (
+            StatusCode::OK,
+            Json(Self {
+                success: true,
+                status_code: 200,
+                message,
+                data: Some(tfa_data),
                 error: None,
             }),
         )

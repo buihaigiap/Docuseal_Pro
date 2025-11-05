@@ -191,6 +191,16 @@ const upstashService = {
     updateBasicSettings: async (data: any): Promise<any> => {
         const url = '/api/settings/basic-info';
         return await axiosClient.put(url, data)
+    },
+
+    // 2FA APIs
+    setup2FA: async (email?: string): Promise<any> => {
+        const url = `/api/auth/2fa/setup${email ? `?email=${encodeURIComponent(email)}` : ''}`;
+        return await axiosClient.get(url)
+    },
+    verify2FA: async (data: any): Promise<any> => {
+        const url = '/api/auth/2fa/verify';
+        return await axiosClient.post(url, data)
     }
 
 }

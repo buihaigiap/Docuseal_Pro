@@ -6,6 +6,8 @@ export interface User {
   free_usage_count?: number;
   signature?: string;
   initials?: string;
+  two_factor_enabled: boolean;
+  two_factor_secret?: string;
 }
 
 export interface ApiResponse<T> {
@@ -48,6 +50,35 @@ export interface Position {
 }
 
 export type FieldType = 'text' | 'signature' | 'initials' | 'date' | 'checkbox' | 'number' | 'radio' | 'multiple' | 'select' | 'cells' | 'image' | 'file';
+
+export interface TwoFactorSetup {
+  secret: string;
+  qr_code_url: string;
+}
+
+export interface TwoFactorVerifyRequest {
+  secret: string;
+  code: string;
+}
+
+export interface GlobalSettings {
+  id: number;
+  company_name?: string;
+  timezone?: string;
+  locale?: string;
+  force_2fa_with_authenticator_app: boolean;
+  add_signature_id_to_the_documents: boolean;
+  require_signing_reason: boolean;
+  allow_typed_text_signatures: boolean;
+  allow_to_resubmit_completed_forms: boolean;
+  allow_to_decline_documents: boolean;
+  remember_and_pre_fill_signatures: boolean;
+  require_authentication_for_file_download_links: boolean;
+  combine_completed_documents_and_audit_log: boolean;
+  expirable_file_download_links: boolean;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface TemplateField {
   id: number;

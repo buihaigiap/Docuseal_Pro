@@ -15,6 +15,8 @@ pub struct User {
     pub free_usage_count: i32,
     pub signature: Option<String>,
     pub initials: Option<String>,
+    pub two_factor_enabled: bool,
+    pub two_factor_secret: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -32,6 +34,8 @@ impl From<crate::database::models::DbUser> for User {
             free_usage_count: db_user.free_usage_count,
             signature: db_user.signature,
             initials: db_user.initials,
+            two_factor_enabled: db_user.two_factor_enabled,
+            two_factor_secret: db_user.two_factor_secret,
             created_at: db_user.created_at,
         }
     }

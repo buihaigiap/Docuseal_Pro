@@ -172,6 +172,7 @@ pub async fn get_me(
                     "signature": user.signature,
                     "initials": user.initials,
                     "created_at": user.created_at,
+                    "two_factor_enabled": user.two_factor_enabled,
                     "oauth_tokens": oauth_tokens,
                 }
             });
@@ -1368,7 +1369,7 @@ fn render_initials_field(
     text: &str,
     x_pos: f64,
     pdf_y: f64,
-    field_width: f64,
+    _field_width: f64,
     field_height: f64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use lopdf::{Object, Stream, Dictionary};

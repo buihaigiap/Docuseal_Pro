@@ -153,8 +153,13 @@ async fn main() {
 
     // Run database migrations automatically on startup
     println!("Running database migrations...");
-    run_migrations(&pool).await.expect("Failed to run database migrations");
-    println!("✅ Database migrations completed successfully");
+    match run_migrations(&pool).await {
+        Ok(_) => println!("✅ Database migrations completed successfully"),
+        Err(e) => {
+            println!("⚠️  Warning: Database migration failed: {}", e);
+            println!("⚠️  Continuing with existing database schema...");
+        }
+    }
 
     // Initialize services
     let db_pool_arc = Arc::new(Mutex::new(pool.clone()));
