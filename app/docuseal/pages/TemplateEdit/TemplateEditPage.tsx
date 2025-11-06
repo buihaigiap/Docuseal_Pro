@@ -67,14 +67,11 @@ const TemplateEditPage = () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      console.log('Uploading file:', file.name, 'Size:', file.size);
       const response = await upstashService.uploadPublicFile(formData);
-      console.log('Upload response:', response);
 
       // Extract data from axios response
       const data = response.data;
       if (data && data.success && data.data && data.data.url) {
-        console.log('Upload successful, URL:', data.data.url);
         return data.data.url;
       } else {
         console.error('File upload failed - invalid response:', data);

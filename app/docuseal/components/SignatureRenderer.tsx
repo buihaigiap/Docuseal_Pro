@@ -1,3 +1,4 @@
+import { useBasicSettings } from '@/hooks/useBasicSettings';
 import React, { useRef, useEffect } from 'react';
 
 interface SignatureRendererProps {
@@ -16,10 +17,9 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
   color = '#000000'
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+  const { globalSettings } = useBasicSettings();
+  console.log('Global settings in SignatureRenderer:', globalSettings);
   useEffect(() => {
-    console.log('SignatureRenderer render:', { data: data?.substring(0, 50), width, height, fieldType, color });
-    
     const canvas = canvasRef.current;
     if (!canvas) {
       console.error('Canvas ref not available');
@@ -37,7 +37,6 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
 
     // Check if data is an image URL (including blob URLs)
     if (data && (data.startsWith('http') || data.startsWith('/') || data.startsWith('blob:'))) {
-      console.log('Rendering image from URL:', data);
       // Render image
       const img = new Image();
       // Only set crossOrigin for non-blob URLs
@@ -45,7 +44,6 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         img.crossOrigin = 'anonymous';
       }
       img.onload = () => {
-        console.log('Image loaded successfully, dimensions:', img.width, 'x', img.height);
         // Calculate scale to fit image in canvas
         const scale = Math.min(width / img.width, height / img.height);
         const scaledWidth = img.width * scale;
@@ -58,7 +56,6 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         // Clear canvas again before drawing
         ctx.clearRect(0, 0, width, height);
         ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
-        console.log('Image rendered on canvas');
       };
       img.onerror = (error) => {
         console.error('Image failed to load:', data, error);

@@ -45,6 +45,7 @@ use crate::routes::submitters;
 // use crate::routes::subscription;
 use crate::routes::stripe_webhook;
 use crate::routes::reminder_settings;
+use crate::routes::global_settings;
 use crate::common::jwt::{generate_jwt, auth_middleware};
 
 pub fn create_router() -> Router<AppState> {
@@ -69,6 +70,7 @@ pub fn create_router() -> Router<AppState> {
         .route("/auth/2fa/verify", post(verify_2fa_handler))
         .merge(submissions::create_submission_router())
         .merge(reminder_settings::create_router())
+        .merge(global_settings::create_router())
         .layer(middleware::from_fn(auth_middleware));
 
     let public_routes = Router::new()
@@ -171,60 +173,31 @@ pub async fn login_handler(
                 Ok(true) => {
                     let user: User = db_user.into();
 
-                    // Check if 2FA is enabled
-                    if user.two_factor_enabled {
-                        // Generate a temporary token for 2FA verification
-                        let temp_token = format!("temp_{}_{}", user.id, chrono::Utc::now().timestamp());
+                    // No 2FA required, proceed with normal login
+                    let jwt_secret = std::env::var("JWT_SECRET")
+                        .unwrap_or_else(|_| "your-secret-key".to_string());
 
-                        // Store temp token in cache with short expiry (5 minutes)
-                        // For now, we'll use a simple in-memory approach
-                        // In production, you'd want to use Redis or similar
-
-                        let tfa_response = TwoFactorRequiredResponse {
-                            requires_2fa: true,
-                            temp_token: temp_token.clone(),
-                            user_id: user.id,
-                        };
-
-                        // Cache the temp token (simplified - in real app use Redis)
-                        // state.lock().await.temp_tokens.insert(temp_token, user.id);
-
-                        let response = serde_json::json!({
-                            "success": true,
-                            "status_code": 200,
-                            "message": "2FA verification required",
-                            "data": tfa_response,
-                            "error": null
-                        });
-
-                        Ok(Json(response))
-                    } else {
-                        // No 2FA required, proceed with normal login
-                        let jwt_secret = std::env::var("JWT_SECRET")
-                            .unwrap_or_else(|_| "your-secret-key".to_string());
-
-                        match generate_jwt(user.id, &user.email, &user.role, &jwt_secret) {
-                            Ok(token) => {
-                                let login_response = LoginResponse { token, user };
-                                let response = serde_json::json!({
-                                    "success": true,
-                                    "status_code": 200,
-                                    "message": "Login successful",
-                                    "data": login_response,
-                                    "error": null
-                                });
-                                Ok(Json(response))
-                            }
-                            Err(_) => {
-                                let response = serde_json::json!({
-                                    "success": false,
-                                    "status_code": 500,
-                                    "message": "Internal Server Error",
-                                    "data": null,
-                                    "error": "Failed to generate token"
-                                });
-                                Ok(Json(response))
-                            }
+                    match generate_jwt(user.id, &user.email, &user.role, &jwt_secret) {
+                        Ok(token) => {
+                            let login_response = LoginResponse { token, user };
+                            let response = serde_json::json!({
+                                "success": true,
+                                "status_code": 200,
+                                "message": "Login successful",
+                                "data": login_response,
+                                "error": null
+                            });
+                            Ok(Json(response))
+                        }
+                        Err(_) => {
+                            let response = serde_json::json!({
+                                "success": false,
+                                "status_code": 500,
+                                "message": "Internal Server Error",
+                                "data": null,
+                                "error": "Failed to generate token"
+                            });
+                            Ok(Json(response))
                         }
                     }
                 }
@@ -924,7 +897,7 @@ pub async fn invite_user_handler(
     // Activation link with JWT token, email and name in URL
     let activation_link = format!(
     "{}/activate?token={}&email={}&name={}",
-    std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string()),
+    std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string()),
     token,
     urlencoding::encode(&payload.email),
     urlencoding::encode(&payload.name)

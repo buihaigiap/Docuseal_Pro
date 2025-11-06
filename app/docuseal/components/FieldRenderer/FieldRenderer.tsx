@@ -1,7 +1,7 @@
 import React from 'react';
 import SignatureRenderer from '../SignatureRenderer';
 import { fieldTools } from '../PdfFieldEditor/constants';
-
+import { useBasicSettings } from '../../hooks/useBasicSettings';
 interface FieldPosition {
   x: number;
   y: number;
@@ -47,6 +47,8 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
   defaultSignature,
   defaultInitials
 }) => {
+    const { globalSettings } = useBasicSettings();
+    console.log('Global settings in FieldRenderer:', globalSettings);
   const renderFieldContent = () => {
     // Nếu có children (như editing UI), ưu tiên render children
     if (children) {

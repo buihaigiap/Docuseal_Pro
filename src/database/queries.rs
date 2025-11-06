@@ -1936,7 +1936,7 @@ impl GlobalSettingsQueries {
         }
     }
 
-    pub async fn update_global_settings(pool: &PgPool, settings: UpdateGlobalSettings) -> Result<(), sqlx::Error> {
+    pub async fn update_global_settings(pool: &PgPool, settings: UpdateGlobalSettings) -> Result<DbGlobalSettings, sqlx::Error> {
         let now = Utc::now();
 
         sqlx::query(
@@ -1969,7 +1969,8 @@ impl GlobalSettingsQueries {
         .execute(pool)
         .await?;
 
-        Ok(())
+        // Return the updated settings
+        Self::get_global_settings(pool).await?.ok_or(sqlx::Error::RowNotFound)
     }
 
     pub async fn create_default_global_settings(pool: &PgPool) -> Result<(), sqlx::Error> {

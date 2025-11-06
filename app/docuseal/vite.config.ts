@@ -15,12 +15,12 @@ export default defineConfig(({ mode }) => {
         host: 'localhost',
         proxy: {
           '/api': {
-            target: 'http://localhost:8080',
+            target: env.BASE_URL ,
             changeOrigin: true,
             secure: false,
           },
           '/public': {
-            target: 'http://localhost:8080',
+            target: env.BASE_URL ,
             changeOrigin: true,
             secure: false,
           },
@@ -30,7 +30,7 @@ export default defineConfig(({ mode }) => {
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'import.meta.env.VITE_API_BASE_URL': JSON.stringify(env.VITE_API_BASE_URL || '')
+        'import.meta.env.VITE_API_BASE_URL': JSON.stringify('')
       },
       resolve: {
         alias: {

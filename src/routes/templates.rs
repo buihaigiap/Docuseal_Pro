@@ -2628,7 +2628,7 @@ pub async fn upload_template_field_file(
     // Initialize S3 client
     let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .region(aws_config::Region::new("us-east-1"))
-        .endpoint_url("http://localhost:9000")
+        .endpoint_url(std::env::var("STORAGE_ENDPOINT").unwrap_or_else(|_| "http://localhost:9000".to_string()))
         .load()
         .await;
     let s3_client = aws_sdk_s3::Client::new(&config);

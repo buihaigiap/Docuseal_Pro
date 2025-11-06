@@ -73,7 +73,6 @@ const DashboardPage = () => {
         return;
       }
 
-      console.log('check2FARequirements: checking for user', user.email, 'two_factor_enabled:', user.two_factor_enabled);
 
       try {
         const settingsResponse = await upstashService.getBasicSettings();

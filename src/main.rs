@@ -71,7 +71,8 @@ use models::template::Template;
         routes::submitters::delete_submitter,
         routes::submitters::get_me,
         routes::reminder_settings::get_reminder_settings,
-        routes::reminder_settings::update_reminder_settings
+        routes::reminder_settings::update_reminder_settings,
+        routes::global_settings::get_global_settings
         // routes::subscription::get_subscription_status,
         // routes::subscription::get_payment_link
     ),
@@ -111,7 +112,8 @@ use models::template::Template;
             models::submitter::ReminderConfig,
             routes::reminder_settings::UserReminderSettingsResponse,
             routes::reminder_settings::UpdateReminderSettingsRequest,
-            common::responses::ApiResponse<routes::reminder_settings::UserReminderSettingsResponse>
+            common::responses::ApiResponse<routes::reminder_settings::UserReminderSettingsResponse>,
+            database::models::DbGlobalSettings
             // models::user::UserSubscriptionStatus,
             // models::user::CreatePaymentRequest,
             // routes::subscription::SubscriptionStatusResponse,

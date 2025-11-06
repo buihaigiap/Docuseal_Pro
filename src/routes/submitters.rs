@@ -14,6 +14,7 @@ use crate::common::authorization::require_admin_or_team_member;
 use crate::services::storage::StorageService;
 use chrono::Utc;
 use serde_json;
+use md5;
 
 use crate::routes::web::AppState;
 
@@ -751,6 +752,8 @@ pub async fn get_public_submitter_signatures(
 fn render_signatures_on_pdf(
     pdf_bytes: &[u8],
     signatures: &[(String, String, String, f64, f64, f64, f64, i32)], // (field_name, field_type, signature_value, x, y, w, h, page)
+    global_settings: &crate::database::models::DbGlobalSettings,
+    submitter: &crate::database::models::DbSubmitter,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     use lopdf::{Document, Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
@@ -904,6 +907,11 @@ fn render_signatures_on_pdf(
                     // Plain text
                     render_initials_field(&mut doc, page_id, &signature_value, x_pos, pdf_y, field_width, field_height)?;
                 }
+                
+                // Add signature ID information below the signature if enabled
+                if global_settings.add_signature_id_to_the_documents {
+                    render_signature_id_info(&mut doc, page_id, submitter, x_pos, pdf_y, field_width, field_height)?;
+                }
             },
             "image" => {
                 // Hiển thị <img> với giá trị làm nguồn, được co giãn để vừa với khu vực trường
@@ -925,6 +933,11 @@ fn render_signatures_on_pdf(
                     signature_value.to_string()
                 };
                 render_text_field(&mut doc, page_id, &display_value, x_pos, pdf_y, field_width, field_height)?;
+                
+                // Add signature ID information below signatures if enabled
+                if global_settings.add_signature_id_to_the_documents && field_type == "signature" {
+                    render_signature_id_info(&mut doc, page_id, submitter, x_pos, pdf_y, field_width, field_height)?;
+                }
             }
         }
     }
@@ -938,6 +951,98 @@ fn render_signatures_on_pdf(
 // Helper function to extract filename from URL
 fn extract_filename_from_url(url: &str) -> String {
     url.split('/').last().unwrap_or("file").to_string()
+}
+
+// Render signature ID information below the signature
+fn render_signature_id_info(
+    doc: &mut lopdf::Document,
+    page_id: lopdf::ObjectId,
+    submitter: &crate::database::models::DbSubmitter,
+    x_pos: f64,
+    pdf_y: f64,
+    field_width: f64,
+    field_height: f64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use lopdf::{Object, Stream, Dictionary};
+    use lopdf::content::{Content, Operation};
+
+    // Generate signature ID (using submitter ID and timestamp)
+    let signature_id = format!("{:x}", md5::compute(format!("{}_{}", submitter.id, submitter.signed_at.unwrap_or(chrono::Utc::now()).timestamp())));
+    let signature_id_short = &signature_id[..8]; // Take first 8 characters
+
+    // Format the signature information
+    let signer_email = submitter.email.clone();
+    let signed_at = submitter.signed_at.unwrap_or(chrono::Utc::now());
+    
+    // Format date in GMT+7 timezone
+    let gmt7_offset = chrono::FixedOffset::east_opt(7 * 3600).unwrap(); // GMT+7
+    let signed_at_gmt7 = signed_at.with_timezone(&gmt7_offset);
+    let date_str = signed_at_gmt7.format("%b %d, %Y, %I:%M %p GMT+7").to_string();
+    
+    let signature_info = format!("ID: {}\nDigitally signed by <{}>\n{}, {} day", 
+        signature_id_short, 
+        signer_email, 
+        signed_at_gmt7.format("%b %d, %Y, %I:%M %p").to_string(),
+        "GMT+7"
+    );
+
+    // Position the signature info below the signature field
+    let info_x = x_pos;
+    let info_y = pdf_y - field_height - 5.0; // 5 points below the signature field
+    
+    // Use smaller font for signature info
+    let font_size = 6.0;
+    
+    // Create text content stream for signature info
+    let text_operations = vec![
+        Operation::new("BT", vec![]), // Begin text
+        Operation::new("Tf", vec![
+            Object::Name(b"Helvetica".to_vec()),
+            Object::Real(font_size),
+        ]), // Set font with smaller size
+        Operation::new("Td", vec![
+            Object::Real(info_x as f32),
+            Object::Real(info_y as f32),
+        ]), // Set position
+        Operation::new("Tj", vec![
+            Object::string_literal(signature_info.clone()),
+        ]), // Show text
+        Operation::new("ET", vec![]), // End text
+    ];
+    
+    let content = Content { operations: text_operations };
+    let content_data = content.encode()?;
+    
+    // Create a new content stream
+    let stream = Stream::new(Dictionary::new(), content_data);
+    let stream_id = doc.add_object(stream);
+    
+    // Get the page object and add stream to it
+    if let Ok(page_obj) = doc.get_object_mut(page_id) {
+        if let Ok(page_dict) = page_obj.as_dict_mut() {
+            // Add to page's content array
+            if let Ok(contents_obj) = page_dict.get_mut(b"Contents") {
+                match contents_obj {
+                    Object::Reference(_ref_id) => {
+                        // For simplicity, replace the content reference with our new stream
+                        *contents_obj = Object::Reference(stream_id);
+                    },
+                    Object::Array(ref mut contents_array) => {
+                        contents_array.push(Object::Reference(stream_id));
+                    },
+                    _ => {
+                        // Replace with new content stream
+                        *contents_obj = Object::Reference(stream_id);
+                    }
+                }
+            } else {
+                // Add new Contents array
+                page_dict.set(b"Contents", Object::Reference(stream_id));
+            }
+        }
+    }
+    
+    Ok(())
 }
 
 // Render text field (default)
@@ -1753,6 +1858,55 @@ pub async fn download_signed_pdf(
                 .unwrap();
         }
     };
+
+    // Get global settings to check if signature ID should be added
+    let global_settings = match crate::database::queries::GlobalSettingsQueries::get_global_settings(pool).await {
+        Ok(Some(settings)) => settings,
+        Ok(None) => {
+            eprintln!("Warning: Global settings not found, using defaults");
+            // Continue with default settings (signature ID disabled)
+            crate::database::models::DbGlobalSettings {
+                id: 1,
+                company_name: None,
+                timezone: None,
+                locale: None,
+                force_2fa_with_authenticator_app: false,
+                add_signature_id_to_the_documents: false,
+                require_signing_reason: false,
+                allow_typed_text_signatures: true,
+                allow_to_resubmit_completed_forms: false,
+                allow_to_decline_documents: false,
+                remember_and_pre_fill_signatures: false,
+                require_authentication_for_file_download_links: false,
+                combine_completed_documents_and_audit_log: false,
+                expirable_file_download_links: false,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            }
+        },
+        Err(e) => {
+            eprintln!("Warning: Failed to get global settings: {}", e);
+            // Continue with default settings (signature ID disabled)
+            crate::database::models::DbGlobalSettings {
+                id: 1,
+                company_name: None,
+                timezone: None,
+                locale: None,
+                force_2fa_with_authenticator_app: false,
+                add_signature_id_to_the_documents: false,
+                require_signing_reason: false,
+                allow_typed_text_signatures: true,
+                allow_to_resubmit_completed_forms: false,
+                allow_to_decline_documents: false,
+                remember_and_pre_fill_signatures: false,
+                require_authentication_for_file_download_links: false,
+                combine_completed_documents_and_audit_log: false,
+                expirable_file_download_links: false,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            }
+        }
+    };
     
     // Get document URL
     let doc_url = match template.documents.as_ref().and_then(|docs| docs.get(0)) {
@@ -1832,7 +1986,7 @@ pub async fn download_signed_pdf(
     }
     
     // Render signatures on PDF
-    let signed_pdf_bytes = match render_signatures_on_pdf(&pdf_bytes, &signatures_to_render) {
+    let signed_pdf_bytes = match render_signatures_on_pdf(&pdf_bytes, &signatures_to_render, &global_settings, &db_submitter) {
         Ok(bytes) => bytes,
         Err(e) => {
             return Response::builder()

@@ -116,11 +116,11 @@ pub async fn create_payment_session(
     let client = stripe::Client::new(std::env::var("STRIPE_SECRET_KEY").unwrap_or_default());
 
     let success_url = request.success_url.unwrap_or_else(|| {
-        format!("{}/subscription/success", std::env::var("FRONTEND_URL").unwrap_or_default())
+        format!("{}/subscription/success", std::env::var("BASE_URL").unwrap_or_default())
     });
 
     let cancel_url = request.cancel_url.unwrap_or_else(|| {
-        format!("{}/subscription/cancel", std::env::var("FRONTEND_URL").unwrap_or_default())
+        format!("{}/subscription/cancel", std::env::var("BASE_URL").unwrap_or_default())
     });
 
     // Client reference ID format: "user_{user_id}_plan_{plan_id}"
