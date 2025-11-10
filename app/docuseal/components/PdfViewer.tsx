@@ -30,7 +30,6 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
   submitterId,
   submitterEmail,
 }) => {
-  console.log('fields' , fields)
   const [currentPage, setCurrentPage] = useState(page || 1);
   const [scale, setScale] = useState(initialScale);
   const pdfRef = useRef<PdfDisplayRef>(null);
@@ -71,7 +70,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
         ref={pdfRef}
       >
         {fields.filter(f => f?.position?.page === currentPage)?.map((f, index) => {
-          // Position data is in absolute pixels, need to multiply by scale
+          // Position data is in relative coordinates (0-1), scale converts to display pixels
           const isNarrow = f.position.h > 0 && (f.position.w / f.position.h) > 6;
           return (
             <div

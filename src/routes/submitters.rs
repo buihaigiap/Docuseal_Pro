@@ -758,7 +758,7 @@ pub async fn get_public_submitter_signatures(
 /// Helper function to render signatures on PDF using the position formula
 fn render_signatures_on_pdf(
     pdf_bytes: &[u8],
-    signatures: &[(String, String, String, f64, f64, f64, f64, i32)], // (field_name, field_type, signature_value, x, y, w, h, page)
+    signatures: &[(String, String, String, f64, f64, f64, f64, i32, serde_json::Value)], // (field_name, field_type, signature_value, x, y, w, h, page, signature_json)
     global_settings: &crate::database::models::DbGlobalSettings,
     submitter: &crate::database::models::DbSubmitter,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -775,7 +775,7 @@ fn render_signatures_on_pdf(
         .collect();
     
     // Process each signature
-    for (field_name, field_type, signature_value, area_x, area_y, area_w, area_h, page_num) in signatures {
+    for (field_name, field_type, signature_value, area_x, area_y, area_w, area_h, page_num, signature_json) in signatures {
         // Skip empty signatures
         if signature_value.trim().is_empty() {
             continue;
@@ -827,40 +827,41 @@ fn render_signatures_on_pdf(
             }
         };
         
-        // ==================== CÔNG THỨC CHÍNH XÁC ====================
+        // Convert position from relative (0-1) to absolute pixels if needed
+        // If values are between 0 and 1, they are relative and need to be converted
+        let (x_pos, y_pos, field_width, field_height) = if *area_x <= 1.0 && *area_y <= 1.0 && *area_w <= 1.0 && *area_h <= 1.0 {
+            // Relative coordinates - convert to absolute
+            (
+                *area_x * page_width,
+                *area_y * page_height,
+                *area_w * page_width,
+                *area_h * page_height
+            )
+        } else {
+            // Already absolute coordinates
+            (*area_x, *area_y, *area_w, *area_h)
+        };
         
-        // Database lưu tọa độ gốc (TOP-LEFT origin, chưa scale)
-        let x_pos = *area_x;
-        let y_pos = *area_y;
-        let field_width = *area_w;
-        let field_height = *area_h;
-        
-        // Chuyển đổi Y từ TOP-LEFT (Frontend) sang BOTTOM-LEFT (PDF)
-        // Frontend: Y=0 ở top, tăng xuống dưới
-        // PDF: Y=0 ở bottom, tăng lên trên
+        // Convert from top-left (web) to bottom-left (PDF) coordinate system
         let pdf_y = page_height - y_pos - field_height;
         
+        eprintln!("=== FIELD POSITION DEBUG ===");
+        eprintln!("Field: {}", field_name);
+        eprintln!("Field Type: {}", field_type);
+        eprintln!("Page: {} (size: {}x{})", page_num, page_width, page_height);
+        eprintln!("Relative position: x={}, y={}, w={}, h={}", area_x, area_y, area_w, area_h);
+        eprintln!("Absolute position: x={}, y={}", x_pos, y_pos);
+        eprintln!("PDF Y (converted): {}", pdf_y);
+        eprintln!("Field size: {}x{}", field_width, field_height);
+        eprintln!("========================");
+        
         // Calculate font size based on field height
-        // Tương tự công thức trong PdfViewer.tsx: getFontSize()
         let font_size = (field_height * 0.65).max(8.0).min(16.0);
         
         // Calculate baseline for vertical centering
-        // Text baseline cần offset để text hiển thị ở giữa field
         let baseline_offset = (field_height - font_size) / 2.0;
         let baseline_y = pdf_y + baseline_offset + font_size * 0.25;
-        
-        // ==================== KẾT THÚC CÔNG THỨC ====================
-        
-        println!("╔══════════════════════════════════════════════════════════╗");
-        println!("║ Field: '{}' ({})", field_name, field_type);
-        println!("╠══════════════════════════════════════════════════════════╣");
-        println!("║ Database (TOP-LEFT):                                     ║");
-        println!("║   x={:.2}, y={:.2}, w={:.2}, h={:.2}", area_x, area_y, area_w, area_h);
-        println!("║ PDF Page: {:.2} x {:.2}", page_width, page_height);
-        println!("║ PDF Coords (BOTTOM-LEFT):                                ║");
-        println!("║   x={:.2}, y={:.2}", x_pos, pdf_y);
-        println!("║ Value: '{}'", signature_value);
-        println!("╚══════════════════════════════════════════════════════════╝");
+
         
         // Process based on field type
         match field_type.as_str() {
@@ -893,32 +894,48 @@ fn render_signatures_on_pdf(
                 render_text_field(&mut doc, page_id, &display_value, x_pos, pdf_y, field_width, field_height)?;
             },
             "initials" => {
+                // Calculate text height dynamically (matching SignatureRenderer.tsx)
+                let reason = signature_json.get("reason").and_then(|r| r.as_str()).unwrap_or("");
+                let text_height = calculate_signature_text_height(
+                    &global_settings,
+                    Some(submitter.id),
+                    &submitter.email,
+                    reason
+                );
+                
+                // Signature area: full field height MINUS text height (matching SignatureRenderer.tsx)
+                // Important: Signature is rendered in the TOP portion, text in BOTTOM portion
+                let sig_height = field_height - text_height;
+                let sig_y = pdf_y + text_height; // Signature Y position in PDF coordinates (bottom-left origin)
+                
+                eprintln!("=== INITIALS FIELD DEBUG ===");
+                eprintln!("Field height: {}, Text height: {}, Sig height: {}", field_height, text_height, sig_height);
+                eprintln!("PDF Y (bottom of field): {}, Sig Y (bottom of sig area): {}", pdf_y, sig_y);
+                
                 // Render chữ ký từ vector data hoặc text
                 if signature_value.starts_with('[') {
                     // Đây là vector signature data - render drawing
-                    render_vector_signature(&mut doc, page_id, &signature_value, x_pos, pdf_y, field_width, field_height)?;
+                    render_vector_signature(&mut doc, page_id, &signature_value, x_pos, sig_y, field_width, sig_height)?;
                 } else if signature_value.starts_with('{') {
                     // JSON object - có thể có text hoặc vector
                     if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(signature_value) {
                         if let Some(text) = json_value.get("text").and_then(|t| t.as_str()) {
-                            render_initials_field(&mut doc, page_id, text, x_pos, pdf_y, field_width, field_height)?;
+                            render_initials_field(&mut doc, page_id, text, x_pos, sig_y, field_width, sig_height)?;
                         } else if let Some(initials) = json_value.get("initials").and_then(|i| i.as_str()) {
-                            render_initials_field(&mut doc, page_id, initials, x_pos, pdf_y, field_width, field_height)?;
+                            render_initials_field(&mut doc, page_id, initials, x_pos, sig_y, field_width, sig_height)?;
                         } else {
-                            render_initials_field(&mut doc, page_id, "[SIGNATURE]", x_pos, pdf_y, field_width, field_height)?;
+                            render_initials_field(&mut doc, page_id, "[SIGNATURE]", x_pos, sig_y, field_width, sig_height)?;
                         }
                     } else {
-                        render_initials_field(&mut doc, page_id, &signature_value, x_pos, pdf_y, field_width, field_height)?;
+                        render_initials_field(&mut doc, page_id, &signature_value, x_pos, sig_y, field_width, sig_height)?;
                     }
                 } else {
                     // Plain text
-                    render_initials_field(&mut doc, page_id, &signature_value, x_pos, pdf_y, field_width, field_height)?;
+                    render_initials_field(&mut doc, page_id, &signature_value, x_pos, sig_y, field_width, sig_height)?;
                 }
                 
-                // Add signature ID information below the signature if enabled
-                if global_settings.add_signature_id_to_the_documents {
-                    render_signature_id_info(&mut doc, page_id, submitter, x_pos, pdf_y, field_width, field_height)?;
-                }
+                // Add signature ID information below the signature (always show for downloaded PDFs)
+                render_signature_id_info(&mut doc, page_id, submitter, &signature_json, x_pos, pdf_y, field_width, field_height, global_settings)?;
             },
             "image" => {
                 // Hiển thị <img> với giá trị làm nguồn, được co giãn để vừa với khu vực trường
@@ -933,17 +950,64 @@ fn render_signatures_on_pdf(
                 render_text_field(&mut doc, page_id, &display_value, x_pos, pdf_y, field_width, field_height)?;
             },
             _ => {
-                // Mặc định (trường văn bản): Hiển thị giá trị dưới dạng văn bản thuần túy
-                let display_value = if signature_value.is_empty() {
-                    field_name.clone()
-                } else {
-                    signature_value.to_string()
-                };
-                render_text_field(&mut doc, page_id, &display_value, x_pos, pdf_y, field_width, field_height)?;
+                // Calculate text height dynamically (matching SignatureRenderer.tsx)
+                let reason = signature_json.get("reason").and_then(|r| r.as_str()).unwrap_or("");
+                let text_height = calculate_signature_text_height(
+                    &global_settings,
+                    Some(submitter.id),
+                    &submitter.email,
+                    reason
+                );
                 
-                // Add signature ID information below signatures if enabled
-                if global_settings.add_signature_id_to_the_documents && field_type == "signature" {
-                    render_signature_id_info(&mut doc, page_id, submitter, x_pos, pdf_y, field_width, field_height)?;
+                // Signature area: full field height MINUS text height (matching SignatureRenderer.tsx)
+                // Important: Signature is rendered in the TOP portion, text in BOTTOM portion
+                let sig_height = field_height - text_height;
+                let sig_y = pdf_y + text_height; // Signature Y position in PDF coordinates (bottom-left origin)
+                
+                eprintln!("=== DEFAULT SIGNATURE FIELD DEBUG ===");
+                eprintln!("Field height: {}, Text height: {}, Sig height: {}", field_height, text_height, sig_height);
+                eprintln!("PDF Y (bottom of field): {}, Sig Y (bottom of sig area): {}", pdf_y, sig_y);
+                
+                // Mặc định (trường văn bản hoặc chữ ký): Kiểm tra xem có phải vector signature không
+                if signature_value.starts_with('[') {
+                    // Đây là vector signature data - render drawing
+                    render_vector_signature(&mut doc, page_id, &signature_value, x_pos, sig_y, field_width, sig_height)?;
+                } else if signature_value.starts_with('{') {
+                    // JSON object - có thể có text hoặc vector
+                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(signature_value) {
+                        if let Some(text) = json_value.get("text").and_then(|t| t.as_str()) {
+                            render_text_field(&mut doc, page_id, text, x_pos, sig_y, field_width, sig_height)?;
+                        } else if let Some(sig_text) = json_value.get("signature").and_then(|s| s.as_str()) {
+                            render_text_field(&mut doc, page_id, sig_text, x_pos, sig_y, field_width, sig_height)?;
+                        } else {
+                            let display_value = if signature_value.is_empty() {
+                                field_name.clone()
+                            } else {
+                                signature_value.to_string()
+                            };
+                            render_text_field(&mut doc, page_id, &display_value, x_pos, sig_y, field_width, sig_height)?;
+                        }
+                    } else {
+                        let display_value = if signature_value.is_empty() {
+                            field_name.clone()
+                        } else {
+                            signature_value.to_string()
+                        };
+                        render_text_field(&mut doc, page_id, &display_value, x_pos, sig_y, field_width, sig_height)?;
+                    }
+                } else {
+                    // Plain text
+                    let display_value = if signature_value.is_empty() {
+                        field_name.clone()
+                    } else {
+                        signature_value.to_string()
+                    };
+                    render_text_field(&mut doc, page_id, &display_value, x_pos, sig_y, field_width, sig_height)?;
+                }
+                
+                // Add signature ID information below signatures (always show for downloaded PDFs)
+                if field_type == "signature" {
+                    render_signature_id_info(&mut doc, page_id, submitter, &signature_json, x_pos, pdf_y, field_width, field_height, global_settings)?;
                 }
             }
         }
@@ -960,62 +1024,232 @@ fn extract_filename_from_url(url: &str) -> String {
     url.split('/').last().unwrap_or("file").to_string()
 }
 
+// Helper function to generate hash ID similar to frontend hashId function
+fn hash_id(value: i64) -> String {
+    let str_value = value.to_string();
+    
+    // Create 32-bit hash from value
+    let mut hash: i32 = 0;
+    for ch in str_value.chars() {
+        hash = ((hash << 5).wrapping_sub(hash).wrapping_add(ch as i32)) | 0;
+    }
+    
+    // Generate hex string (8 characters from 32-bit hash)
+    let mut hex = String::new();
+    for i in 0..8 {
+        let h = ((hash >> (i * 4)) & 0xF) as u8;
+        hex.push_str(&format!("{:X}", h));
+    }
+    
+    // Repeat to get 32 characters: hex.len() = 8, we need 32, so repeat 4 times
+    let hex32 = format!("{}{}{}{}", hex, hex, hex, hex);
+    
+    // Format as UUID (8-4-4-4-12 = 32 characters)
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex32[0..8],
+        &hex32[8..12],
+        &hex32[12..16],
+        &hex32[16..20],
+        &hex32[20..32]
+    )
+}
+
+// Calculate text height for signature info (matching SignatureRenderer.tsx logic)
+fn calculate_signature_text_height(
+    global_settings: &crate::database::models::DbGlobalSettings,
+    submitter_id: Option<i64>,
+    submitter_email: &str,
+    reason: &str,
+) -> f64 {
+    let mut line_count = 0;
+    
+    if global_settings.add_signature_id_to_the_documents {
+        if submitter_id.is_some() { line_count += 1; }
+        if !submitter_email.is_empty() { line_count += 1; }
+        line_count += 1; // date
+    }
+    
+    if global_settings.require_signing_reason && !reason.is_empty() {
+        line_count += 1;
+    }
+    
+    // Match SignatureRenderer.tsx: (lineCount - 1) * 10 + 8 + 3
+    if line_count > 0 {
+        ((line_count - 1) as f64 * 10.0) + 8.0 + 3.0
+    } else {
+        0.0
+    }
+}
+
 // Render signature ID information below the signature
 fn render_signature_id_info(
     doc: &mut lopdf::Document,
     page_id: lopdf::ObjectId,
     submitter: &crate::database::models::DbSubmitter,
+    signature_data: &serde_json::Value,
     x_pos: f64,
     pdf_y: f64,
     field_width: f64,
     field_height: f64,
+    global_settings: &crate::database::models::DbGlobalSettings,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use lopdf::{Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
 
-    // Generate signature ID (using submitter ID and timestamp)
-    let signature_id = format!("{:x}", md5::compute(format!("{}_{}", submitter.id, submitter.signed_at.unwrap_or(chrono::Utc::now()).timestamp())));
-    let signature_id_short = &signature_id[..8]; // Take first 8 characters
+    // Generate signature ID using hashId function (matching frontend)
+    let signature_id = hash_id(submitter.id + 1);
+
+    // Get reason from signature data
+    let reason = signature_data.get("reason")
+        .and_then(|r| r.as_str())
+        .unwrap_or("");
 
     // Format the signature information
     let signer_email = submitter.email.clone();
     let signed_at = submitter.signed_at.unwrap_or(chrono::Utc::now());
     
-    // Format date in GMT+7 timezone
-    let gmt7_offset = chrono::FixedOffset::east_opt(7 * 3600).unwrap(); // GMT+7
-    let signed_at_gmt7 = signed_at.with_timezone(&gmt7_offset);
-    let date_str = signed_at_gmt7.format("%b %d, %Y, %I:%M %p GMT+7").to_string();
+    // Parse timezone from global settings or use default GMT+7
+    let timezone_str = global_settings.timezone.as_deref().unwrap_or("Asia/Ho_Chi_Minh");
     
-    let signature_info = format!("ID: {}\nDigitally signed by <{}>\n{}, {} day", 
-        signature_id_short, 
-        signer_email, 
-        signed_at_gmt7.format("%b %d, %Y, %I:%M %p").to_string(),
-        "GMT+7"
+    // Map common timezone names to IANA identifiers (matching SignatureRenderer)
+    let timezone_mapped = match timezone_str {
+        "Midway Island" => "Pacific/Midway",
+        "Hawaii" => "Pacific/Honolulu",
+        "Alaska" => "America/Anchorage",
+        "Pacific" => "America/Los_Angeles",
+        "Mountain" => "America/Denver",
+        "Central" => "America/Chicago",
+        "Eastern" => "America/New_York",
+        "Atlantic" => "America/Halifax",
+        "Newfoundland" => "America/St_Johns",
+        "London" => "Europe/London",
+        "Berlin" => "Europe/Berlin",
+        "Paris" => "Europe/Paris",
+        "Rome" => "Europe/Rome",
+        "Moscow" => "Europe/Moscow",
+        "Tokyo" => "Asia/Tokyo",
+        "Shanghai" => "Asia/Shanghai",
+        "Hong Kong" => "Asia/Hong_Kong",
+        "Singapore" => "Asia/Singapore",
+        "Sydney" => "Australia/Sydney",
+        "UTC" => "UTC",
+        _ => timezone_str,
+    };
+    
+    // Parse timezone offset (simplified approach for common timezones)
+    let timezone_offset_hours = match timezone_mapped {
+        "Asia/Ho_Chi_Minh" => 7,
+        "Pacific/Midway" => -11,
+        "Pacific/Honolulu" => -10,
+        "America/Anchorage" => -9,
+        "America/Los_Angeles" => -8,
+        "America/Denver" => -7,
+        "America/Chicago" => -6,
+        "America/New_York" => -5,
+        "America/Halifax" => -4,
+        "Europe/London" => 0,
+        "Europe/Berlin" | "Europe/Paris" | "Europe/Rome" => 1,
+        "Europe/Moscow" => 3,
+        "Asia/Tokyo" => 9,
+        "Asia/Shanghai" | "Asia/Hong_Kong" | "Asia/Singapore" => 8,
+        "Australia/Sydney" => 10,
+        "UTC" => 0,
+        _ => 7, // Default to GMT+7
+    };
+    
+    let timezone_offset = chrono::FixedOffset::east_opt(timezone_offset_hours * 3600).unwrap();
+    let signed_at_formatted = signed_at.with_timezone(&timezone_offset);
+    
+    // Format date according to locale (simplified)
+    let locale = global_settings.locale.as_deref().unwrap_or("vi-VN");
+    let date_str = if locale.starts_with("vi") {
+        // Vietnamese format: DD/MM/YYYY, HH:MM:SS
+        signed_at_formatted.format("%d/%m/%Y, %H:%M:%S").to_string()
+    } else {
+        // English/Default format: MM/DD/YYYY, HH:MM:SS
+        signed_at_formatted.format("%m/%d/%Y, %H:%M:%S").to_string()
+    };
+    
+    let mut signature_info_parts = Vec::new();
+    
+    // Always show reason first if require_signing_reason is enabled and reason exists
+    if global_settings.require_signing_reason && !reason.is_empty() {
+        signature_info_parts.push(format!("Reason: {}", reason));
+    }
+    
+    // Show ID, email, and date if add_signature_id_to_the_documents is enabled
+    if global_settings.add_signature_id_to_the_documents {
+        signature_info_parts.push(format!("ID: {}", signature_id));
+        signature_info_parts.push(signer_email.clone());
+        signature_info_parts.push(date_str);
+    }
+    
+    // If nothing to show, return early
+    if signature_info_parts.is_empty() {
+        return Ok(());
+    }
+
+    // Calculate text height dynamically (matching SignatureRenderer.tsx)
+    let text_height = calculate_signature_text_height(
+        global_settings,
+        Some(submitter.id),
+        &signer_email,
+        reason
     );
 
-    // Position the signature info below the signature field
-    let info_x = x_pos;
-    let info_y = pdf_y - field_height - 5.0; // 5 points below the signature field
+    // Position the signature info at the BOTTOM of the field
+    // Matching SignatureRenderer.tsx: text starts from bottom and goes up
+    let info_x = x_pos + 5.0; // Match frontend padding of 5px
+    let font_size = 8.0; // Match frontend font size
+    let line_height = 10.0; // Match frontend line height
     
-    // Use smaller font for signature info
-    let font_size = 6.0;
+    // Text area is at the bottom: from pdf_y to (pdf_y + text_height)
+    // Calculate actual text height needed
+    let actual_text_height = (signature_info_parts.len() as f64 - 1.0) * line_height + font_size + 3.0;
     
-    // Create text content stream for signature info
-    let text_operations = vec![
+    // Start rendering from the bottom of text area
+    // First line should be at pdf_y + 3 (bottom padding), last line at the top
+    let text_start_y = pdf_y + 3.0; // Bottom padding: 3px from the bottom
+    
+    // Create text content stream for signature info with multiple lines
+    let mut text_operations = vec![
         Operation::new("BT", vec![]), // Begin text
         Operation::new("Tf", vec![
             Object::Name(b"Helvetica".to_vec()),
-            Object::Real(font_size),
-        ]), // Set font with smaller size
-        Operation::new("Td", vec![
-            Object::Real(info_x as f32),
-            Object::Real(info_y as f32),
-        ]), // Set position
-        Operation::new("Tj", vec![
-            Object::string_literal(signature_info.clone()),
-        ]), // Show text
-        Operation::new("ET", vec![]), // End text
+            Object::Real(font_size as f32),
+        ]), // Set font
+        Operation::new("rg", vec![
+            Object::Real(0.0),
+            Object::Real(0.0),
+            Object::Real(0.0),
+        ]), // Set text color to black
     ];
+    
+    // Render each line from bottom to top (matching SignatureRenderer.tsx)
+    // SignatureRenderer draws: for (let i = textToShow.length - 1; i >= 0; i--)
+    let num_lines = signature_info_parts.len();
+    for (idx, line) in signature_info_parts.iter().enumerate() {
+        // Calculate Y position: start from bottom and go up
+        // Line 0 (first in array) at bottom, line N-1 (last) at top
+        let line_y = text_start_y + ((num_lines - 1 - idx) as f64 * line_height);
+        
+        // Use Tm (text matrix) to set absolute position for each line
+        text_operations.push(Operation::new("Tm", vec![
+            Object::Real(1.0), // a: horizontal scaling
+            Object::Real(0.0), // b: horizontal skewing
+            Object::Real(0.0), // c: vertical skewing
+            Object::Real(1.0), // d: vertical scaling
+            Object::Real(info_x as f32), // e: horizontal position
+            Object::Real(line_y as f32),  // f: vertical position
+        ]));
+        
+        text_operations.push(Operation::new("Tj", vec![
+            Object::string_literal(line.clone()),
+        ])); // Show text
+    }
+    
+    text_operations.push(Operation::new("ET", vec![])); // End text
     
     let content = Content { operations: text_operations };
     let content_data = content.encode()?;
@@ -1072,15 +1306,15 @@ fn render_text_field(
     let baseline_offset = (field_height - font_size) / 2.0;
     let baseline_y = pdf_y + baseline_offset + font_size * 0.25;
 
-    // Create Helvetica font if not exists
+    // Create Arial font if not exists
     let font_name = b"F1".to_vec();
     let font_dict_id = {
-        let mut helvetica_dict = Dictionary::new();
-        helvetica_dict.set("Type", Object::Name(b"Font".to_vec()));
-        helvetica_dict.set("Subtype", Object::Name(b"Type1".to_vec()));
-        helvetica_dict.set("BaseFont", Object::Name(b"Helvetica".to_vec()));
-        helvetica_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
-        doc.add_object(Object::Dictionary(helvetica_dict))
+        let mut arial_dict = Dictionary::new();
+        arial_dict.set("Type", Object::Name(b"Font".to_vec()));
+        arial_dict.set("Subtype", Object::Name(b"Type1".to_vec()));
+        arial_dict.set("BaseFont", Object::Name(b"Arial".to_vec()));
+        arial_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+        doc.add_object(Object::Dictionary(arial_dict))
     };
 
     // Add font to page resources
@@ -1347,15 +1581,15 @@ fn render_cells_field(
     let cell_width = field_width / chars.len() as f64;
     let font_size = (field_height * 0.8).min(cell_width * 0.8);
 
-    // Create Helvetica font if not exists
+    // Create Arial font if not exists
     let font_name = b"F1".to_vec();
     let font_dict_id = {
-        let mut helvetica_dict = Dictionary::new();
-        helvetica_dict.set("Type", Object::Name(b"Font".to_vec()));
-        helvetica_dict.set("Subtype", Object::Name(b"Type1".to_vec()));
-        helvetica_dict.set("BaseFont", Object::Name(b"Helvetica".to_vec()));
-        helvetica_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
-        doc.add_object(Object::Dictionary(helvetica_dict))
+        let mut arial_dict = Dictionary::new();
+        arial_dict.set("Type", Object::Name(b"Font".to_vec()));
+        arial_dict.set("Subtype", Object::Name(b"Type1".to_vec()));
+        arial_dict.set("BaseFont", Object::Name(b"Arial".to_vec()));
+        arial_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+        doc.add_object(Object::Dictionary(arial_dict))
     };
 
     // Add font to page resources
@@ -1490,15 +1724,15 @@ fn render_initials_field(
     // Special font size for initials (smaller, more condensed)
     let font_size = (field_height * 0.6).max(10.0).min(18.0);
 
-    // Create Helvetica font if not exists
+    // Create Arial font if not exists
     let font_name = b"F1".to_vec();
     let font_dict_id = {
-        let mut helvetica_dict = Dictionary::new();
-        helvetica_dict.set("Type", Object::Name(b"Font".to_vec()));
-        helvetica_dict.set("Subtype", Object::Name(b"Type1".to_vec()));
-        helvetica_dict.set("BaseFont", Object::Name(b"Helvetica-Bold".to_vec()));
-        helvetica_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
-        doc.add_object(Object::Dictionary(helvetica_dict))
+        let mut arial_dict = Dictionary::new();
+        arial_dict.set("Type", Object::Name(b"Font".to_vec()));
+        arial_dict.set("Subtype", Object::Name(b"Type1".to_vec()));
+        arial_dict.set("BaseFont", Object::Name(b"Arial".to_vec()));
+        arial_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+        doc.add_object(Object::Dictionary(arial_dict))
     };
 
     // Add font to page resources
@@ -1661,6 +1895,17 @@ fn render_vector_signature(
     // Center the signature
     let offset_x = x_pos + (field_width - sig_width * scale) / 2.0 - min_x * scale;
     let offset_y = pdf_y + (field_height - sig_height * scale) / 2.0 - min_y * scale;
+    
+    let center_offset_x = (field_width - sig_width * scale) / 2.0;
+    let center_offset_y = (field_height - sig_height * scale) / 2.0;
+    
+    eprintln!("=== VECTOR SIGNATURE CENTERING DEBUG ===");
+    eprintln!("Signature bounds: width={}, height={}", sig_width, sig_height);
+    eprintln!("Field: x={}, y={}, width={}, height={}", x_pos, pdf_y, field_width, field_height);
+    eprintln!("Scale: {}", scale);
+    eprintln!("Scaled signature: width={}, height={}", sig_width * scale, sig_height * scale);
+    eprintln!("Offset: x={}, y={}", offset_x, offset_y);
+    eprintln!("Centering offset: x={}, y={}", center_offset_x, center_offset_y);
 
     // Create path operations for drawing signature
     let mut operations = Vec::new();
@@ -1684,7 +1929,9 @@ fn render_vector_signature(
                 point.get("y").and_then(|v| v.as_f64())
             ) {
                 let scaled_x = offset_x + x * scale;
-                let scaled_y = offset_y + y * scale;
+                // Flip Y coordinate: Canvas Y=0 is top, PDF Y=0 is bottom
+                // Convert y from canvas space (top-origin) to PDF space (bottom-origin)
+                let scaled_y = offset_y + (max_y - y) * scale;
 
                 if first_point {
                     // Move to start of stroke
@@ -1927,9 +2174,15 @@ pub async fn download_signed_pdf(
     };
     
     // Download PDF from storage
+    eprintln!("=== DOWNLOAD PDF DEBUG ===");
+    eprintln!("Document URL: {}", doc_url);
+    eprintln!("Template ID: {}", db_template.id);
+    eprintln!("Submitter ID: {}", db_submitter.id);
+    
     let storage_service = match StorageService::new().await {
         Ok(s) => s,
         Err(e) => {
+            eprintln!("❌ Storage service initialization error: {}", e);
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(format!("Storage error: {}", e)))
@@ -1937,9 +2190,16 @@ pub async fn download_signed_pdf(
         }
     };
     
+    eprintln!("✅ Storage service initialized");
+    
     let pdf_bytes = match storage_service.download_file(doc_url).await {
-        Ok(bytes) => bytes,
+        Ok(bytes) => {
+            eprintln!("✅ PDF downloaded successfully, size: {} bytes", bytes.len());
+            bytes
+        },
         Err(e) => {
+            eprintln!("❌ Failed to download PDF from storage: {}", e);
+            eprintln!("Error details: {:?}", e);
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(format!("Failed to download PDF: {}", e)))
@@ -1959,7 +2219,7 @@ pub async fn download_signed_pdf(
     };
     
     // Extract signatures from this submitter
-    let mut signatures_to_render: Vec<(String, String, String, f64, f64, f64, f64, i32)> = Vec::new();
+    let mut signatures_to_render: Vec<(String, String, String, f64, f64, f64, f64, i32, serde_json::Value)> = Vec::new();
     
     if let Some(bulk_sigs) = &db_submitter.bulk_signatures {
         if let Some(sigs_array) = bulk_sigs.as_array() {
@@ -1983,7 +2243,8 @@ pub async fn download_signed_pdf(
                                 position.y,
                                 position.width,
                                 position.height,
-                                position.page
+                                position.page,
+                                sig.clone() // Include the full signature JSON
                             ));
                         }
                     }

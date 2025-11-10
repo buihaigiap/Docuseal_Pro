@@ -74,8 +74,9 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
 
   const handleSave = () => {
     if (mode === 'draw' && sigPadRef.current) {
-      const vectorData = JSON.stringify(sigPadRef.current.toData());
-      onSave(vectorData);
+      // Save as image data URL to preserve exact visual appearance including velocity-based line width
+      const imageData = sigPadRef.current.toDataURL('image/png');
+      onSave(imageData);
     } else if (mode === 'type') {
       onSave(typedText);
     } else if (mode === 'upload') {
@@ -182,6 +183,11 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
               width: 420,
               height: 200,
               className: 'signature-canvas cursor-crosshair',
+              style: {
+                imageRendering: 'auto',
+                width: '100%',
+                height: '100%',
+              },
             }}
             penColor="#000"
             onBegin={handleBegin}

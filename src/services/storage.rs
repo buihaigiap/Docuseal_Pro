@@ -139,20 +139,54 @@ impl StorageService {
         &self,
         key: &str,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+        eprintln!("=== STORAGE DOWNLOAD DEBUG ===");
+        eprintln!("Storage type: {}", self.storage_type);
+        eprintln!("Key: {}", key);
+        
         if self.storage_type == "local" {
             let path = Path::new(self.local_path.as_ref().unwrap()).join(key);
-            let data = fs::read(&path)?;
-            Ok(data)
+            eprintln!("Local path: {:?}", path);
+            eprintln!("File exists: {}", path.exists());
+            
+            match fs::read(&path) {
+                Ok(data) => {
+                    eprintln!("✅ Local file read successfully, size: {} bytes", data.len());
+                    Ok(data)
+                },
+                Err(e) => {
+                    eprintln!("❌ Local file read error: {}", e);
+                    Err(Box::new(e))
+                }
+            }
         } else {
-            let response = self.client.as_ref().unwrap()
+            eprintln!("Bucket: {:?}", self.bucket);
+            eprintln!("Attempting S3 download...");
+            
+            match self.client.as_ref().unwrap()
                 .get_object()
                 .bucket(self.bucket.as_ref().unwrap())
                 .key(key)
                 .send()
-                .await?;
-
-            let data = response.body.collect().await?;
-            Ok(data.into_bytes().to_vec())
+                .await {
+                Ok(response) => {
+                    eprintln!("✅ S3 response received");
+                    match response.body.collect().await {
+                        Ok(data) => {
+                            let bytes = data.into_bytes().to_vec();
+                            eprintln!("✅ S3 file downloaded successfully, size: {} bytes", bytes.len());
+                            Ok(bytes)
+                        },
+                        Err(e) => {
+                            eprintln!("❌ Failed to collect S3 response body: {}", e);
+                            Err(Box::new(e))
+                        }
+                    }
+                },
+                Err(e) => {
+                    eprintln!("❌ S3 download error: {:?}", e);
+                    Err(Box::new(e))
+                }
+            }
         }
     }
 

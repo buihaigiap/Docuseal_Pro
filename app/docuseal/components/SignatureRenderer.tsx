@@ -10,7 +10,7 @@ interface SignatureRendererProps {
   additionalText?: string; // Additional text to display below the signature
   submitterId?: number;
   submitterEmail?: string;
-  reason?: string; // Signing reason to display
+  reason?: string; // Signing reason to display/ Signing reason to display
 }
 
 const SignatureRenderer: React.FC<SignatureRendererProps> = ({ 
@@ -85,7 +85,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
       return;
     }
 
-    // Enable high-quality rendering
+    // Enable high-quality rendering for images, but crisp rendering for vectors
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
@@ -114,7 +114,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           if (globalSettings?.require_signing_reason && reason) {
             lineCount += 1;
           }
-          textHeight = lineCount * 12 + 6; // 12px per line + padding
+          textHeight = lineCount > 0 ? (lineCount - 1) * 10 + 8 + 3 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding
         }
 
         // Calculate scale to fit image in canvas, leaving space for text if needed
@@ -152,14 +152,14 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
             textToShow = [`Reason: ${reason}`, `ID: ${hashId(submitterId + 1)}`, submitterEmail, new Date().toLocaleString(locale, dateOptions)].filter(Boolean);
           } else {
             // Show only reason
-            textToShow = [`Reason: ${reason}`];
+            textToShow = [`Reason: ${reason}`]; 
           }
         }
 
         if (textToShow.length > 0) {
           ctx.fillStyle = color;
           ctx.font = '8px sans-serif';
-          ctx.textAlign = 'center';
+          ctx.textAlign = 'left';
           ctx.textBaseline = 'bottom';
           
           // Calculate line height
@@ -168,7 +168,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           
           // Draw lines from bottom to top
           for (let i = textToShow.length - 1; i >= 0; i--) {
-            ctx.fillText(textToShow[i], width / 2, y);
+            ctx.fillText(textToShow[i], 5, y);
             y -= lineHeight;
           }
         }
@@ -206,6 +206,9 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         throw new Error('Empty data');
       }
 
+      // Disable image smoothing for crisp vector lines
+      ctx.imageSmoothingEnabled = false;
+
       // It's vector data, render as before
       // Find bounds of signature to scale it properly
       let minX = Infinity, minY = Infinity;
@@ -236,25 +239,26 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         if (globalSettings?.require_signing_reason && reason) {
           lineCount += 1;
         }
-        textHeight = lineCount * 12 + 6; // 12px per line + padding
+        textHeight = lineCount > 0 ? (lineCount - 1) * 10 + 8 + 3 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding
       }
       
-      // Calculate scale to fit signature in canvas with padding, leaving space for text if needed
-      const padding = 10;
+      // Calculate scale to fit signature in canvas with minimal padding, leaving space for text if needed
+      const padding = 5;
       const scaleX = (width - padding * 2) / signatureWidth;
       const scaleY = ((height - textHeight) - padding * 2) / signatureHeight;
-      const scale = Math.min(scaleX, scaleY, 1); // Don't scale up, only down
+      const scale = Math.min(scaleX, scaleY); // Use minimum scale to preserve aspect ratio
 
       // Calculate offset to center signature in available space
       const offsetX = (width - signatureWidth * scale) / 2 - minX * scale;
       const offsetY = ((height - textHeight) - signatureHeight * scale) / 2 - minY * scale;
 
-      // Draw signature with proportional line width
+      // Draw signature with natural line width similar to original drawing
       ctx.strokeStyle = color;
-      ctx.lineWidth = Math.max(1, Math.min(width, height) / 200); // Proportional line width
+      ctx.lineWidth = 2.5; // Fixed width that matches typical signature pen thickness
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.globalAlpha = 1.0; // Ensure full opacity
+      ctx.miterLimit = 10; // Prevent sharp corners from being too pointy
 
       pointGroups.forEach((group: any[]) => {
         if (group.length === 0) return;
@@ -272,6 +276,9 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         });
         ctx.stroke();
       });
+
+      // Re-enable image smoothing for text and images
+      ctx.imageSmoothingEnabled = true;
 
       // Render additional text below the signature if enabled
       let textToShow: string[] = [];
@@ -297,7 +304,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
       if (textToShow.length > 0) {
         ctx.fillStyle = color;
         ctx.font = '8px sans-serif';
-        ctx.textAlign = 'center';
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
         
         // Calculate line height
@@ -306,7 +313,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         
         // Draw lines from bottom to top
         for (let i = textToShow.length - 1; i >= 0; i--) {
-          ctx.fillText(textToShow[i], width / 2, y);
+          ctx.fillText(textToShow[i], 5, y);
           y -= lineHeight;
         }
       }
@@ -325,7 +332,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           if (globalSettings?.require_signing_reason && reason) {
             lineCount += 1;
           }
-          textHeight = lineCount * 12 + 6; // 12px per line + padding
+          textHeight = lineCount > 0 ? (lineCount - 1) * 10 + 8 + 3 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding
         }
         
         const scale = 3;
@@ -337,7 +344,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         canvas.height = scaledHeight;
         ctx.scale(scale, scale); // Apply scale
         
-        const fontFamily = 'Arial';
+        const fontFamily = 'Helvetica';
         const fontStyle = 'italic';
         const fontWeight = 'normal';
         
@@ -404,7 +411,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         if (textToShow.length > 0) {
           ctx.fillStyle = color;
           ctx.font = '8px sans-serif';
-          ctx.textAlign = 'center';
+          ctx.textAlign = 'left';
           ctx.textBaseline = 'bottom';
           
           // Calculate line height
@@ -413,7 +420,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           
           // Draw lines from bottom to top
           for (let i = textToShow.length - 1; i >= 0; i--) {
-            ctx.fillText(textToShow[i], width / 2, y);
+            ctx.fillText(textToShow[i], 5, y);
             y -= lineHeight;
           }
         }
@@ -431,7 +438,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           if (globalSettings?.require_signing_reason && reason) {
             lineCount += 1;
           }
-          textHeight = lineCount * 12 + 6; // 12px per line + padding
+          textHeight = lineCount > 0 ? (lineCount - 1) * 10 + 8 + 3 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding
         }
         
         // Default text rendering for signatures
@@ -466,7 +473,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         if (textToShow.length > 0) {
           ctx.fillStyle = color;
           ctx.font = '8px sans-serif';
-          ctx.textAlign = 'center';
+          ctx.textAlign = 'left';
           ctx.textBaseline = 'bottom';
           
           // Calculate line height
@@ -475,7 +482,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           
           // Draw lines from bottom to top
           for (let i = textToShow.length - 1; i >= 0; i--) {
-            ctx.fillText(textToShow[i], width / 2, y);
+            ctx.fillText(textToShow[i], 5, y);
             y -= lineHeight;
           }
         }

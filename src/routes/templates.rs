@@ -271,7 +271,7 @@ fn render_signatures_on_pdf(
             let text_operations = vec![
                 Operation::new("BT", vec![]), // Begin text
                 Operation::new("Tf", vec![
-                    Object::Name(b"Helvetica".to_vec()),
+                    Object::Name(b"Arial".to_vec()),
                     Object::Integer(font_size),
                 ]), // Set font with calculated size
                 Operation::new("Td", vec![
