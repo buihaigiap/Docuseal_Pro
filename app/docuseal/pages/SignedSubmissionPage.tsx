@@ -16,15 +16,30 @@ const SignedSubmissionPage = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+  const [submitterInfo, setSubmitterInfo] = useState<{ id: number; email: string } | null>(null);
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const result = await upstashService.getSubmissionSignatures(token);
-        console.log('Result:', result);
-        if (result.success) {
-          setData(result.data);
+        // Fetch both signatures and fields data in parallel
+        const [signaturesResult, fieldsResult] = await Promise.all([
+          upstashService.getSubmissionSignatures(token),
+          upstashService.getSubmissionFields(token)
+        ]);
+
+        console.log('Signatures Result:', signaturesResult);
+        console.log('Fields Result:', fieldsResult);
+
+        if (signaturesResult.success) {
+          setData(signaturesResult.data);
         } else {
-          setError(result.message || 'Failed to fetch data');
+          setError(signaturesResult.message || 'Failed to fetch signatures data');
+        }
+
+        if (fieldsResult.success && fieldsResult.data.information) {
+          setSubmitterInfo({
+            id: fieldsResult.data.information.id,
+            email: fieldsResult.data.information.email
+          });
         }
       } catch (err) {
         console.error('Fetch error:', err);
@@ -70,7 +85,9 @@ const SignedSubmissionPage = () => {
         <div className={`${isMobile ? 'w-full' : 'lg:col-span-2'}`}>
           <PdfViewer
             filePath={data.template_info.document.url}
-            fields={data?.bulk_signatures?.map(sig => ({ ...sig.field_info, signature_value: sig.signature_value }))}
+            fields={data?.bulk_signatures?.map(sig => ({ ...sig.field_info, signature_value: sig.signature_value, reason: sig.reason }))}
+            submitterId={submitterInfo?.id}
+            submitterEmail={submitterInfo?.email}
             // scale={1.5}
           />
         </div>

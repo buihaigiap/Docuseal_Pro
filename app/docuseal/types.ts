@@ -152,5 +152,6 @@ export interface SubmissionSignaturesResponse {
     field_info: TemplateField;
     field_name: string;
     signature_value: string;
+    reason?: string;
   }[];
 }

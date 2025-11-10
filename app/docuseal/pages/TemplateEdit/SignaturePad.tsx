@@ -4,7 +4,7 @@ import { TextField, Button, Box, Typography, Fade, Stack, Card, CardMedia } from
 import { PenLine, Type, Eraser, Upload } from 'lucide-react';
 import upstashService from '../../ConfigApi/upstashService';
 import toast from 'react-hot-toast';
-
+import { useBasicSettings } from '../../hooks/useBasicSettings';
 interface SignaturePadProps {
   onSave: (dataUrl: string) => void;
   onClear?: () => void;
@@ -20,8 +20,8 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
   const [typedText, setTypedText] = useState('');
   const [uploadedImage, setUploadedImage] = useState<string>('');
   const [uploading, setUploading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-
+  const { globalSettings } = useBasicSettings();
+  console.log('globalSettings', globalSettings);
   useEffect(() => {
     if (initialData) {
       if (initialData.startsWith('data:image/')) {
@@ -50,12 +50,6 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
       }
     }
   }, [initialData]);
-
-  const cleanupBlobUrl = () => {
-    if (uploadedImage && uploadedImage.startsWith('blob:')) {
-      URL.revokeObjectURL(uploadedImage);
-    }
-  };
 
   // Expose cleanup function to parent
   useEffect(() => {
@@ -107,8 +101,6 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
   };
 
   const handleImageUpload = async (file: File) => {
-    // Store file locally for preview
-    setSelectedFile(file);
     const blobUrl = URL.createObjectURL(file);
     setUploadedImage(blobUrl); // Create local preview URL
     setIsEmpty(false);

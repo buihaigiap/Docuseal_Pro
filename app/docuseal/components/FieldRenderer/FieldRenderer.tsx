@@ -30,6 +30,9 @@ interface FieldRendererProps {
   children?: React.ReactNode;
   defaultSignature?: string; // Signature từ user profile
   defaultInitials?: string;  // Initials từ user profile
+  submitterId?: number;
+  submitterEmail?: string;
+  reason?: string;
 }
 
 /**
@@ -39,22 +42,22 @@ interface FieldRendererProps {
 const FieldRenderer: React.FC<FieldRendererProps> = ({
   field,
   value,
-  className = '',
-  style = {},
+  className,
+  style,
   onClick,
   title,
   children,
   defaultSignature,
-  defaultInitials
+  defaultInitials,
+  submitterId,
+  submitterEmail,
+  reason
 }) => {
-    const { globalSettings } = useBasicSettings();
-    console.log('Global settings in FieldRenderer:', globalSettings);
   const renderFieldContent = () => {
     // Nếu có children (như editing UI), ưu tiên render children
     if (children) {
       return children;
     }
-
     // Xác định giá trị hiển thị: ưu tiên value, sau đó dùng default từ user profile
     const displayValue = value || 
       (field.field_type === 'signature' ? defaultSignature : 
@@ -72,6 +75,9 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
               data={displayValue}
               width={field.position.width * 600}
               height={field.position.height * 800}
+              submitterId={submitterId}
+              submitterEmail={submitterEmail}
+              reason={reason}
             />
           );
 

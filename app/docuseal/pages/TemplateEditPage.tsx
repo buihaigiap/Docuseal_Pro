@@ -55,6 +55,7 @@ const TemplateEditPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [fileUploading, setFileUploading] = useState(false);
+  const [submitterInfo, setSubmitterInfo] = useState<{ id: number; email: string } | null>(null);
   console.log('fields' , fields)
   const uploadFile = async (file: File): Promise<string | null> => {
     try {
@@ -82,6 +83,14 @@ const TemplateEditPage = () => {
       const data = await upstashService.getSubmissionFields(token);
       if (data.success) {
         setTemplateInfo(data.data.template_info);
+        
+        // Extract submitter information if available
+        if (data.data.information) {
+          setSubmitterInfo({
+            id: data.data.information.id,
+            email: data.data.information.email
+          });
+        }
         
         // Convert position from pixels to decimal (0-1) if needed
         const processedFields = data.data.template_fields.map((field: TemplateField) => {
@@ -242,6 +251,8 @@ const TemplateEditPage = () => {
         onFieldClick={onFieldClick}
         texts={texts}
         token={token}
+        submitterId={submitterInfo?.id}
+        submitterEmail={submitterInfo?.email}
       />
 
       {/* Form Modal */}

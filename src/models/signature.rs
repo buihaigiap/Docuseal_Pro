@@ -90,4 +90,14 @@ pub struct BulkSignatureRequest {
 pub struct BulkSignatureItem {
     pub field_id: i64,
     pub signature_value: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct SignatureInfo {
+    pub submitter_id: i64,
+    pub signer_email: String,
+    pub creator_email: String,
+    pub signed_at: Option<DateTime<Utc>>,
+    pub signatures: Option<serde_json::Value>,
 }

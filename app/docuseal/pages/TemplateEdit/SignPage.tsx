@@ -4,8 +4,9 @@ import { Submitter, TemplateField } from '../../types';
 import SignaturePad from './SignaturePad';
 import DocumentViewer from '../../components/PdfViewer';
 import upstashService from '../../ConfigApi/upstashService';
-import { Box, Button, CircularProgress, Typography, Paper, Grid, TextField, Modal, Alert, useMediaQuery } from '@mui/material';
+import { Box, Button, CircularProgress, Typography, Paper, Grid, TextField, Modal, Alert, useMediaQuery, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import { useBasicSettings } from '../../hooks/useBasicSettings';
 
 const SignPage = () => {
   const { token: signingToken } = useParams<{ token: string }>();
@@ -18,8 +19,11 @@ const SignPage = () => {
   const [currentFieldId, setCurrentFieldId] = useState<number | null>(null);
   const [currentFieldType, setCurrentFieldType] = useState<'signature' | 'radio' | 'multiple' | 'file' | null>(null);
   const [currentField, setCurrentField] = useState<TemplateField | null>(null);
+  const [selectedReason, setSelectedReason] = useState<string>('');
+  const [customReason, setCustomReason] = useState<string>('');
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { globalSettings } = useBasicSettings();
 
   const fetchSubmitterInfo = useCallback(async () => {
     try {
@@ -29,7 +33,7 @@ const SignPage = () => {
         // Pre-fill field values if already filled
         const existingValues: Record<number, string> = {};
         const existingSigs: Record<number, string> = {};
-        data.data.bulk_signatures?.forEach((sig: {field_id: number; field_info: TemplateField; signature_value: string}) => {
+        data.data.bulk_signatures?.forEach((sig: {field_id: number; field_info: TemplateField; signature_value: string; reason?: string}) => {
           if (sig.field_info.field_type === 'signature') {
             existingSigs[sig.field_id] = sig.signature_value;
           } else {
@@ -92,9 +96,11 @@ const SignPage = () => {
 
   const handleSubmitSignatures = async () => {
     const allFieldValues = { ...signatures, ...fieldValues };
+    const reason = selectedReason === 'Other' ? customReason : selectedReason;
     const signaturePayload = Object.entries(allFieldValues).map(([field_id, signature_value]) => ({
         field_id: parseInt(field_id),
-        signature_value
+        signature_value,
+        reason: globalSettings?.require_signing_reason ? reason : undefined
     }));
 
     try {
@@ -139,6 +145,32 @@ const SignPage = () => {
         <Typography variant="body2">
           Signed by: <strong>{submitterInfo.name}</strong> ({submitterInfo.email})
         </Typography>
+        {globalSettings?.require_signing_reason && (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <FormControl fullWidth>
+              <InputLabel>Signing Reason</InputLabel>
+              <Select
+                value={selectedReason}
+                onChange={(e) => setSelectedReason(e.target.value)}
+                label="Signing Reason"
+              >
+                <MenuItem value="Approved">Approved</MenuItem>
+                <MenuItem value="Reviewed">Reviewed</MenuItem>
+                <MenuItem value="Authored">Authored</MenuItem>
+                <MenuItem value="Other">Other</MenuItem>
+              </Select>
+            </FormControl>
+            {selectedReason === 'Other' && (
+              <TextField
+                label="Custom Reason"
+                value={customReason}
+                onChange={(e) => setCustomReason(e.target.value)}
+                fullWidth
+                variant="outlined"
+              />
+            )}
+          </Box>
+        )}
         <Button 
           variant="contained" 
           color="primary" 
@@ -256,6 +288,34 @@ const SignPage = () => {
               />
             </>
           ) : null}
+          
+          {globalSettings?.require_signing_reason && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+              <FormControl fullWidth>
+                <InputLabel>Signing Reason</InputLabel>
+                <Select
+                  value={selectedReason}
+                  onChange={(e) => setSelectedReason(e.target.value)}
+                  label="Signing Reason"
+                >
+                  <MenuItem value="Approved">Approved</MenuItem>
+                  <MenuItem value="Reviewed">Reviewed</MenuItem>
+                  <MenuItem value="Authored">Authored</MenuItem>
+                  <MenuItem value="Other">Other</MenuItem>
+                </Select>
+              </FormControl>
+              {selectedReason === 'Other' && (
+                <TextField
+                  label="Custom Reason"
+                  value={customReason}
+                  onChange={(e) => setCustomReason(e.target.value)}
+                  fullWidth
+                  variant="outlined"
+                />
+              )}
+            </Box>
+          )}
+          
           <Button onClick={() => {
             setIsModalOpen(false);
             setCurrentFieldId(null);

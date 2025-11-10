@@ -2,6 +2,7 @@ use sqlx::{PgPool, Row};
 use chrono::{Utc, DateTime};
 
 use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan, DbTemplateFolder, CreateTemplateFolder, DbSubmissionField, CreateSubmissionField, DbGlobalSettings, UpdateGlobalSettings};
+use crate::models::signature::SignatureInfo;
 
 // Structured query implementations for better organization
 pub struct UserQueries;
@@ -1484,6 +1485,8 @@ impl SubmitterQueries {
         }
         Ok(submitters)
     }
+
+   
 }
 
 impl SubmissionFieldQueries {

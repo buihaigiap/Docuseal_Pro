@@ -15,6 +15,7 @@ use crate::services::storage::StorageService;
 use chrono::Utc;
 use serde_json;
 use md5;
+use crate::models::signature::SignatureInfo;
 
 use crate::routes::web::AppState;
 
@@ -126,6 +127,7 @@ pub async fn get_submitter(
         Err(e) => ApiResponse::internal_error(format!("Failed to get submitter: {}", e)),
     }
 }
+
 
 #[utoipa::path(
     get,
@@ -475,7 +477,8 @@ pub async fn submit_bulk_signatures(
                 signatures_array.push(serde_json::json!({
                     "field_id": field_id,
                     "field_name": field_name,
-                    "signature_value": signature_item.signature_value
+                    "signature_value": signature_item.signature_value,
+                    "reason": signature_item.reason
                 }));
             }
 
@@ -603,6 +606,10 @@ pub async fn get_public_submitter_fields(
                             let response = crate::models::submitter::PublicSubmitterFieldsResponse {
                                 template_info,
                                 template_fields: filtered_fields,
+                                information: crate::models::submitter::SubmitterInformation {
+                                    email: db_submitter.email.clone(),
+                                    id: db_submitter.id,
+                                },
                             };
                             ApiResponse::success(response, "Submission fields retrieved successfully".to_string())
                         }

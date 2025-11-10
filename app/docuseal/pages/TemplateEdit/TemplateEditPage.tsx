@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogActions, Button, IconButton,
 import CloseIcon from '@mui/icons-material/Close';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import { useBasicSettings } from '../../hooks/useBasicSettings';
 interface TemplateField {
   id: number;
   template_id: number;
@@ -58,9 +59,14 @@ const TemplateEditPage = () => {
   const [currentFieldIndex, setCurrentFieldIndex] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [submitterInfo, setSubmitterInfo] = useState<{ id: number; email: string } | null>(null);
   const [pendingUploads, setPendingUploads] = useState<Record<number, File>>({});
   const navigate = useNavigate();
   const [fileUploading, setFileUploading] = useState(false);
+  const [selectedReason, setSelectedReason] = useState<string>('');
+  const [customReason, setCustomReason] = useState<string>('');
+  const { globalSettings } = useBasicSettings();
+  const [reasons, setReasons] = useState<Record<number, string>>({});
   const uploadFile = async (file: File): Promise<string | null> => {
     try {
       setFileUploading(true);
@@ -95,6 +101,14 @@ const TemplateEditPage = () => {
       const data = await upstashService.getSubmissionFields(token);
       if (data.success) {
         setTemplateInfo(data.data.template_info);
+        
+        // Extract submitter information if available
+        if (data.data.information) {
+          setSubmitterInfo({
+            id: data.data.information.id,
+            email: data.data.information.email
+          });
+        }
         
         // Convert position from pixels to decimal (0-1) if needed
         const processedFields = data.data.template_fields.map((field: TemplateField) => {
@@ -139,6 +153,22 @@ const TemplateEditPage = () => {
   useEffect(() => {
     fetchTemplateFields();
   }, [fetchTemplateFields]);
+
+  // Update reasons state when selected reason changes
+  useEffect(() => {
+    if (globalSettings?.require_signing_reason) {
+      const reason = selectedReason === 'Other' ? customReason : selectedReason;
+      const newReasons: Record<number, string> = {};
+      fields.forEach(field => {
+        if (field.field_type === 'signature' || field.field_type === 'initials') {
+          newReasons[field.id] = reason;
+        }
+      });
+      console.log('Updating reasons state:', newReasons, 'selectedReason:', selectedReason, 'customReason:', customReason);
+      console.log('Updating reasons state:', newReasons, 'selectedReason:', selectedReason, 'customReason:', customReason);
+      setReasons(newReasons);
+    }
+  }, [selectedReason, customReason, fields, globalSettings?.require_signing_reason]);
 
   const onFieldClick = (field: TemplateField) => {
     const globalIndex = fields.findIndex(f => f.id === field.id);
@@ -241,9 +271,11 @@ const TemplateEditPage = () => {
 
 
     try {
+      const reason = selectedReason === 'Other' ? customReason : selectedReason;
       const signatures = fields.map(field => ({
         field_id: field.id,
-        signature_value: finalTexts[field.id] || ''
+        signature_value: finalTexts[field.id] || '',
+        reason: globalSettings?.require_signing_reason ? reason : undefined
       }));
 
       const data = await upstashService.bulkSign(token, {
@@ -283,6 +315,9 @@ const TemplateEditPage = () => {
         onFieldClick={onFieldClick}
         texts={texts}
         token={token}
+        submitterId={submitterInfo?.id}
+        submitterEmail={submitterInfo?.email}
+        reasons={reasons}
       />
 
       {/* Form Modal */}
@@ -552,6 +587,33 @@ const TemplateEditPage = () => {
                 />
               )}
             </div>
+          )}
+
+          {globalSettings?.require_signing_reason && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+              <FormControl fullWidth>
+                <InputLabel>Signing Reason</InputLabel>
+                <Select
+                  value={selectedReason}
+                  onChange={(e) => setSelectedReason(e.target.value)}
+                  label="Signing Reason"
+                >
+                  <MenuItem value="Approved">Approved</MenuItem>
+                  <MenuItem value="Reviewed">Reviewed</MenuItem>
+                  <MenuItem value="Authored">Authored</MenuItem>
+                  <MenuItem value="Other">Other</MenuItem>
+                </Select>
+              </FormControl>
+              {selectedReason === 'Other' && (
+                <TextField
+                  label="Custom Reason"
+                  value={customReason}
+                  onChange={(e) => setCustomReason(e.target.value)}
+                  fullWidth
+                  variant="outlined"
+                />
+              )}
+            </Box>
           )}
         </DialogContent>
         <DialogActions>

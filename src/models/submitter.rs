@@ -87,6 +87,13 @@ pub struct PublicTemplateInfo {
 pub struct PublicSubmitterFieldsResponse {
     pub template_info: PublicTemplateInfo,
     pub template_fields: Vec<crate::models::template::TemplateField>,
+    pub information: SubmitterInformation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SubmitterInformation {
+    pub email: String,
+    pub id: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

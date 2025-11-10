@@ -13,6 +13,8 @@ interface DocumentViewerProps {
   onPageChange?: (page: number) => void;
   scale?: number;
   showDebug?: boolean;
+  submitterId?: number;
+  submitterEmail?: string;
 }
 
 const DocumentViewer: React.FC<DocumentViewerProps> = ({
@@ -25,6 +27,8 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
   page,
   onPageChange,
   scale: initialScale = 1.5,
+  submitterId,
+  submitterEmail,
 }) => {
   console.log('fields' , fields)
   const [currentPage, setCurrentPage] = useState(page || 1);
@@ -108,6 +112,9 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
                         data={(f as any).signature_value} 
                         width={f.position.width * scale} 
                         height={f.position.height * scale}
+                        submitterId={submitterId}
+                        submitterEmail={submitterEmail}
+                        reason={(f as any).reason}
                       />
                     </div>
                   </div>

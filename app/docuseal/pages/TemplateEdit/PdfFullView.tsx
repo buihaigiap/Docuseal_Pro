@@ -47,6 +47,9 @@ interface PdfFullViewProps {
   onFieldClick: (field: TemplateField) => void;
   texts: Record<number, string>;
   token: string;
+  submitterId?: number;
+  submitterEmail?: string;
+  reasons?: Record<number, string>;
 }
 
 const PdfFullView: React.FC<PdfFullViewProps> = ({
@@ -56,10 +59,12 @@ const PdfFullView: React.FC<PdfFullViewProps> = ({
   onPageChange,
   onFieldClick,
   texts,
-  token
+  token,
+  submitterId,
+  submitterEmail,
+  reasons
 }) => {
   const { user } = useAuth();
-  
   return (
     <div>
       {templateInfo && (
@@ -94,6 +99,9 @@ const PdfFullView: React.FC<PdfFullViewProps> = ({
                   value={texts[field.id]}
                   defaultSignature={user?.signature}
                   defaultInitials={user?.initials}
+                  submitterId={submitterId}
+                  submitterEmail={submitterEmail}
+                  reason={reasons?.[field.id]}
                 />
               </div>
             );
