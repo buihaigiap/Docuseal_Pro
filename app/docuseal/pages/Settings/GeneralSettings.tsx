@@ -196,14 +196,6 @@ const GeneralSettings = () => {
         <div className="bg-white/5 border border-white/10 rounded-lg p-4 mb-4">
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6">Preferences</Typography>
-            <Button
-              variant="outlined"
-              onClick={handleSavePreferences}
-              disabled={loading}
-              size="small"
-            >
-              {loading ? 'Saving...' : 'Save Preferences'}
-            </Button>
           </Box>
 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -250,15 +242,6 @@ const GeneralSettings = () => {
             ))}
           </Box>
         </div>
-
-        <Button
-          type="submit"
-          variant="contained"
-          disabled={loading}
-          sx={{ bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}
-        >
-          {loading ? t('settings.general.updating') : t('settings.general.update')}
-        </Button>
       </Box>
     </Box>
   );

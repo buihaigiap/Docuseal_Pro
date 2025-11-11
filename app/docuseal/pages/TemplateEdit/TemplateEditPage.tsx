@@ -119,7 +119,6 @@ const TemplateEditPage = () => {
             setSubmitterInfo({
               id: data.data.information.id,
               email: data.data.information.email,
-              name: submitterData.data.name,
               template_name: submitterData.data.template_name,
               status: submitterData.data.status,
               signed_at: submitterData.data.signed_at
@@ -128,7 +127,6 @@ const TemplateEditPage = () => {
             setSubmitterInfo({
               id: data.data.information.id,
               email: data.data.information.email,
-              name: data.data.information.name || 'User',
               status: 'pending'
             });
           }

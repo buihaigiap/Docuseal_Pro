@@ -4,7 +4,6 @@ import upstashService from '../../ConfigApi/upstashService';
 import CreateTemplateButtonProps from '../../components/CreateTemplateButton';
 interface CompletionScreenProps {
   signedDate: string;
-  submitterName: string;
   templateName?: string;
   token: string;
   allowResubmit: boolean;
@@ -12,7 +11,6 @@ interface CompletionScreenProps {
 
 const CompletionScreen: React.FC<CompletionScreenProps> = ({ 
   signedDate,
-  submitterName,
   templateName,
   token, 
   allowResubmit 
