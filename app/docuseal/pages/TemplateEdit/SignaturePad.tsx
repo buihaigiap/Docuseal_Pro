@@ -20,8 +20,6 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
   const [typedText, setTypedText] = useState('');
   const [uploadedImage, setUploadedImage] = useState<string>('');
   const [uploading, setUploading] = useState(false);
-  const { globalSettings } = useBasicSettings();
-  console.log('globalSettings', globalSettings);
   useEffect(() => {
     if (initialData) {
       if (initialData.startsWith('data:image/')) {
@@ -74,13 +72,23 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
 
   const handleSave = () => {
     if (mode === 'draw' && sigPadRef.current) {
-      // Save as image data URL to preserve exact visual appearance including velocity-based line width
-      const imageData = sigPadRef.current.toDataURL('image/png');
-      onSave(imageData);
+      // Save as vector data (point groups) to preserve scalability
+      const pointGroups = sigPadRef.current.toData();
+      if (pointGroups && pointGroups.length > 0) {
+        const jsonData = JSON.stringify(pointGroups);
+        console.log('Saving signature as vector:', jsonData);
+        onSave(jsonData);
+      }
     } else if (mode === 'type') {
-      onSave(typedText);
+      if (typedText.trim()) {
+        console.log('Saving typed text:', typedText);
+        onSave(typedText);
+      }
     } else if (mode === 'upload') {
-      onSave(uploadedImage);
+      if (uploadedImage) {
+        console.log('Saving uploaded image:', uploadedImage);
+        onSave(uploadedImage);
+      }
     }
   };
 
@@ -109,6 +117,9 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
     
     // Notify parent component about file selection (this will update texts)
     onFileSelected?.(file);
+    
+    // Also call onSave to update the preview immediately
+    onSave(blobUrl);
   };
 
   return (

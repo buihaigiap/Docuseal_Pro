@@ -57,30 +57,59 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Normalize field position to decimal (0-1) if it's in pixels
+  const normalizePosition = (position: any) => {
+    if (!position || typeof position.x !== 'number') return position;
+    
+    const pageWidth = 600; // Default A4 width in pixels
+    const pageHeight = 800; // Default A4 height in pixels
+    
+    // Check if position is in pixels (values > 1) or already in decimal (0-1)
+    if (position.x > 1 || position.y > 1 || position.width > 1 || position.height > 1) {
+      // Position is in pixels, convert to decimal (0-1)
+      return {
+        ...position,
+        x: position.x / pageWidth,
+        y: position.y / pageHeight,
+        width: position.width / pageWidth,
+        height: position.height / pageHeight
+      };
+    }
+    // Already in decimal format
+    return position;
+  };
+
   return (
     <div className="flex flex-col items-center">
       <PdfDisplay
         documentUrl={documentUrl}
         filePath={filePath}
         token={token}
-        scale={initialScale}
+        // scale={initialScale}
         page={currentPage}
         onPageChange={handlePageChange}
         onLoad={updateScale}
         ref={pdfRef}
       >
         {fields.filter(f => f?.position?.page === currentPage)?.map((f, index) => {
+          // Normalize position to decimal (0-1)
+          const normalizedPos = normalizePosition(f.position);
           // Position data is in relative coordinates (0-1), scale converts to display pixels
-          const isNarrow = f.position.h > 0 && (f.position.w / f.position.h) > 6;
+          const isNarrow = normalizedPos.height > 0 && (normalizedPos.width / normalizedPos.height) > 6;
           return (
             <div
               key={f.id}
-              className={`absolute ${(f as any).signature_value ? '' : 'border-2 border-blue-500 bg-blue-500 bg-opacity-20 hover:bg-opacity-40 cursor-pointer'}`}
+              // className={`absolute ${(f as any).signature_value ? '' : 'border-2 border-blue-500 bg-blue-500 bg-opacity-20 hover:bg-opacity-40 cursor-pointer'}`}
               style={{
-                left: `${f.position.x * scale}px`,
-                top: `${f.position.y * scale}px`,
-                width: `${f.position.width * scale}px`,
-                height: `${f.position.height * scale}px`,
+                position: 'absolute',
+                left: `${normalizedPos.x * 100}%`,
+                top: `${normalizedPos.y * 100}%`,
+                width: `${normalizedPos.width * 100}%`,
+                height: `${normalizedPos.height * 100}%`,
+                fontSize: '16px',
+                color: 'black',
+                fontWeight: 'bold'
               }}
             onClick={() => !(f as any).signature_value && onFieldClick && onFieldClick(f)}
           >
@@ -105,18 +134,14 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
                     </div>
                   </div>
                 ) : (f as any).signature_value.startsWith('[') || (f as any).signature_value.startsWith('{') ? (
-                  <div className={`flex justify-between w-full h-full gap-1 overflow-hidden ${isNarrow ? 'flex-row' : 'flex-col'}`}>
-                    <div className={`flex overflow-hidden ${isNarrow ? 'w-1/2' : 'flex-grow'}`} style={{ minHeight: '50%' }}>
-                      <SignatureRenderer 
+                    <SignatureRenderer 
                         data={(f as any).signature_value} 
-                        width={f.position.width * scale} 
-                        height={f.position.height * scale}
+                        width={normalizedPos.width * 600} 
+                        height={normalizedPos.height * 800}
                         submitterId={submitterId}
                         submitterEmail={submitterEmail}
                         reason={(f as any).reason}
                       />
-                    </div>
-                  </div>
                 ) : (f as any).field_type === 'checkbox' ? (
                   (f as any).signature_value === 'true' ? (
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full"><path d="M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3ZM10 17L5 12L6.41 10.59L10 14.17L17.59 6.58L19 8L10 17Z" fill="currentColor"/></svg>
@@ -143,7 +168,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
                           fontFamily: 'Helvetica, Arial, sans-serif', 
                           fontStyle: 'normal', 
                           fontWeight: 'normal', 
-                          lineHeight: `${f.position.height}px` } : { whiteSpace: 'pre', fontFamily: 'Helvetica, Arial, sans-serif' }}>{(f as any).signature_value}
+                          lineHeight: `${normalizedPos.height * 800}px` } : { whiteSpace: 'pre', fontFamily: 'Helvetica, Arial, sans-serif' }}>{(f as any).signature_value}
                     </span>
                 )
               ) : texts[f.id] ? (
@@ -166,15 +191,11 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
                     </div>
                   </div>
                 ) : texts[f.id].startsWith('[') || texts[f.id].startsWith('{') ? (
-                  <div className={`flex justify-between w-full h-full gap-1 overflow-hidden ${isNarrow ? 'flex-row' : 'flex-col'}`}>
-                    <div className={`flex overflow-hidden ${isNarrow ? 'w-1/2' : 'flex-grow'}`} style={{ minHeight: '50%' }}>
-                      <SignatureRenderer 
+                    <SignatureRenderer 
                         data={texts[f.id]} 
-                        width={f.position.width * scale} 
-                        height={f.position.height * scale}
+                        width={normalizedPos.width * 600} 
+                        height={normalizedPos.height * 800}
                       />
-                    </div>
-                  </div>
                 ) : (f as any).field_type === 'multiple' ? (
                   <div className="w-full h-full flex items-center text-sm font-semibold">
                     {texts[f.id] ? texts[f.id].split(',').join(', ') : `Select ${(f as any).name}`}
@@ -213,7 +234,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
                       fontFamily: 'Helvetica, Arial, sans-serif', 
                       fontStyle: 'normal', 
                       fontWeight: 'normal', 
-                      lineHeight: `${f.position.height}px` } : { fontFamily: 'Helvetica, Arial, sans-serif' }}>{texts[f.id]}</span>
+                      lineHeight: `${normalizedPos.height * 800}px` } : { fontFamily: 'Helvetica, Arial, sans-serif' }}>{texts[f.id]}</span>
                 )
               ) : (f as any).field_type === 'radio' ? (
                 <div className="w-full h-full flex items-center text-sm font-semibold">

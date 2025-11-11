@@ -138,7 +138,6 @@ const TemplateEditPage = () => {
         });
         
         setFields(processedFields);
-        console.log('Processed fields for signing:', processedFields);
       } else {
         setError(data.message || 'Failed to fetch template fields.');
       }
@@ -164,8 +163,6 @@ const TemplateEditPage = () => {
           newReasons[field.id] = reason;
         }
       });
-      console.log('Updating reasons state:', newReasons, 'selectedReason:', selectedReason, 'customReason:', customReason);
-      console.log('Updating reasons state:', newReasons, 'selectedReason:', selectedReason, 'customReason:', customReason);
       setReasons(newReasons);
     }
   }, [selectedReason, customReason, fields, globalSettings?.require_signing_reason]);
@@ -194,6 +191,13 @@ const TemplateEditPage = () => {
   };
 
   const handleNext = () => {
+    // Validate current field before moving to next
+    const currentValue = texts[currentField?.id];
+    if (currentField?.required && !currentValue) {
+      toast.error(`Please fill in the required field: ${currentField.name}`);
+      return;
+    }
+    
     if (currentFieldIndex < fields.length - 1) {
       const nextIndex = currentFieldIndex + 1;
       setCurrentFieldIndex(nextIndex);
@@ -304,7 +308,7 @@ const TemplateEditPage = () => {
   if (loading) return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
   if (error) return <div className="text-red-500 text-center p-4">{error}</div>;
   return (
-    <div className="container mx-auto p-4">
+    <div >
       <h1 className="text-2xl font-bold mb-4">{templateInfo?.name}</h1>
       {/* PDF Full View */}
       <PdfFullView

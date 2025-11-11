@@ -76,6 +76,7 @@ const PdfFullView: React.FC<PdfFullViewProps> = ({
           // scale={1.5}
         >
           {fields.filter(f => f?.position?.page === page)?.map(field => {
+            console.log('Rendering field:', field);
             return (
               <div
                 key={field.id}

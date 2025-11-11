@@ -34,11 +34,6 @@ interface FieldRendererProps {
   submitterEmail?: string;
   reason?: string;
 }
-
-/**
- * Component dùng chung để render nội dung của field
- * Đảm bảo logic hiển thị giống nhau giữa Editor và View mode
- */
 const FieldRenderer: React.FC<FieldRendererProps> = ({
   field,
   value,
@@ -63,7 +58,6 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
       (field.field_type === 'signature' ? defaultSignature : 
        field.field_type === 'initials' ? defaultInitials : 
        undefined);
-
     // Nếu có displayValue, render theo field type
     if (displayValue) {
       switch (field.field_type) {

@@ -318,7 +318,6 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
             ref={pdfDisplayRef}
             filePath={template.file_url}
             token={token}
-            // scale={scale}
             page={currentPage}
             onPageChange={(newPage: number) => setCurrentPage(newPage)}
             onLoad={() => {
@@ -527,6 +526,7 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
                             field={f}
                             defaultSignature={user?.signature}
                             defaultInitials={user?.initials}
+                            scale={canvasClientWidth || 600}
                           />
                           {/* Bottom bar with single handle for column resizing */}
                           <div className="absolute bottom-0 left-0 right-0 h-4 bg-gray-200 flex items-center justify-center overflow-hidden">
@@ -546,6 +546,7 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
                           field={f}
                           defaultSignature={user?.signature}
                           defaultInitials={user?.initials}
+                          scale={canvasClientWidth || 600}
                         />
                       )}
                     </div>
