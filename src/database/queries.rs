@@ -1486,7 +1486,13 @@ impl SubmitterQueries {
         Ok(submitters)
     }
 
-   
+    pub async fn resubmit_submitter(pool: &PgPool, id: i64) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE submitters SET status = 'pending' WHERE id = $1")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
 }
 
 impl SubmissionFieldQueries {

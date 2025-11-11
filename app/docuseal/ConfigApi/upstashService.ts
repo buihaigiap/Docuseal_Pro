@@ -107,8 +107,8 @@ const upstashService = {
         const url = `/public/submissions/${token}/signatures`;
         return await axiosClient.get(url)
     },
-    getSubmitterInfo: async (signingToken: string): Promise<any> => {
-        const url = `/public/submitters/${signingToken}`;
+    getSubmitterInfo: async (token: string): Promise<any> => {
+        const url = `/public/submissions/${token}`;
         return await axiosClient.get(url)
     },
     getSubmissionFields: async (token: string): Promise<any> => {
@@ -118,6 +118,14 @@ const upstashService = {
     bulkSign: async (token: string, data: any): Promise<any> => {
         const url = `/public/signatures/bulk/${token}`;
         return await axiosClient.post(url, data)
+    },
+    resubmitSubmission: async (token: string): Promise<any> => {
+        const url = `/public/submissions/${token}/resubmit`;
+        return await axiosClient.put(url)
+    },
+    sendCopyEmail: async (token: string): Promise<any> => {
+        const url = `/public/submissions/${token}/send-copy`;
+        return await axiosClient.post(url)
     },
 
     // Field APIs

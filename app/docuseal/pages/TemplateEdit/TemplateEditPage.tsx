@@ -4,6 +4,7 @@ import upstashService from '../../ConfigApi/upstashService';
 import SignaturePad from './SignaturePad';
 import CreateTemplateButton from '../../components/CreateTemplateButton';
 import PdfFullView from './PdfFullView';
+import CompletionScreen from './CompletionScreen';
 import { Dialog, DialogContent, DialogActions, Button, IconButton,
    Typography, LinearProgress, TextField, Checkbox, Radio, 
    RadioGroup, FormControlLabel, Select, MenuItem, 
@@ -59,7 +60,14 @@ const TemplateEditPage = () => {
   const [currentFieldIndex, setCurrentFieldIndex] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [page, setPage] = useState(1);
-  const [submitterInfo, setSubmitterInfo] = useState<{ id: number; email: string } | null>(null);
+  const [submitterInfo, setSubmitterInfo] = useState<{ 
+    id: number; 
+    email: string; 
+    template_name?: string;
+    status: string; 
+    signed_at?: string 
+  } | null>(null);
+  console.log('submitterInfo', submitterInfo);
   const [pendingUploads, setPendingUploads] = useState<Record<number, File>>({});
   const navigate = useNavigate();
   const [fileUploading, setFileUploading] = useState(false);
@@ -104,10 +112,26 @@ const TemplateEditPage = () => {
         
         // Extract submitter information if available
         if (data.data.information) {
-          setSubmitterInfo({
-            id: data.data.information.id,
-            email: data.data.information.email
-          });
+          // Fetch full submitter info to get status
+          const submitterData = await upstashService.getSubmitterInfo(token);
+          console.log('submitterDatassss' , submitterData);
+          if (submitterData.success) {
+            setSubmitterInfo({
+              id: data.data.information.id,
+              email: data.data.information.email,
+              name: submitterData.data.name,
+              template_name: submitterData.data.template_name,
+              status: submitterData.data.status,
+              signed_at: submitterData.data.signed_at
+            });
+          } else {
+            setSubmitterInfo({
+              id: data.data.information.id,
+              email: data.data.information.email,
+              name: data.data.information.name || 'User',
+              status: 'pending'
+            });
+          }
         }
         
         // Convert position from pixels to decimal (0-1) if needed
@@ -307,6 +331,29 @@ const TemplateEditPage = () => {
   const isLastField = currentFieldIndex === fields.length - 1;
   if (loading) return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
   if (error) return <div className="text-red-500 text-center p-4">{error}</div>;
+
+  // Check if submission is already completed
+  const isCompleted = submitterInfo?.status === 'signed' || submitterInfo?.status === 'completed';
+  // If completed, show completion screen
+  if (isCompleted) {
+    const signedDate = submitterInfo?.signed_at 
+      ? new Date(submitterInfo.signed_at).toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        })
+      : 'Recently';
+
+    return (
+      <CompletionScreen 
+        signedDate={signedDate}
+        templateName={submitterInfo?.template_name}
+        token={token}
+        allowResubmit={globalSettings?.allow_to_resubmit_completed_forms || false}
+      />
+    );
+  }
+
   return (
     <div >
       <h1 className="text-2xl font-bold mb-4">{templateInfo?.name}</h1>
@@ -646,6 +693,10 @@ const TemplateEditPage = () => {
           )}
         </DialogActions>
       </Dialog>
+          
+        
+
+
     </div>
   );
 };

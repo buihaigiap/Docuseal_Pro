@@ -149,6 +149,7 @@ pub async fn create_submission(
                             reminder_count: db_submitter.reminder_count,
                             created_at: db_submitter.created_at,
                             updated_at: db_submitter.updated_at,
+                            template_name: None,
                         };
                         created_submitters.push(submitter_api.clone());
 

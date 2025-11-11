@@ -116,6 +116,23 @@ const SignPage = () => {
     }
   };
   
+  const handleResubmit = async () => {
+    try {
+      const data = await upstashService.resubmitSubmission(signingToken!);
+      if (data.success) {
+        alert("Document resubmitted successfully!");
+        // Reset form state
+        setSignatures({});
+        setFieldValues({});
+        fetchSubmitterInfo();
+      } else {
+        alert(`Error: ${data.message}`);
+      }
+    } catch (err) {
+      alert('An unexpected error occurred during resubmission.');
+    }
+  };
+
   if (loading) return <div className="text-center">Loading document...</div>;
   if (error) return <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>;
   if (!submitterInfo) return <Alert severity="info" sx={{ m: 2 }}>No submitter information found.</Alert>;
@@ -179,6 +196,15 @@ const SignPage = () => {
         >
           Submit Document
         </Button>
+        {globalSettings?.allow_to_resubmit_completed_forms && (submitterInfo.status === 'signed' || submitterInfo.status === 'completed') && (
+          <Button 
+            variant="outlined" 
+            color="secondary" 
+            onClick={handleResubmit}
+          >
+            Resubmit Document
+          </Button>
+        )}
       </Paper>
 
       <Modal open={isModalOpen} onClose={() => setIsModalOpen(false)}>

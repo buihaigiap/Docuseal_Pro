@@ -8,7 +8,7 @@ use axum::{
     body::Body,
 };
 use crate::common::responses::ApiResponse;
-use crate::database::queries::{SubmitterQueries, UserQueries, SubmissionFieldQueries};
+use crate::database::queries::{SubmitterQueries, UserQueries, SubmissionFieldQueries, GlobalSettingsQueries, TemplateQueries};
 use crate::common::jwt::auth_middleware;
 use crate::common::authorization::require_admin_or_team_member;
 use crate::services::storage::StorageService;
@@ -58,6 +58,7 @@ pub async fn get_submitters(
                     reminder_count: db_submitter.reminder_count,
                     created_at: db_submitter.created_at,
                     updated_at: db_submitter.updated_at,
+                    template_name: None,
                 };
                 all_submitters.push(submitter);
             }
@@ -120,6 +121,7 @@ pub async fn get_submitter(
                 reminder_count: db_submitter.reminder_count,
                 created_at: db_submitter.created_at,
                 updated_at: db_submitter.updated_at,
+                template_name: None,
             };
             ApiResponse::success(submitter, "Submitter retrieved successfully".to_string())
         }
@@ -258,6 +260,7 @@ pub async fn update_submitter(
                         reminder_count: db_submitter.reminder_count,
                         created_at: db_submitter.created_at,
                         updated_at: db_submitter.updated_at,
+                        template_name: None,
                     };
                     ApiResponse::success(submitter, "Submitter updated successfully".to_string())
                 }
@@ -363,6 +366,7 @@ pub async fn update_public_submitter(
                         reminder_count: updated_submitter.reminder_count,
                         created_at: updated_submitter.created_at,
                         updated_at: updated_submitter.updated_at,
+                        template_name: None,
                     };
                     ApiResponse::success(submitter, "Submitter updated successfully".to_string())
                 }
@@ -396,6 +400,12 @@ pub async fn get_public_submitter(
         Ok(Some(db_submitter)) => {
             let reminder_config = db_submitter.reminder_config.as_ref()
                 .and_then(|v| serde_json::from_value(v.clone()).ok());
+            
+            // Get template name
+            let template_name = match TemplateQueries::get_template_by_id(pool, db_submitter.template_id).await {
+                Ok(Some(template)) => Some(template.name),
+                _ => None,
+            };
                 
             let submitter = crate::models::submitter::Submitter {
                 id: Some(db_submitter.id),
@@ -412,6 +422,7 @@ pub async fn get_public_submitter(
                 reminder_count: db_submitter.reminder_count,
                 created_at: db_submitter.created_at,
                 updated_at: db_submitter.updated_at,
+                template_name,
             };
             ApiResponse::success(submitter, "Submitter retrieved successfully".to_string())
         }
@@ -510,6 +521,7 @@ pub async fn submit_bulk_signatures(
                         reminder_count: updated_submitter.reminder_count,
                         created_at: updated_submitter.created_at,
                         updated_at: updated_submitter.updated_at,
+                        template_name: None,
                     };
                     ApiResponse::success(submitter, "Bulk signatures submitted successfully".to_string())
                 }
@@ -2273,6 +2285,138 @@ pub async fn download_signed_pdf(
         .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename))
         .body(Body::from(signed_pdf_bytes))
         .unwrap()
+}
+
+#[utoipa::path(
+    put,
+    path = "/public/submissions/{token}/resubmit",
+    params(
+        ("token" = String, Path, description = "Submitter token")
+    ),
+    responses(
+        (status = 200, description = "Submitter resubmitted successfully", body = ApiResponse<crate::models::submitter::Submitter>),
+        (status = 404, description = "Submitter not found", body = ApiResponse<crate::models::submitter::Submitter>),
+        (status = 400, description = "Cannot resubmit if not completed", body = ApiResponse<crate::models::submitter::Submitter>)
+    )
+)]
+pub async fn resubmit_submitter(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
+    let pool = &state.lock().await.db_pool;
+
+    // Check global settings
+    match GlobalSettingsQueries::get_global_settings(pool).await {
+        Ok(Some(settings)) => {
+            if !settings.allow_to_resubmit_completed_forms {
+                return ApiResponse::forbidden("Resubmitting completed forms is not allowed".to_string());
+            }
+        }
+        Ok(None) => {
+            // No settings found, assume feature is disabled by default
+            return ApiResponse::forbidden("Resubmitting completed forms is not allowed".to_string());
+        }
+        Err(e) => return ApiResponse::internal_error(format!("Failed to check settings: {}", e)),
+    }
+
+    match SubmitterQueries::get_submitter_by_token(pool, &token).await {
+        Ok(Some(db_submitter)) => {
+            // Only allow resubmit if status is 'signed' or 'completed'
+            if db_submitter.status != "signed" && db_submitter.status != "completed" {
+                return ApiResponse::bad_request("Cannot resubmit: submission is not completed".to_string());
+            }
+
+            match SubmitterQueries::resubmit_submitter(pool, db_submitter.id).await {
+                Ok(()) => {
+                    // Fetch the updated submitter
+                    match SubmitterQueries::get_submitter_by_id(pool, db_submitter.id).await {
+                        Ok(Some(updated_submitter)) => {
+                            let reminder_config = updated_submitter.reminder_config.as_ref()
+                                .and_then(|v| serde_json::from_value(v.clone()).ok());
+                                
+                            let submitter = crate::models::submitter::Submitter {
+                                id: Some(updated_submitter.id),
+                                template_id: Some(updated_submitter.template_id),
+                                user_id: Some(updated_submitter.user_id),
+                                name: updated_submitter.name,
+                                email: updated_submitter.email,
+                                status: updated_submitter.status,
+                                signed_at: updated_submitter.signed_at,
+                                token: updated_submitter.token,
+                                bulk_signatures: updated_submitter.bulk_signatures,
+                                reminder_config,
+                                last_reminder_sent_at: updated_submitter.last_reminder_sent_at,
+                                reminder_count: updated_submitter.reminder_count,
+                                created_at: updated_submitter.created_at,
+                                updated_at: updated_submitter.updated_at,
+                                template_name: None,
+                            };
+                            ApiResponse::success(submitter, "Submitter resubmitted successfully".to_string())
+                        }
+                        Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
+                        Err(e) => ApiResponse::internal_error(format!("Failed to fetch submitter: {}", e)),
+                    }
+                }
+                Err(e) => ApiResponse::internal_error(format!("Failed to resubmit submitter: {}", e)),
+            }
+        }
+        _ => ApiResponse::not_found("Invalid token".to_string()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/public/submissions/{token}/send-copy",
+    params(
+        ("token" = String, Path, description = "Submitter token")
+    ),
+    responses(
+        (status = 200, description = "Email sent successfully", body = ApiResponse<String>),
+        (status = 404, description = "Submitter not found", body = ApiResponse<String>),
+        (status = 400, description = "Submitter not completed", body = ApiResponse<String>)
+    )
+)]
+pub async fn send_copy_email(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> (StatusCode, Json<ApiResponse<String>>) {
+    let state_lock = state.lock().await;
+    let pool = &state_lock.db_pool;
+
+    match SubmitterQueries::get_submitter_by_token(pool, &token).await {
+        Ok(Some(db_submitter)) => {
+            // Check if submission is completed
+            if db_submitter.status != "signed" && db_submitter.status != "completed" {
+                return ApiResponse::bad_request("Submission is not completed yet".to_string());
+            }
+
+            // Get template info
+            match TemplateQueries::get_template_by_id(pool, db_submitter.template_id).await {
+                Ok(Some(template)) => {
+                    // Create email service
+                    let email_service = match crate::services::email::EmailService::new() {
+                        Ok(service) => service,
+                        Err(e) => return ApiResponse::internal_error(format!("Failed to initialize email service: {}", e)),
+                    };
+
+                    // Send completion email
+                    match email_service.send_signature_completed(
+                        &db_submitter.email,
+                        &db_submitter.name,
+                        &template.name,
+                        &db_submitter.name,
+                    ).await {
+                        Ok(_) => ApiResponse::success("Email sent successfully".to_string(), "Email sent successfully".to_string()),
+                        Err(e) => ApiResponse::internal_error(format!("Failed to send email: {}", e)),
+                    }
+                }
+                Ok(None) => ApiResponse::not_found("Template not found".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to get template: {}", e)),
+            }
+        }
+        Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to get submitter: {}", e)),
+    }
 }
 
 pub fn create_submitter_router() -> Router<AppState> {

@@ -144,6 +144,7 @@ pub async fn get_template_full_info(
                             reminder_count: db_sub.reminder_count,
                             created_at: db_sub.created_at,
                             updated_at: db_sub.updated_at,
+                            template_name: None,
                         }
                     }).collect::<Vec<_>>();
 
