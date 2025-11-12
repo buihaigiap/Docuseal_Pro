@@ -28,12 +28,9 @@ const SubmitterItem: React.FC<SubmitterItemProps> = ({
   pdfUrl,
 }) => {
   const { globalSettings } = useBasicSettings();
-  const [downloading, setDownloading] = React.useState(false);
 
-  const handleDirectDownload = async () => {
-    if (!party?.token) return;
-
-    setDownloading(true);
+  // Tạo handleDownload riêng cho SubmitterItem
+  const handleDownload = async () => {
     try {
       // 1. Fetch signatures data cho submitter này
       const signaturesResult = await upstashService.getSubmissionSignatures(party.token);
@@ -61,10 +58,9 @@ const SubmitterItem: React.FC<SubmitterItemProps> = ({
     } catch (err: any) {
       console.error('Download error:', err);
       toast.error(`Failed to download PDF: ${err.message || 'Unknown error'}`);
-    } finally {
-      setDownloading(false);
     }
   };
+
   return (
     <div className="flex items-center justify-between py-2 px-3 rounded">
       <div className="flex items-center gap-3">
@@ -105,9 +101,9 @@ const SubmitterItem: React.FC<SubmitterItemProps> = ({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                handleDirectDownload();
+                // DÙNG handleDownload TRỰC TIẾP thay vì onDownload callback
+                handleDownload();
               }}
-              disabled={downloading}
                className="
               px-3 py-1.5 text-sm font-semibold
               border border-gray-500
@@ -115,19 +111,10 @@ const SubmitterItem: React.FC<SubmitterItemProps> = ({
                hover:text-white transition-colors
                 flex items-center gap-1"
             >
-              {downloading ? (
-                <>
-                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
-                  Downloading...
-                </>
-              ) : (
-                <>
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  DOWNLOAD
-                </>
-              )}
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              DOWNLOAD
             </button>
           )}
           <button
