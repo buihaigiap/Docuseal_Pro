@@ -67,7 +67,6 @@ const TemplateEditPage = () => {
     status: string; 
     signed_at?: string 
   } | null>(null);
-  console.log('submitterInfo', submitterInfo);
   const [pendingUploads, setPendingUploads] = useState<Record<number, File>>({});
   const navigate = useNavigate();
   const [fileUploading, setFileUploading] = useState(false);

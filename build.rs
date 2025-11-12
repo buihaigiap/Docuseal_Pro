@@ -12,7 +12,7 @@ fn main() {
     // But be careful as build.rs runs during compilation
 
     // Build the frontend
-    // build_frontend(); // Temporarily disabled
+    build_frontend();
 }
 
 fn build_frontend() {
