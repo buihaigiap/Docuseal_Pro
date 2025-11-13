@@ -443,8 +443,20 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         
         // Default text rendering for signatures
         ctx.fillStyle = color;
-        ctx.font = `${Math.min(Math.max(width / 5, 12), height - textHeight)}px sans-serif`;
+        let fontSize = Math.min(Math.max(width / 5, 12), height - textHeight);
+        ctx.font = `${fontSize}px sans-serif`;
+        
+        // Check if text fits in width and scale down if needed
+        let metrics = ctx.measureText(data || '');
+        let textWidth = metrics.width;
+        if (textWidth > width * 0.95) { // Allow 95% of width
+          fontSize = (width * 0.95 / textWidth) * fontSize;
+          ctx.font = `${fontSize}px sans-serif`;
+          metrics = ctx.measureText(data || '');
+        }
+        
         // ctx.textAlign = 'center';
+        ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.globalAlpha = 1.0; // Ensure full opacity
         ctx.fillText(data || '', width / 2, (height - textHeight) / 2);

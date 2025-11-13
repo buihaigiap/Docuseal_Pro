@@ -24,7 +24,8 @@ axiosClient.interceptors.request.use((config) => {
 
 axiosClient.interceptors.response.use((response) => {
     if (response && response.data) {
-        if (response.data.status === '400') {
+        // Check for API-level errors based on success flag and status_code
+        if (response.data.success === false || (response.data.status_code && response.data.status_code >= 400)) {
             throw response.data;
         }
         return response.data;

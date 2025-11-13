@@ -53,6 +53,12 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
     if (children) {
       return children;
     }
+    
+    // Safety check for field
+    if (!field) {
+      return null;
+    }
+    
     // Xác định giá trị hiển thị: ưu tiên value, sau đó dùng default từ user profile
     const displayValue = value || 
       (field.field_type === 'signature' ? defaultSignature : 

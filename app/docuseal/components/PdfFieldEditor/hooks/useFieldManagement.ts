@@ -181,12 +181,12 @@ export const useFieldManagement = (
       if (toUpdate.length > 0) {
         console.log('Updating', toUpdate.length, 'fields...');
         const updatePromises = toUpdate.map(field => {
-          // Convert position from % to pixels
+          // Convert position from decimal (0-1) to pixels, same as create logic
           const positionInPixels = field.position ? {
-            x: (field.position.x / 100) * effectivePageWidth,
-            y: (field.position.y / 100) * effectivePageHeight,
-            width: (field.position.width / 100) * effectivePageWidth,
-            height: (field.position.height / 100) * effectivePageHeight,
+            x: field.position.x * effectivePageWidth,
+            y: field.position.y * effectivePageHeight,
+            width: field.position.width * effectivePageWidth,
+            height: field.position.height * effectivePageHeight,
             page: field.position.page
           } : field.position;
 

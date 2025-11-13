@@ -7,8 +7,8 @@ import upstashService from '../ConfigApi/upstashService';
 import { Box, Button, CircularProgress, Typography, Alert } from '@mui/material';
 import { ArrowBack as ArrowBackIcon, Save as SaveIcon } from '@mui/icons-material';
 import toast from 'react-hot-toast';
-import { canTemplate } from '../hooks/useRoleAccess';
-import {useRoleAccess} from '../hooks/useRoleAccess';
+import { canTemplate , useRoleAccess } from '../hooks/useRoleAccess';
+import CreateTemplateButton from '../components/CreateTemplateButton';
 const TemplateEditorPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -166,13 +166,19 @@ const TemplateEditorPage = () => {
           gap: 2
         }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Button
+            <CreateTemplateButton
+              onClick={handleBack}
+              text="Back"
+              icon={<ArrowBackIcon />}
+              width="100px"
+            />
+            {/* <Button
               startIcon={<ArrowBackIcon />}
               onClick={handleBack}
               variant="outlined"
             >
               Back
-            </Button>
+            </Button> */}
             <Typography variant="h5" component="h1" fontWeight="600">
               Editing: {template.name}
             </Typography>

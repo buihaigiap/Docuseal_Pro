@@ -14,6 +14,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { useBasicSettings } from '../../hooks/useBasicSettings';
+import { useAuth } from '../../contexts/AuthContext';
 interface TemplateField {
   id: number;
   template_id: number;
@@ -74,6 +75,11 @@ const TemplateEditPage = () => {
   const [customReason, setCustomReason] = useState<string>('');
   const { globalSettings } = useBasicSettings();
   const [reasons, setReasons] = useState<Record<number, string>>({});
+  const [declineModalOpen, setDeclineModalOpen] = useState(false);
+  const [declineReason, setDeclineReason] = useState<string>('');
+  const [clearedFields, setClearedFields] = useState<Set<number>>(new Set());
+  const { user } = useAuth();
+  console.log('globalSettings' , globalSettings)
   const uploadFile = async (file: File): Promise<string | null> => {
     try {
       setFileUploading(true);
@@ -174,6 +180,24 @@ const TemplateEditPage = () => {
     fetchTemplateFields();
   }, [fetchTemplateFields]);
 
+  // Initialize texts with default signatures/initials when fields and user are available
+  useEffect(() => {
+    if (fields.length > 0 && user && globalSettings?.remember_and_pre_fill_signatures) {
+      const initialTexts: Record<number, string> = {};
+      fields.forEach(field => {
+        if ((field.field_type === 'signature' || field.field_type === 'initials') && !texts[field.id]) {
+          const defaultValue = field.field_type === 'signature' ? user.signature : user.initials;
+          if (defaultValue) {
+            initialTexts[field.id] = defaultValue;
+          }
+        }
+      });
+      if (Object.keys(initialTexts).length > 0) {
+        setTexts(prev => ({ ...prev, ...initialTexts }));
+      }
+    }
+  }, [fields, user, globalSettings?.remember_and_pre_fill_signatures]);
+
   // Update reasons state when selected reason changes
   useEffect(() => {
     if (globalSettings?.require_signing_reason) {
@@ -208,6 +232,17 @@ const TemplateEditPage = () => {
       setTexts(prev => ({ ...prev, [fieldId]: newSelections.join(',') }));
     } else {
       setTexts(prev => ({ ...prev, [fieldId]: value }));
+      // If setting to empty string, mark as cleared
+      if (value === '') {
+        setClearedFields(prev => new Set([...prev, fieldId]));
+      } else {
+        // If setting a value, remove from cleared fields
+        setClearedFields(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(fieldId);
+          return newSet;
+        });
+      }
     }
   };
 
@@ -324,10 +359,74 @@ const TemplateEditPage = () => {
     }
   };
 
+  const handleDecline = () => {
+    setDeclineModalOpen(true);
+  };
+
+  const handleDeclineConfirm = async () => {
+    if (!declineReason.trim()) {
+      toast.error('Please provide a reason for declining');
+      return;
+    }
+
+    try {
+      // Upload any pending files first
+      const finalTexts = { ...texts };
+      for (const [fieldId, file] of Object.entries(pendingUploads)) {
+        try {
+          const fileUrl = await uploadFile(file);
+          if (fileUrl) {
+            finalTexts[parseInt(fieldId)] = fileUrl;
+            // Cleanup blob URL after successful upload
+            const blobUrl = texts[parseInt(fieldId)];
+            if (blobUrl && blobUrl.startsWith('blob:')) {
+              URL.revokeObjectURL(blobUrl);
+            }
+          } else {
+            console.error(`Upload failed for field ${fieldId}`);
+            toast.error(`Failed to upload file for field ${fieldId}`);
+            return;
+          }
+        } catch (error) {
+          console.error(`Upload error for field ${fieldId}:`, error);
+          toast.error(`Upload error for field ${fieldId}`);
+          return;
+        }
+      }
+
+      const reason = selectedReason === 'Other' ? customReason : selectedReason;
+      const signatures = fields.map(field => ({
+        field_id: field.id,
+        signature_value: finalTexts[field.id] || '', // Preserve existing values
+        reason: globalSettings?.require_signing_reason && (field.field_type === 'signature' || field.field_type === 'initials') ? reason : undefined
+      }));
+
+      const data = await upstashService.bulkSign(token, {
+        signatures,
+        action: 'decline',
+        decline_reason: declineReason.trim(),
+        user_agent: navigator.userAgent
+      });
+
+      if (data.success) {
+        toast.success('Document declined successfully');
+        navigate(`/templates/${templateInfo?.id}`);
+        // Clear pending uploads after successful submission
+        setPendingUploads({});
+      } else {
+        toast.error(`Error: ${data.message}`);
+      }
+    } catch (err) {
+      console.error('Decline error:', err);
+      toast.error('Unable to decline document. Please try again.');
+    } finally {
+      setDeclineModalOpen(false);
+      setDeclineReason('');
+    }
+  };
+
   const currentField = fields[currentFieldIndex];
   const isLastField = currentFieldIndex === fields.length - 1;
-  if (loading) return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
-  if (error) return <div className="text-red-500 text-center p-4">{error}</div>;
 
   // Check if submission is already completed
   const isCompleted = submitterInfo?.status === 'signed' || submitterInfo?.status === 'completed';
@@ -351,9 +450,24 @@ const TemplateEditPage = () => {
     );
   }
 
+  // Safety check - if no current field, return loading or error
+  if (!currentField) {
+    return <div className="text-red-500 text-center p-4">No fields available</div>;
+  }
+
   return (
     <div >
-      <h1 className="text-2xl font-bold mb-4">{templateInfo?.name}</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">{templateInfo?.name}</h1>
+        {globalSettings?.allow_to_decline_documents && (
+          <CreateTemplateButton
+            text="Decline"
+            onClick={handleDecline}
+          />
+        )}
+      </div>
+      
+
       {/* PDF Full View */}
       <PdfFullView
         templateInfo={templateInfo}
@@ -366,6 +480,8 @@ const TemplateEditPage = () => {
         submitterId={submitterInfo?.id}
         submitterEmail={submitterInfo?.email}
         reasons={reasons}
+        clearedFields={clearedFields}
+        globalSettings={globalSettings}
       />
 
       {/* Form Modal */}
@@ -434,7 +550,8 @@ const TemplateEditPage = () => {
                 <SignaturePad
                   onSave={(dataUrl) => handleTextChange(currentField.id, dataUrl)}
                   onClear={() => handleTextChange(currentField.id, '')}
-                  initialData={texts[currentField.id]}
+                  initialData={texts[currentField.id] || (!clearedFields.has(currentField.id) && globalSettings?.remember_and_pre_fill_signatures && (currentField.field_type === 'signature' ? user?.signature : user?.initials))}
+                  fieldType={currentField.field_type}
                   onFileSelected={(file) => {
                     if (file) {
                       // Create blob URL for immediate preview
@@ -637,7 +754,7 @@ const TemplateEditPage = () => {
             </div>
           )}
 
-          {globalSettings?.require_signing_reason && (
+          {globalSettings?.require_signing_reason && (currentField.field_type === 'signature' || currentField.field_type === 'initials') && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
               <FormControl fullWidth>
                 <InputLabel>Signing Reason</InputLabel>
@@ -683,7 +800,6 @@ const TemplateEditPage = () => {
             <CreateTemplateButton
               onClick={handleNext}
               text="Next"
-
             />
           ) : (
             <CreateTemplateButton onClick={() => handleComplete()} text="Complete" />
@@ -691,7 +807,50 @@ const TemplateEditPage = () => {
         </DialogActions>
       </Dialog>
           
-        
+      {/* Decline Modal */}
+      <Dialog
+        open={declineModalOpen}
+        onClose={() => setDeclineModalOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogContent>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Decline Document
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 3 }}>
+            Please provide a reason for declining to sign this document.
+          </Typography>
+          <TextField
+            label="Decline Reason"
+            value={declineReason}
+            onChange={(e) => setDeclineReason(e.target.value)}
+            fullWidth
+            multiline
+            rows={4}
+            placeholder="Enter your reason for declining..."
+            required
+            autoFocus
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setDeclineModalOpen(false)}
+            variant="outlined"
+            color="inherit"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeclineConfirm}
+            variant="contained"
+            color="error"
+            disabled={!declineReason.trim()}
+          >
+            Decline Document
+          </Button>
+        </DialogActions>
+      </Dialog>
 
 
     </div>

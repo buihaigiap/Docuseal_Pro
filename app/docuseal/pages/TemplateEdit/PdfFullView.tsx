@@ -50,6 +50,8 @@ interface PdfFullViewProps {
   submitterId?: number;
   submitterEmail?: string;
   reasons?: Record<number, string>;
+  clearedFields?: Set<number>;
+  globalSettings?: any;
 }
 
 const PdfFullView: React.FC<PdfFullViewProps> = ({
@@ -62,7 +64,9 @@ const PdfFullView: React.FC<PdfFullViewProps> = ({
   token,
   submitterId,
   submitterEmail,
-  reasons
+  reasons,
+  clearedFields,
+  globalSettings
 }) => {
   const { user } = useAuth();
   return (
@@ -76,7 +80,11 @@ const PdfFullView: React.FC<PdfFullViewProps> = ({
           // scale={1.5}
         >
           {fields.filter(f => f?.position?.page === page)?.map(field => {
-            console.log('Rendering field:', field);
+            // Safety check - skip undefined or invalid fields
+            if (!field || !field.position) {
+              return null;
+            }
+            
             return (
               <div
                 key={field.id}
@@ -98,8 +106,8 @@ const PdfFullView: React.FC<PdfFullViewProps> = ({
                 <FieldRenderer
                   field={field}
                   value={texts[field.id]}
-                  defaultSignature={user?.signature}
-                  defaultInitials={user?.initials}
+                  defaultSignature={clearedFields?.has(field.id) || !globalSettings?.remember_and_pre_fill_signatures ? undefined : user?.signature}
+                  defaultInitials={clearedFields?.has(field.id) || !globalSettings?.remember_and_pre_fill_signatures ? undefined : user?.initials}
                   submitterId={submitterId}
                   submitterEmail={submitterEmail}
                   reason={reasons?.[field.id]}

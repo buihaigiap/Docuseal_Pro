@@ -59,6 +59,7 @@ pub async fn get_submitters(
                     created_at: db_submitter.created_at,
                     updated_at: db_submitter.updated_at,
                     template_name: None,
+                    decline_reason: db_submitter.decline_reason,
                 };
                 all_submitters.push(submitter);
             }
@@ -122,6 +123,7 @@ pub async fn get_submitter(
                 created_at: db_submitter.created_at,
                 updated_at: db_submitter.updated_at,
                 template_name: None,
+                decline_reason: db_submitter.decline_reason,
             };
             ApiResponse::success(submitter, "Submitter retrieved successfully".to_string())
         }
@@ -261,6 +263,7 @@ pub async fn update_submitter(
                         created_at: db_submitter.created_at,
                         updated_at: db_submitter.updated_at,
                         template_name: None,
+                        decline_reason: db_submitter.decline_reason,
                     };
                     ApiResponse::success(submitter, "Submitter updated successfully".to_string())
                 }
@@ -367,6 +370,7 @@ pub async fn update_public_submitter(
                         created_at: updated_submitter.created_at,
                         updated_at: updated_submitter.updated_at,
                         template_name: None,
+                        decline_reason: updated_submitter.decline_reason,
                     };
                     ApiResponse::success(submitter, "Submitter updated successfully".to_string())
                 }
@@ -423,6 +427,7 @@ pub async fn get_public_submitter(
                 created_at: db_submitter.created_at,
                 updated_at: db_submitter.updated_at,
                 template_name,
+                decline_reason: db_submitter.decline_reason,
             };
             ApiResponse::success(submitter, "Submitter retrieved successfully".to_string())
         }
@@ -452,6 +457,108 @@ pub async fn submit_bulk_signatures(
 
     match SubmitterQueries::get_submitter_by_token(pool, &token).await {
         Ok(Some(db_submitter)) => {
+            // Check if this is a decline request
+            if let Some(action) = &payload.action {
+                if action == "decline" {
+                    // Check global settings to see if declining is allowed
+                    let global_settings = match GlobalSettingsQueries::get_global_settings(pool).await {
+                        Ok(Some(settings)) => settings,
+                        Ok(None) => return ApiResponse::internal_error("Global settings not found".to_string()),
+                        Err(e) => return ApiResponse::internal_error(format!("Failed to get global settings: {}", e)),
+                    };
+                    
+                    if !global_settings.allow_to_decline_documents {
+                        return ApiResponse::bad_request("Declining documents is not allowed".to_string());
+                    }
+                    
+                    // Validate decline reason is provided
+                    let decline_reason = match payload.decline_reason.as_ref() {
+                        Some(reason) if !reason.trim().is_empty() => reason,
+                        _ => return ApiResponse::bad_request("Decline reason is required and cannot be empty".to_string()),
+                    };
+
+                    // Get submission fields for this submitter to validate against
+                    let submission_fields = match SubmissionFieldQueries::get_submission_fields_by_submitter_id(pool, db_submitter.id).await {
+                        Ok(fields) => fields,
+                        Err(e) => return ApiResponse::internal_error(format!("Failed to get submission fields: {}", e)),
+                    };
+
+                    // Validate that all field_ids belong to this submitter's submission fields
+                    for signature_item in &payload.signatures {
+                        // Find the field in submission fields
+                        if let Some(field) = submission_fields.iter().find(|f| f.id == signature_item.field_id) {
+                            // Check if submitter is allowed to sign this field based on partner
+                            if let Some(ref partner) = field.partner {
+                                let allowed = partner == &db_submitter.name || 
+                                             partner == &db_submitter.email || 
+                                             db_submitter.name.contains(&format!("({})", partner));
+                                if !allowed {
+                                    return ApiResponse::bad_request(format!("Field {} is not assigned to this submitter", signature_item.field_id));
+                                }
+                            }
+                        } else {
+                            return ApiResponse::bad_request(format!("Field {} not found in submission", signature_item.field_id));
+                        }
+                    }
+
+                    // Create signatures array with field details
+                    let mut signatures_array = Vec::new();
+                    for signature_item in &payload.signatures {
+                        let field_id = signature_item.field_id;
+                        let field_name = submission_fields.iter()
+                            .find(|f| f.id == field_id)
+                            .map(|f| f.name.clone())
+                            .unwrap_or_else(|| format!("field_{}", field_id));
+                        signatures_array.push(serde_json::json!({
+                            "field_id": field_id,
+                            "field_name": field_name,
+                            "signature_value": signature_item.signature_value,
+                            "reason": signature_item.reason
+                        }));
+                    }
+
+                    let bulk_signatures = serde_json::Value::Array(signatures_array);
+                    
+                    // Update submitter with decline and signatures
+                    match SubmitterQueries::update_submitter_with_decline_and_signatures(
+                        pool,
+                        db_submitter.id,
+                        decline_reason,
+                        &bulk_signatures,
+                        payload.ip_address.as_deref(),
+                        payload.user_agent.as_deref(),
+                    ).await {
+                        Ok(Some(updated_submitter)) => {
+                            let reminder_config = updated_submitter.reminder_config.as_ref()
+                                .and_then(|v| serde_json::from_value(v.clone()).ok());
+                                
+                            let submitter = crate::models::submitter::Submitter {
+                                id: Some(updated_submitter.id),
+                                template_id: Some(updated_submitter.template_id),
+                                user_id: Some(updated_submitter.user_id),
+                                name: updated_submitter.name,
+                                email: updated_submitter.email,
+                                status: updated_submitter.status,
+                                signed_at: updated_submitter.signed_at,
+                                token: updated_submitter.token,
+                                bulk_signatures: updated_submitter.bulk_signatures,
+                                reminder_config,
+                                last_reminder_sent_at: updated_submitter.last_reminder_sent_at,
+                                reminder_count: updated_submitter.reminder_count,
+                                created_at: updated_submitter.created_at,
+                                updated_at: updated_submitter.updated_at,
+                                template_name: None,
+                                decline_reason: updated_submitter.decline_reason,
+                            };
+                            return ApiResponse::success(submitter, "Document declined successfully".to_string())
+                        }
+                        Ok(None) => return ApiResponse::not_found("Submitter not found".to_string()),
+                        Err(e) => return ApiResponse::internal_error(format!("Failed to decline document: {}", e)),
+                    }
+                } else if action != "sign" {
+                    return ApiResponse::bad_request("Invalid action. Must be 'sign' or 'decline'".to_string());
+                }
+            }
             
             // Get submission fields for this submitter to validate against
             let submission_fields = match SubmissionFieldQueries::get_submission_fields_by_submitter_id(pool, db_submitter.id).await {
@@ -522,6 +629,7 @@ pub async fn submit_bulk_signatures(
                         created_at: updated_submitter.created_at,
                         updated_at: updated_submitter.updated_at,
                         template_name: None,
+                        decline_reason: updated_submitter.decline_reason,
                     };
                     ApiResponse::success(submitter, "Bulk signatures submitted successfully".to_string())
                 }
@@ -2350,6 +2458,7 @@ pub async fn resubmit_submitter(
                                 created_at: updated_submitter.created_at,
                                 updated_at: updated_submitter.updated_at,
                                 template_name: None,
+                                decline_reason: updated_submitter.decline_reason,
                             };
                             ApiResponse::success(submitter, "Submitter resubmitted successfully".to_string())
                         }

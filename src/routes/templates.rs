@@ -145,6 +145,7 @@ pub async fn get_template_full_info(
                             created_at: db_sub.created_at,
                             updated_at: db_sub.updated_at,
                             template_name: None,
+                            decline_reason: db_sub.decline_reason,
                         }
                     }).collect::<Vec<_>>();
 
@@ -165,22 +166,28 @@ pub async fn get_template_full_info(
                     for (_key, parties) in time_groups {
                         let sig_type = if parties.len() > 1 { "bulk" } else { "single" };
 
-                        let overall_status = if parties.iter().all(|s| s.status == "completed" || s.status == "signed") {
+                        let overall_status = if parties.iter().all(|s| s.status == "declined") {
+                            "declined"
+                        } else if parties.iter().all(|s| s.status == "completed" || s.status == "signed") {
                             "completed"
-                        } else if parties.iter().any(|s| s.status == "completed" || s.status == "signed") {
+                        } else if parties.iter().all(|s| s.status == "completed" || s.status == "signed" || s.status == "declined") {
+                            "mixed"
+                        } else if parties.iter().any(|s| s.status == "completed" || s.status == "signed" || s.status == "declined") {
                             "partial"
                         } else {
                             "pending"
                         };
 
                         let signed_count = parties.iter().filter(|s| s.status == "completed" || s.status == "signed").count();
+                        let declined_count = parties.iter().filter(|s| s.status == "declined").count();
 
                         signatures.push(serde_json::json!({
                             "type": sig_type,
                             "parties": parties,
                             "overall_status": overall_status,
                             "total_parties": parties.len(),
-                            "signed_parties": signed_count
+                            "signed_parties": signed_count,
+                            "declined_parties": declined_count
                         }));
                     }
 

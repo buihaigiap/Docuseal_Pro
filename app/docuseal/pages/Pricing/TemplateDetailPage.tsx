@@ -10,7 +10,7 @@ import { Trash2 , Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { canTemplate, useRoleAccess } from '../../hooks/useRoleAccess';
 import SigningStatus from './TemplateDetailComponents/SigningStatus';
-import { downloadSignedPDF as downloadSignedPDFFunc } from './TemplateDetailComponents/downloadUtils';
+// import { downloadSignedPDF as downloadSignedPDFFunc } from './TemplateDetailComponents/downloadUtils';
 import { useTranslation } from 'react-i18next';
 const TemplateDetailPage = () => {
   const { t } = useTranslation();
@@ -27,7 +27,7 @@ const TemplateDetailPage = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const checkRole = canTemplate(templateInfo?.template);
   const hasAccess = useRoleAccess(['agent']);
-  
+    
   const fetchTemplateInfo = useCallback(async () => {
     setLoading(true);
     try {
@@ -152,9 +152,9 @@ const TemplateDetailPage = () => {
   const handleViewSubmission = (submissionToken: string) => {
     navigate(`/signed-submission/${submissionToken}`);
   };
-const downloadSignedPDF = async (submitter: Submitter, pdfUrl?: string) => {
-    await downloadSignedPDFFunc(submitter, pdfUrl);
-};
+// const downloadSignedPDF = async (submitter: Submitter, pdfUrl?: string) => {
+//     await downloadSignedPDFFunc(submitter, pdfUrl);
+// };
   const handleDeleteSubmitter = async (submitterId: number) => {
     try {
       const data = await upstashService.deleteSubmitter(submitterId);
@@ -268,7 +268,7 @@ const downloadSignedPDF = async (submitter: Submitter, pdfUrl?: string) => {
         <SigningStatus
           templateInfo={templateInfo}
           handleViewSubmission={handleViewSubmission}
-          downloadSignedPDF={downloadSignedPDF}
+          // downloadSignedPDF={downloadSignedPDF}
           handleDeleteSubmitter={handleDeleteSubmitter}
           fetchTemplateInfo={fetchTemplateInfo}
           setShowInviteModal={setShowInviteModal}

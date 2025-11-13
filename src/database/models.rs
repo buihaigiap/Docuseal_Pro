@@ -201,6 +201,7 @@ pub struct DbSubmitter {
     pub reminder_count: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub decline_reason: Option<String>,
 }// Create submitter request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSubmitter {

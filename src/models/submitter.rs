@@ -51,6 +51,8 @@ pub struct Submitter {
     pub updated_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decline_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

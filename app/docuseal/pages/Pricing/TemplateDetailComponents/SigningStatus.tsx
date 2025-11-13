@@ -9,7 +9,7 @@ import SubmitterItem from './SubmitterItem';
 interface SigningStatusProps {
   templateInfo: any;
   handleViewSubmission: (token: string) => void;
-  downloadSignedPDF: (submitter: Submitter, pdfUrl?: string) => void;
+  // downloadSignedPDF: (submitter: Submitter, pdfUrl?: string) => void;
   handleDeleteSubmitter: (id: number) => void;
   fetchTemplateInfo: () => void;
   setShowInviteModal: (show: boolean) => void;
@@ -18,12 +18,13 @@ interface SigningStatusProps {
 const SigningStatus: React.FC<SigningStatusProps> = ({
   templateInfo,
   handleViewSubmission,
-  downloadSignedPDF,
+  // downloadSignedPDF,
   handleDeleteSubmitter,
   fetchTemplateInfo,
   setShowInviteModal,
 }) => {
   const { t } = useTranslation();
+  console.log('templateInfo in SigningStatus:', templateInfo);
   return (
     <div className="mt-6">
       {templateInfo.signatures && templateInfo.signatures.length > 0 ? (
@@ -66,7 +67,7 @@ const SigningStatus: React.FC<SigningStatusProps> = ({
                       ))}
                     </div>
                     <div className="flex items-center gap-2">
-                      {signature.overall_status === 'completed' && (
+                      {/* {signature.overall_status === 'completed' && (
                       <button
                           onClick={(e) => {
                               e.stopPropagation();
@@ -79,7 +80,7 @@ const SigningStatus: React.FC<SigningStatusProps> = ({
                           </svg>
                           {t('templates.detail.download')}
                       </button>
-                      )}
+                      )} */}
                       <button
                         onClick={() => handleViewSubmission(signature.parties[0].token)}
                         className="px-3 py-1.5 text-sm font-semibold
@@ -121,7 +122,7 @@ const SigningStatus: React.FC<SigningStatusProps> = ({
                         party={party}
                         signatureType={signature.type}
                         overallStatus={signature.overall_status}
-                        onDownload={downloadSignedPDF}
+                        // onDownload={downloadSignedPDF}
                         onView={handleViewSubmission}
                         onDelete={handleDeleteSubmitter}
                         pdfUrl={templateInfo.template.file_url}

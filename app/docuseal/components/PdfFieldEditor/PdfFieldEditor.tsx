@@ -53,7 +53,6 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
   useEffect(() => {
     prevPartnersRef.current = partners;
   }, [partners]);
-  console.log('fieldsbbbbbbbbbbbb'  , fields)
   // Custom hooks
   const { updateField, deleteField, handleSaveClick } = useFieldManagement(
     fields,
@@ -526,7 +525,6 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
                             field={f}
                             defaultSignature={user?.signature}
                             defaultInitials={user?.initials}
-                            scale={canvasClientWidth || 600}
                           />
                           {/* Bottom bar with single handle for column resizing */}
                           <div className="absolute bottom-0 left-0 right-0 h-4 bg-gray-200 flex items-center justify-center overflow-hidden">
@@ -546,7 +544,6 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
                           field={f}
                           defaultSignature={user?.signature}
                           defaultInitials={user?.initials}
-                          scale={canvasClientWidth || 600}
                         />
                       )}
                     </div>

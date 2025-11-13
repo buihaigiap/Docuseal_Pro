@@ -11,9 +11,10 @@ interface SignaturePadProps {
   initialData?: string;
   onFileSelected?: (file: File | null) => void; // New prop for file handling
   onUploadComplete?: () => void; // New prop to notify when upload is complete
+  fieldType?: string; // 'signature' or 'initials'
 }
 
-const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialData, onFileSelected, onUploadComplete }) => {
+const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialData, onFileSelected, onUploadComplete, fieldType = 'signature' }) => {
   const sigPadRef = useRef<SignatureCanvas>(null);
   const [isEmpty, setIsEmpty] = useState(true);
   const [mode, setMode] = useState<'draw' | 'type' | 'upload'>('draw');
@@ -46,6 +47,13 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
           setTypedText(initialData);
         }
       }
+    } else {
+      // Clear everything when initialData is empty
+      setMode('draw');
+      sigPadRef.current?.clear();
+      setIsEmpty(true);
+      setTypedText('');
+      setUploadedImage('');
     }
   }, [initialData]);
 
@@ -140,7 +148,6 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
         <Button
           startIcon={<PenLine size={18} />}
           variant={mode === 'draw' ? 'contained' : 'outlined'}
-          color="primary"
           onClick={() => handleModeChange('draw')}
           sx={{ textTransform: 'none', borderRadius: 2, px: 2 }}
         >
@@ -149,18 +156,16 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
         <Button
           startIcon={<Type size={18} />}
           variant={mode === 'type' ? 'contained' : 'outlined'}
-          color="primary"
           onClick={() => handleModeChange('type')}
-          sx={{ textTransform: 'none', borderRadius: 2, px: 2 }}
+          sx={{ textTransform: 'none', borderRadius: 2, px: 2 , color:'white' }}
         >
           Type
         </Button>
         <Button
           startIcon={<Upload size={18} />}
           variant={mode === 'upload' ? 'contained' : 'outlined'}
-          color="primary"
           onClick={() => handleModeChange('upload')}
-          sx={{ textTransform: 'none', borderRadius: 2, px: 2 }}
+          sx={{ textTransform: 'none', borderRadius: 2, px: 2 , color:'white'}}
         >
           Upload
         </Button>
@@ -232,9 +237,54 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClear, initialDat
             variant="outlined"
             sx={{
               mb: 1,
-              '& input': {  fontSize: '1.6rem', color: '#000' },
+              '& input': {  fontSize: '1.6rem', color: 'white' },
             }}
           />
+          <Box
+            sx={{
+              border: '2px dashed #ccc',
+              borderRadius: 2,
+              bgcolor: 'white',
+              position: 'relative',
+              width: 420,
+              height: 200,
+              overflow: 'hidden',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {typedText ? (
+              <Typography
+                sx={{
+                  fontFamily: fieldType === 'initials'
+                    ? '"Times New Roman", Times, serif'
+                    : '"Brush Script MT", "Lucida Handwriting", "Apple Chancery", cursive',
+                  fontStyle: fieldType === 'initials' ? 'italic' : 'normal',
+                  fontSize: Math.min(420 / Math.max(typedText.length * 0.8, 10), 48),
+                  color: 'black',
+                  textAlign: 'center',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: '90%',
+                  lineHeight: 1.2,
+                  fontWeight: fieldType === 'initials' ? 400 : 300,
+                }}
+              >
+                {typedText.length > 25 ? typedText.substring(0, 22) + '...' : typedText}
+              </Typography>
+            ) : (
+              <Typography
+                sx={{
+                  color: '#aaa',
+                  fontStyle: 'italic',
+                }}
+              >
+                Preview will appear here...
+              </Typography>
+            )}
+          </Box>
         </Box>
       </Fade>
 
