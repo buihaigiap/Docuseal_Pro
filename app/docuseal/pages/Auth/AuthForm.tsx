@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import upstashService from '../../ConfigApi/upstashService';
 import { motion } from 'framer-motion';
 import { User, Mail, Lock, Eye, EyeOff, FileText } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const AuthForm: React.FC<{ isRegister?: boolean }> = ({ isRegister }) => {
     const [name, setName] = useState('');
@@ -15,6 +15,10 @@ const AuthForm: React.FC<{ isRegister?: boolean }> = ({ isRegister }) => {
     const [showPassword, setShowPassword] = useState(false);
     const { login } = useAuth();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const redirectUrl = searchParams.get('redirect');
+
+    console.log('AuthForm mount - searchParams redirect:', redirectUrl);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -38,6 +42,14 @@ const AuthForm: React.FC<{ isRegister?: boolean }> = ({ isRegister }) => {
 
                 if (data.success) {
                     login(data.data.token, data.data.user);
+                    // Store redirect URL if present
+                    console.log('Login success - Redirect URL:', redirectUrl);
+                    if (redirectUrl) {
+                        localStorage.setItem('redirectAfterLogin', redirectUrl);
+                        console.log('Stored redirect URL:', redirectUrl);
+                    } else {
+                        console.log('No redirect URL');
+                    }
                     navigate('/');
                 } else {
                     setError(data.message || 'Login failed');

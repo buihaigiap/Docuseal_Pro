@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import upstashService from '../ConfigApi/upstashService';
 import { Container, Paper, Typography, TextField, Button, CircularProgress, Box, Alert } from '@mui/material';
@@ -12,6 +12,9 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuth();
+  const [searchParams] = useSearchParams();
+  const redirectUrl = searchParams.get('redirect');
+  
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,7 +26,16 @@ const LoginPage = () => {
 
       if (data.success) {
         login(data.data.token, data.data.user);
-        navigate('/');
+        // Redirect to the specified URL or default to home
+        console.log('Login success - Redirect URL:', redirectUrl);
+        if (redirectUrl) {
+          // Store redirect URL and navigate to home first, then redirect
+          localStorage.setItem('redirectAfterLogin', redirectUrl);
+          navigate('/');
+        } else {
+          console.log('No redirect URL, going to home');
+          navigate('/');
+        }
       } else {
         setError(data.message || 'Login failed');
       }

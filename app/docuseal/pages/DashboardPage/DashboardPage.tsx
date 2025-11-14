@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { Template } from '../../types';
 import upstashService from '../../ConfigApi/upstashService';
@@ -22,6 +23,7 @@ const DashboardPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [globalSettings, setGlobalSettings] = useState<any>(null);
   const [requires2FA, setRequires2FA] = useState(false);
+  const navigate = useNavigate();
   const { token, user, refreshUser } = useAuth();
   // Check if we just returned from Google OAuth
   useEffect(() => {
@@ -31,9 +33,16 @@ const DashboardPage = () => {
       window.history.replaceState({}, '', window.location.pathname);
       toast.success('Google Drive connected successfully!');
     }
-  }, []);
 
-  const fetchTemplates = async () => {
+    // Check for redirect after login
+    const redirectUrl = localStorage.getItem('redirectAfterLogin');
+    console.log('Dashboard mount - checking redirect:', { redirectUrl, token: !!token });
+    if (redirectUrl && token) {
+      console.log('Found redirect URL, navigating to:', redirectUrl);
+      localStorage.removeItem('redirectAfterLogin');
+      window.location.href = redirectUrl;
+    }
+  }, [token, navigate]);  const fetchTemplates = async () => {
     if (!token) {
         setError("Authentication token not found.");
         setLoading(false);

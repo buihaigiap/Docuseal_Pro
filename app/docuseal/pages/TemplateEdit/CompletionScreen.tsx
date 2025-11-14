@@ -2,6 +2,8 @@ import { Button, Typography } from '@mui/material';
 import toast from 'react-hot-toast';
 import upstashService from '../../ConfigApi/upstashService';
 import CreateTemplateButtonProps from '../../components/CreateTemplateButton';
+import { useNavigate } from 'react-router-dom';
+
 interface CompletionScreenProps {
   signedDate: string;
   templateName?: string;
@@ -15,6 +17,8 @@ const CompletionScreen: React.FC<CompletionScreenProps> = ({
   token, 
   allowResubmit 
 }) => {
+  const navigate = useNavigate();
+
   const handleSendEmail = async () => {
     try {
       await upstashService.sendCopyEmail(token);
@@ -24,11 +28,28 @@ const CompletionScreen: React.FC<CompletionScreenProps> = ({
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     try {
-      window.open(`/public/download/${token}`, '_blank');
+      const response = await upstashService.downLoadFile(token);
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${templateName || 'signed_document'}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
       toast.success('Download started');
-    } catch (error) {
+    } catch (error: any) {
+      if (error.response?.status === 401 || error.status === 401) {
+        // Authentication required, redirect to login with return URL
+        const currentUrl = window.location.href;
+        console.log('CompletionScreen 401 - current URL:', currentUrl);
+        const loginUrl = `/login?redirect=${encodeURIComponent(currentUrl)}`;
+        console.log('CompletionScreen 401 - redirecting to:', loginUrl);
+        window.location.href = window.location.origin + loginUrl;
+        return;
+      }
       toast.error('Failed to download');
     }
   };

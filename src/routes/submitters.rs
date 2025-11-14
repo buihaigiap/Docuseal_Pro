@@ -9,7 +9,7 @@ use axum::{
 };
 use crate::common::responses::ApiResponse;
 use crate::database::queries::{SubmitterQueries, UserQueries, SubmissionFieldQueries, GlobalSettingsQueries, TemplateQueries};
-use crate::common::jwt::auth_middleware;
+use crate::common::jwt::{auth_middleware, verify_jwt};
 use crate::common::authorization::require_admin_or_team_member;
 use crate::services::storage::StorageService;
 use chrono::Utc;
@@ -2185,6 +2185,7 @@ fn merge_pdfs(pdf_bytes_list: Vec<Vec<u8>>) -> Result<Vec<u8>, Box<dyn std::erro
 pub async fn download_signed_pdf(
     State(state): State<AppState>,
     Path(token): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     let pool = &state.lock().await.db_pool;
     
@@ -2281,6 +2282,37 @@ pub async fn download_signed_pdf(
             }
         }
     };
+    
+    // Check if authentication is required for file download links
+    if global_settings.require_authentication_for_file_download_links {
+        let auth_header = headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|header| header.to_str().ok())
+            .and_then(|header| header.strip_prefix("Bearer "));
+        
+        let token = match auth_header {
+            Some(token) => token,
+            None => {
+                return Response::builder()
+                    .status(StatusCode::UNAUTHORIZED)
+                    .body(Body::from("Authentication required for file download"))
+                    .unwrap();
+            }
+        };
+        
+        let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "your-secret-key".to_string());
+        match verify_jwt(token, &secret) {
+            Ok(_) => {
+                // Authentication successful, continue
+            },
+            Err(_) => {
+                return Response::builder()
+                    .status(StatusCode::UNAUTHORIZED)
+                    .body(Body::from("Invalid authentication token"))
+                    .unwrap();
+            }
+        }
+    }
     
     // Get document URL
     let doc_url = match template.documents.as_ref().and_then(|docs| docs.get(0)) {
