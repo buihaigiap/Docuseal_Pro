@@ -3,7 +3,6 @@ import {
   Typography,
   Box,
   TextField,
-  Button,
   FormControl,
   InputLabel,
   Select,
@@ -50,7 +49,6 @@ const GeneralSettings = () => {
   const [companyName, setCompanyName] = useState('');
   const [timezone, setTimezone] = useState('');
   const [locale, setLocale] = useState('');
-  const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
 
   // ✅ gộp tất cả toggle vào 1 object
@@ -96,46 +94,6 @@ const GeneralSettings = () => {
     fetchSettings();
   }, []);
 
-  const handleSavePreferences = async () => {
-    setLoading(true);
-    try {
-      await upstashService.updateBasicSettings({
-        force_2fa_with_authenticator_app: preferences.force2fa,
-        add_signature_id_to_the_documents: preferences.addSignatureId,
-        require_signing_reason: preferences.requireSigningReason,
-        allow_typed_text_signatures: preferences.allowTypedTextSignatures,
-        allow_to_resubmit_completed_forms: preferences.allowResubmitCompletedForms,
-        allow_to_decline_documents: preferences.allowDeclineDocuments,
-        remember_and_pre_fill_signatures: preferences.rememberPrefillSignatures,
-        require_authentication_for_file_download_links: preferences.requireAuthForDownload,
-        combine_completed_documents_and_audit_log: preferences.combineCompletedAudit,
-        expirable_file_download_links: preferences.expirableDownloadLinks
-      });
-      toast.success('Preferences updated successfully');
-    } catch (err) {
-      toast.error('Failed to update preferences');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUpdateSettings = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await upstashService.updateBasicSettings({
-        company_name: companyName,
-        timezone: timezone,
-        locale: locale
-      });
-      toast.success(t('settings.general.updated'));
-    } catch (err) {
-      toast.error(t('settings.general.updateFailed'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   if (fetchLoading) {
     return <Typography>{t('common.loading')}</Typography>;
   }
@@ -146,7 +104,7 @@ const GeneralSettings = () => {
         {t('settings.general.title')}
       </Typography>
 
-      <Box component="form" onSubmit={handleUpdateSettings}>
+      <Box>
         {/* --- BASIC INFO --- */}
         <div className="bg-white/5 border border-white/10 rounded-lg p-4 mb-4">
           <Typography variant="h6" sx={{ mb: 2 }}>
@@ -157,7 +115,21 @@ const GeneralSettings = () => {
             fullWidth
             label={t('settings.general.companyName')}
             value={companyName}
-            onChange={(e) => setCompanyName(e.target.value)}
+            onChange={async (e) => {
+              const newValue = e.target.value;
+              setCompanyName(newValue);
+              // Auto-save company name
+              try {
+                await upstashService.updateBasicSettings({
+                  company_name: newValue
+                });
+                toast.success('Company name updated');
+              } catch (err) {
+                toast.error('Failed to update company name');
+                // Revert on error
+                setCompanyName(companyName);
+              }
+            }}
             sx={{ mb: 2 }}
           />
 
@@ -167,7 +139,21 @@ const GeneralSettings = () => {
               <Select
                 value={timezone}
                 label={t('settings.general.timeZone')}
-                onChange={(e) => setTimezone(e.target.value)}
+                onChange={async (e) => {
+                  const newValue = e.target.value;
+                  setTimezone(newValue);
+                  // Auto-save timezone
+                  try {
+                    await upstashService.updateBasicSettings({
+                      timezone: newValue
+                    });
+                    toast.success('Timezone updated');
+                  } catch (err) {
+                    toast.error('Failed to update timezone');
+                    // Revert on error
+                    setTimezone(timezone);
+                  }
+                }}
               >
                 {TIMEZONES.map((tz) => (
                   <MenuItem key={tz} value={tz}>{tz}</MenuItem>
@@ -180,7 +166,24 @@ const GeneralSettings = () => {
               <Select
                 value={locale}
                 label={t('settings.general.language')}
-                onChange={(e) => setLocale(e.target.value)}
+                onChange={async (e) => {
+                  const newValue = e.target.value;
+                  setLocale(newValue);
+                  // Change language immediately
+                  i18n.changeLanguage(newValue);
+                  // Auto-save locale
+                  try {
+                    await upstashService.updateBasicSettings({
+                      locale: newValue
+                    });
+                    toast.success('Language updated');
+                  } catch (err) {
+                    toast.error('Failed to update language');
+                    // Revert on error
+                    setLocale(locale);
+                    i18n.changeLanguage(locale);
+                  }
+                }}
               >
                 {LOCALES.map((loc) => (
                   <MenuItem key={loc.value} value={loc.value}>

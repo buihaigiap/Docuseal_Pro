@@ -82,8 +82,9 @@ pub struct SignaturePositionData {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BulkSignatureRequest {
     pub signatures: Vec<BulkSignatureItem>,
-    pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    pub session_id: Option<String>,
+    pub timezone: Option<String>,
     #[serde(default)]
     pub action: Option<String>, // "sign" or "decline"
     pub decline_reason: Option<String>,

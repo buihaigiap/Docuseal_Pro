@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS submitters (
     bulk_signatures JSONB, -- Store multiple signatures as JSON array
     ip_address TEXT, -- IP address of signer
     user_agent TEXT, -- User agent of signer
+    session_id VARCHAR(255), -- Session ID for tracking
+    viewed_at TIMESTAMP WITH TIME ZONE, -- When form was first viewed
+    timezone VARCHAR(100), -- User timezone
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -20,3 +23,4 @@ CREATE INDEX IF NOT EXISTS idx_submitters_template_id ON submitters(template_id)
 CREATE INDEX IF NOT EXISTS idx_submitters_user_id ON submitters(user_id);
 CREATE INDEX IF NOT EXISTS idx_submitters_token ON submitters(token);
 CREATE INDEX IF NOT EXISTS idx_submitters_email ON submitters(email);
+CREATE INDEX IF NOT EXISTS idx_submitters_session_id ON submitters(session_id);

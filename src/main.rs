@@ -64,12 +64,12 @@ use models::template::Template;
         routes::submitters::get_public_submitter,
         routes::submitters::update_public_submitter,
         routes::submitters::submit_bulk_signatures,
-        routes::submitters::download_signed_pdf,
         routes::submitters::get_submitters,
         routes::submitters::get_submitter,
         routes::submitters::update_submitter,
         routes::submitters::delete_submitter,
         routes::submitters::get_me,
+        routes::submitters::get_submitter_audit_log,
         routes::reminder_settings::get_reminder_settings,
         routes::reminder_settings::update_reminder_settings,
         routes::global_settings::get_global_settings
@@ -250,7 +250,10 @@ async fn main() {
     println!("API Base URL: http://{}/api", addr);
     println!("Frontend: http://{}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(
+        listener, 
+        app.into_make_service_with_connect_info::<SocketAddr>()
+    ).await.unwrap();
 }
 
 async fn run_migrations(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

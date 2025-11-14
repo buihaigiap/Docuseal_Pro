@@ -100,7 +100,8 @@ pub fn create_router() -> Router<AppState> {
         .route("/public/signatures/bulk/:token", post(submitters::submit_bulk_signatures))
         .route("/public/submissions/:token/resubmit", put(submitters::resubmit_submitter))
         .route("/public/submissions/:token/send-copy", post(submitters::send_copy_email))
-        .route("/public/download/:token", get(submitters::download_signed_pdf));
+        .route("/api/submitters/:token/audit-log", get(submitters::get_submitter_audit_log));
+    
     println!("Final router created");
     final_router
 }

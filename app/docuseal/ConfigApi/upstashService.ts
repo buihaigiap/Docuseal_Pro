@@ -81,16 +81,16 @@ const upstashService = {
         };
         return await axios.get(fullUrl, config);
     },
-    downLoadFile: async (token: string) => {
-        const apiUrl = `${axiosClient.defaults.baseURL}/public/download/${token}`;
-        const config = {
-            headers: {
-                'Authorization': localStorage.getItem(JWT_LOCAL_STORAGE_KEY) ? `Bearer ${localStorage.getItem(JWT_LOCAL_STORAGE_KEY)}` : undefined
-            },
-            responseType: 'blob' as const
-        };
-        return await axios.get(apiUrl, config);
-    },
+    // downLoadFile: async (token: string) => {
+    //     const apiUrl = `${axiosClient.defaults.baseURL}/public/download/${token}`;
+    //     const config = {
+    //         headers: {
+    //             'Authorization': localStorage.getItem(JWT_LOCAL_STORAGE_KEY) ? `Bearer ${localStorage.getItem(JWT_LOCAL_STORAGE_KEY)}` : undefined
+    //         },
+    //         responseType: 'blob' as const
+    //     };
+    //     return await axios.get(apiUrl, config);
+    // },
 
     // Submission APIs
     createSubmission: async (data: any): Promise<any> => {

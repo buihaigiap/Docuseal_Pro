@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import  { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { SubmissionSignaturesResponse } from '../types';
 import PdfViewer from '../components/PdfViewer';
 import SignatureRenderer from '../components/SignatureRenderer';
 import upstashService from '../ConfigApi/upstashService';
@@ -13,35 +12,6 @@ const SignedSubmissionPage = () => {
   const [error, setError] = useState('');
   const [submitterInfo, setSubmitterInfo] = useState<{ id: number; email: string } | null>(null);
   
-  const handleDownload = async () => {
-    try {
-      console.log('Testing download with token:', token);
-      const response = await upstashService.downLoadFile(token!);
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'signed_document.pdf';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
-      console.log('Download successful');
-    } catch (error: any) {
-      console.log('Download error:', error);
-      console.log('Error response:', error.response);
-      console.log('Error status:', error.response?.status || error.status);
-      if (error.response?.status === 401 || error.status === 401) {
-        // Authentication required, redirect to login with return URL
-        const currentUrl = window.location.href;
-        console.log('SignedSubmissionPage 401 - current URL:', currentUrl);
-        const loginUrl = `/login?redirect=${encodeURIComponent(currentUrl)}`;
-        console.log('SignedSubmissionPage 401 - redirecting to:', loginUrl);
-        window.location.href = window.location.origin + loginUrl;
-        return;
-      }
-      console.error('Failed to download');
-    }
-  };
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -130,13 +100,6 @@ const SignedSubmissionPage = () => {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold mb-4">Thông tin chữ ký</h2>
-            <button
-              onClick={handleDownload}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              <Download className="w-4 h-4" />
-              Download PDF
-            </button>
           </div>            {/* Submitter Info - Display once at top */}
               <div className="space-y-2">
                 <p className="text-sm font-medium">{data.submitter?.name}</p>

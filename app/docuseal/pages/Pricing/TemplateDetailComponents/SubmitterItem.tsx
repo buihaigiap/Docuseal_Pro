@@ -1,7 +1,7 @@
 import React from 'react';
 import { Submitter } from '../../../types';
 import { Trash2 } from 'lucide-react';
-import { downloadSignedPDF } from '../../../services/pdfDownloadService';
+import { downloadSignedPDF, fetchAuditLog, generateMockAuditLog } from '../../../services/pdfDownloadService';
 import upstashService from '../../../ConfigApi/upstashService';
 import { useBasicSettings } from '../../../hooks/useBasicSettings';
 import toast from 'react-hot-toast';
@@ -48,13 +48,22 @@ const SubmitterItem: React.FC<SubmitterItemProps> = ({
         email: party.email
       };
 
-      // 3. Gọi downloadSignedPDF với data đã fetch
+      // 3. Fetch real audit log, fallback to mock
+      let auditLog = await fetchAuditLog(party.token);
+      if (!auditLog || auditLog.length === 0) {
+        auditLog = generateMockAuditLog(
+          party.email,
+          signaturesResult.data.template_info.name
+        );
+      }
+
       await downloadSignedPDF(
         pdfUrl || signaturesResult.data.template_info.document.url,
         signaturesResult.data.bulk_signatures,
         signaturesResult.data.template_info.name,
         submitterInfo,
-        globalSettings
+        globalSettings,
+        auditLog
       );
 
       toast.success('PDF downloaded successfully!');

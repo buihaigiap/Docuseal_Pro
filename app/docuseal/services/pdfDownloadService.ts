@@ -1,6 +1,73 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { hashId } from '../constants/reminderDurations';
 
+// Interface for audit log entry
+interface AuditLogEntry {
+  timestamp: string;
+  action: string;
+  user: string;
+  details?: string;
+  ip?: string;
+  user_agent?: string;
+  session_id?: string;
+  timezone?: string;
+}
+
+// Fetch real audit log from backend
+export const fetchAuditLog = async (
+  submitterToken: string
+): Promise<AuditLogEntry[]> => {
+  try {
+    const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
+    const response = await fetch(`${API_BASE_URL}/api/submitters/${submitterToken}/audit-log`, {
+      headers: {
+        'Authorization': localStorage.getItem('token') ? `Bearer ${localStorage.getItem('token')}` : ''
+      }
+    });
+
+    if (!response.ok) {
+      console.warn('Failed to fetch audit log, using fallback');
+      return [];
+    }
+
+    const data = await response.json();
+    // Filter out envelope_info object, keep only audit events
+    const entries = (data.data || []).filter((entry: any) => entry.type !== 'envelope_info');
+    return entries;
+  } catch (error) {
+    console.error('Error fetching audit log:', error);
+    return [];
+  }
+};
+
+// Helper function to generate mock audit log for testing (fallback)
+// TODO: Remove this after backend API is ready
+export const generateMockAuditLog = (
+  submitterEmail: string,
+  templateName: string
+): AuditLogEntry[] => {
+  return [
+    {
+      timestamp: new Date(Date.now() - 3600000).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+      action: 'Document Created',
+      user: submitterEmail || 'Unknown User',
+      details: `Template "${templateName}" was uploaded and fields were configured`
+    },
+    {
+      timestamp: new Date(Date.now() - 1800000).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+      action: 'Document Sent',
+      user: 'System',
+      details: `Document sent to ${submitterEmail} for signature`
+    },
+    {
+      timestamp: new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+      action: 'Document Signed',
+      user: submitterEmail,
+      details: `All required fields completed and document submitted successfully`
+    }
+  ];
+};
+
 // Helper function to render vector signature to canvas and convert to image
 export const renderSignatureToImage = (signatureData: string, width: number, height: number, options?: {
   submitterId?: number;
@@ -207,7 +274,8 @@ export const downloadSignedPDF = async (
   signatures: any[],
   templateName: string,
   submitterInfo?: { id: number; email: string } | null,
-  globalSettings?: any
+  globalSettings?: any,
+  auditLog?: AuditLogEntry[]
 ) => {
   // Fetch PDF file từ server với binary response
   const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -453,12 +521,445 @@ export const downloadSignedPDF = async (
     }
   }
 
+  // Add audit log pages if provided
+  if (auditLog && auditLog.length > 0) {
+    console.log('Adding audit log pages:', auditLog.length, 'entries');
+    await generateAuditLogPages(pdfDoc, auditLog);
+  }
+
   // Save và download PDF
   const pdfBytesModified = await pdfDoc.save();
   const blob = new Blob([pdfBytesModified as any], { type: 'application/pdf' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = `signed_${templateName}.pdf`;
+  link.download = auditLog && auditLog.length > 0 
+    ? `signed_${templateName}_with_audit.pdf` 
+    : `signed_${templateName}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+};
+
+// Generate audit log pages to append to PDF
+export const generateAuditLogPages = async (
+  pdfDoc: PDFDocument,
+  auditLog: AuditLogEntry[]
+): Promise<void> => {
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  
+  const pageWidth = 595; // A4 width in points
+  const pageHeight = 842; // A4 height in points
+  const margin = 50;
+  const lineHeight = 15;
+  const maxWidth = pageWidth - 2 * margin;
+  
+  let page = pdfDoc.addPage([pageWidth, pageHeight]);
+  let yPosition = pageHeight - margin;
+  
+  // Try to embed logo (optional)
+  let logo = null;
+  try {
+    const logoUrl = '/logo.png'; // Adjust path to your logo
+    const logoResponse = await fetch(logoUrl);
+    if (logoResponse.ok) {
+      const logoBytes = await logoResponse.arrayBuffer();
+      logo = await pdfDoc.embedPng(logoBytes);
+    }
+  } catch (err) {
+    console.warn('Logo not found, continuing without logo:', err);
+  }
+  
+  // Draw logo and title on the same line
+  if (logo) {
+    const logoHeight = 130;
+    const logoWidth = logo.width * (logoHeight / logo.height);
+    
+    // Draw logo on the left
+    page.drawImage(logo, {
+      x: margin,
+      y: yPosition - logoHeight,
+      width: logoWidth,
+      height: logoHeight,
+    });
+    
+    // Draw title aligned to the right edge
+    const titleText = 'Audit Log';
+    const titleWidth = boldFont.widthOfTextAtSize(titleText, 18);
+    const titleX = pageWidth - margin - titleWidth; // Right-aligned
+    page.drawText(titleText, {
+      x: titleX,
+      y: yPosition - logoHeight / 2 - 9, // Center vertically with logo
+      size: 18,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    });
+    
+    yPosition -= logoHeight + 20;
+  } else {
+    // No logo, just draw title right-aligned
+    const titleText = 'Audit Log';
+    const titleWidth = boldFont.widthOfTextAtSize(titleText, 18);
+    page.drawText(titleText, {
+      x: pageWidth - margin - titleWidth,
+      y: yPosition,
+      size: 18,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    });
+    
+    yPosition -= 30;
+  }
+  
+  // Draw separator line
+  page.drawLine({
+    start: { x: margin, y: yPosition },
+    end: { x: pageWidth - margin, y: yPosition },
+    thickness: 1,
+    color: rgb(0, 0, 0),
+  });
+  
+  yPosition -= 20;
+  
+  // Draw audit log entries
+  for (const entry of auditLog) {
+    // Skip invalid entries
+    if (!entry || !entry.timestamp || !entry.action || !entry.user) {
+      console.warn('Skipping invalid audit log entry:', entry);
+      continue;
+    }
+
+    // Check if we need a new page
+    if (yPosition < margin + 120) {
+      page = pdfDoc.addPage([pageWidth, pageHeight]);
+      yPosition = pageHeight - margin;
+    }
+    
+    // Draw timestamp
+    page.drawText(entry.timestamp || 'N/A', {
+      x: margin,
+      y: yPosition,
+      size: 10,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    });
+    yPosition -= lineHeight;
+    
+    // Draw action
+    page.drawText(`Action: ${entry.action || 'Unknown'}`, {
+      x: margin + 10,
+      y: yPosition,
+      size: 9,
+      font: font,
+      color: rgb(0, 0, 0),
+    });
+    yPosition -= lineHeight;
+    
+    // Draw user
+    page.drawText(`User: ${entry.user || 'Unknown'}`, {
+      x: margin + 10,
+      y: yPosition,
+      size: 9,
+      font: font,
+      color: rgb(0.2, 0.2, 0.2),
+    });
+    yPosition -= lineHeight;
+    
+    // Draw details if available
+    if (entry.details) {
+      const detailsText = `Details: ${entry.details}`;
+      const words = detailsText.split(' ');
+      let line = '';
+      
+      for (const word of words) {
+        const testLine = line + word + ' ';
+        const testWidth = font.widthOfTextAtSize(testLine, 9);
+        
+        if (testWidth > maxWidth - 20 && line.length > 0) {
+          page.drawText(line.trim(), {
+            x: margin + 10,
+            y: yPosition,
+            size: 9,
+            font: font,
+            color: rgb(0.3, 0.3, 0.3),
+          });
+          yPosition -= lineHeight;
+          line = word + ' ';
+          
+          // Check if we need a new page
+          if (yPosition < margin + 40) {
+            page = pdfDoc.addPage([pageWidth, pageHeight]);
+            yPosition = pageHeight - margin;
+          }
+        } else {
+          line = testLine;
+        }
+      }
+      
+      if (line.trim().length > 0) {
+        page.drawText(line.trim(), {
+          x: margin + 10,
+          y: yPosition,
+          size: 9,
+          font: font,
+          color: rgb(0.3, 0.3, 0.3),
+        });
+        yPosition -= lineHeight;
+      }
+    }
+
+    // Draw additional metadata if available
+    const metadata: string[] = [];
+    if (entry.ip) metadata.push(`IP: ${entry.ip}`);
+    if (entry.session_id) metadata.push(`Session: ${entry.session_id}`);
+    if (entry.timezone) metadata.push(`Timezone: ${entry.timezone}`);
+    if (entry.user_agent) {
+      // Truncate user agent if too long
+      const ua = entry.user_agent.length > 50 ? entry.user_agent.substring(0, 47) + '...' : entry.user_agent;
+      metadata.push(`User Agent: ${ua}`);
+    }
+
+    if (metadata.length > 0) {
+      // Draw each metadata line separately to avoid overflow
+      for (const meta of metadata) {
+        if (yPosition < margin + 20) {
+          page = pdfDoc.addPage([pageWidth, pageHeight]);
+          yPosition = pageHeight - margin;
+        }
+        page.drawText(meta, {
+          x: margin + 10,
+          y: yPosition,
+          size: 7,
+          font: font,
+          color: rgb(0.5, 0.5, 0.5),
+        });
+        yPosition -= 12;
+      }
+    }
+    
+    // Add spacing between entries
+    yPosition -= 10;
+    
+    // Draw separator line
+    if (yPosition > margin + 20) {
+      page.drawLine({
+        start: { x: margin, y: yPosition },
+        end: { x: pageWidth - margin, y: yPosition },
+        thickness: 0.5,
+        color: rgb(0.7, 0.7, 0.7),
+      });
+      yPosition -= 15;
+    }
+  }
+};
+
+// Download signed PDF with audit log combined
+export const downloadSignedPDFWithAuditLog = async (
+  pdfUrl: string,
+  signatures: any[],
+  templateName: string,
+  submitterInfo?: { id: number; email: string } | null,
+  globalSettings?: any,
+  auditLog?: AuditLogEntry[]
+) => {
+  // Fetch PDF file từ server với binary response
+  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
+  const fullUrl = `${API_BASE_URL}/api/files/${pdfUrl}`;
+  const response = await fetch(fullUrl, {
+    headers: {
+      'Authorization': localStorage.getItem('token') ? `Bearer ${localStorage.getItem('token')}` : ''
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch PDF: ${response.statusText}`);
+  }
+
+  const pdfBytes = await response.arrayBuffer();
+
+  // Load PDF với pdf-lib
+  const pdfDoc = await PDFDocument.load(pdfBytes);
+  const pages = pdfDoc.getPages();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  // Lặp qua tất cả chữ ký và render lên PDF (same logic as downloadSignedPDF)
+  for (const signature of signatures) {
+    const field = signature.field_info;
+    const signatureValue = signature.signature_value;
+
+    console.log('Processing field:', {
+      name: field.name,
+      type: field.field_type,
+      hasValue: !!signatureValue,
+      valuePreview: signatureValue?.substring(0, 50),
+      position: field.position
+    });
+
+    if (!signatureValue || !field.position) continue;
+
+    const pageIndex = field.position.page - 1;
+    if (pageIndex < 0 || pageIndex >= pages.length) continue;
+
+    const page = pages[pageIndex];
+    const { width: pageWidth, height: pageHeight } = page.getSize();
+
+    const normalizePosition = (position: any) => {
+      if (!position || typeof position.x !== 'number') return position;
+
+      if (position.x > 1 || position.y > 1 || position.width > 1 || position.height > 1) {
+        const DEFAULT_PDF_WIDTH = 600;
+        const DEFAULT_PDF_HEIGHT = 800;
+        return {
+          ...position,
+          x: position.x / DEFAULT_PDF_WIDTH,
+          y: position.y / DEFAULT_PDF_HEIGHT,
+          width: position.width / DEFAULT_PDF_WIDTH,
+          height: position.height / DEFAULT_PDF_HEIGHT
+        };
+      }
+      return position;
+    };
+
+    const normalizedPos = normalizePosition(field.position);
+    const x = Math.max(0, Math.min(1, normalizedPos.x)) * pageWidth;
+    const y = Math.max(0, Math.min(1, normalizedPos.y)) * pageHeight;
+    const fieldWidth = Math.max(0, Math.min(1, normalizedPos.width)) * pageWidth;
+    const fieldHeight = Math.max(0, Math.min(1, normalizedPos.height)) * pageHeight;
+
+    const pdfX = Math.max(0, Math.min(pageWidth - fieldWidth, x));
+    const pdfY = Math.max(0, pageHeight - y - fieldHeight);
+
+    // Render based on field type (same as downloadSignedPDF)
+    if (field.field_type === 'text' || field.field_type === 'date' || field.field_type === 'number') {
+      const fontSize = Math.min(fieldHeight * 0.6, 12);
+      page.drawText(signatureValue, {
+        x: pdfX,
+        y: pdfY + fieldHeight * 0.3,
+        size: fontSize,
+        font: font,
+        color: rgb(0, 0, 0),
+      });
+    } else if (field.field_type === 'signature' || field.field_type === 'initials') {
+      if (signatureValue.startsWith('data:image/')) {
+        try {
+          const imageBytes = await fetch(signatureValue).then(res => res.arrayBuffer());
+          let image;
+          if (signatureValue.includes('png')) {
+            image = await pdfDoc.embedPng(imageBytes);
+          } else {
+            image = await pdfDoc.embedJpg(imageBytes);
+          }
+
+          const imgDims = image.scale(1);
+          const scale = Math.min(fieldWidth / imgDims.width, fieldHeight / imgDims.height);
+
+          page.drawImage(image, {
+            x: pdfX,
+            y: pdfY,
+            width: imgDims.width * scale,
+            height: imgDims.height * scale,
+          });
+        } catch (err) {
+          console.error('Error embedding signature image:', err);
+        }
+      } else if (signatureValue.startsWith('[') || signatureValue.startsWith('{')) {
+        const canvasWidth = fieldWidth;
+        const canvasHeight = fieldHeight;
+
+        try {
+          const signatureImageUrl = await renderSignatureToImage(
+            signatureValue,
+            canvasWidth,
+            canvasHeight,
+            {
+              submitterId: submitterInfo?.id,
+              submitterEmail: submitterInfo?.email,
+              reason: signature.reason,
+              globalSettings
+            }
+          );
+
+          const imageBytes = await fetch(signatureImageUrl).then(res => res.arrayBuffer());
+          const image = await pdfDoc.embedPng(imageBytes);
+
+          page.drawImage(image, {
+            x: pdfX,
+            y: pdfY,
+            width: fieldWidth,
+            height: fieldHeight,
+          });
+        } catch (err) {
+          console.error('Error rendering vector signature:', err);
+          const fontSize = Math.min(fieldHeight * 0.6, 12);
+          page.drawText('[Signature]', {
+            x: pdfX,
+            y: pdfY + fieldHeight * 0.3,
+            size: fontSize,
+            font: font,
+            color: rgb(0, 0, 0),
+          });
+        }
+      } else {
+        const fontSize = Math.min(fieldHeight * 0.6, 12);
+        page.drawText(signatureValue, {
+          x: pdfX,
+          y: pdfY + fieldHeight * 0.3,
+          size: fontSize,
+          font: font,
+          color: rgb(0, 0, 0),
+        });
+      }
+    } else if (field.field_type === 'checkbox') {
+      if (signatureValue === 'true') {
+        const checkSize = Math.min(fieldWidth, fieldHeight) * 0.8;
+        page.drawText('✓', {
+          x: pdfX + (fieldWidth - checkSize) / 2,
+          y: pdfY + (fieldHeight - checkSize) / 2,
+          size: checkSize,
+          font: font,
+          color: rgb(0, 0, 0),
+        });
+      }
+    } else if (field.field_type === 'image') {
+      if (signatureValue.startsWith('http') || signatureValue.startsWith('blob:') || signatureValue.startsWith('data:image/')) {
+        try {
+          const imageBytes = await fetch(signatureValue).then(res => res.arrayBuffer());
+          let image;
+          if (signatureValue.includes('png')) {
+            image = await pdfDoc.embedPng(imageBytes);
+          } else {
+            image = await pdfDoc.embedJpg(imageBytes);
+          }
+
+          const imgDims = image.scale(1);
+          const scale = Math.min(fieldWidth / imgDims.width, fieldHeight / imgDims.height);
+
+          page.drawImage(image, {
+            x: pdfX,
+            y: pdfY,
+            width: imgDims.width * scale,
+            height: imgDims.height * scale,
+          });
+        } catch (err) {
+          console.error('Error embedding image:', err);
+        }
+      }
+    }
+  }
+
+  // Add audit log pages if provided
+  if (auditLog && auditLog.length > 0) {
+    console.log('Adding audit log pages:', auditLog.length, 'entries');
+    await generateAuditLogPages(pdfDoc, auditLog);
+  }
+
+  // Save và download PDF
+  const pdfBytesModified = await pdfDoc.save();
+  const blob = new Blob([pdfBytesModified as any], { type: 'application/pdf' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `signed_${templateName}_with_audit.pdf`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

@@ -1052,7 +1052,7 @@ impl SubmitterQueries {
         let row = sqlx::query(
             "INSERT INTO submitters (template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, reminder_count, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-             RETURNING id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason "
+             RETURNING id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone"
         )
         .bind(submitter_data.template_id)
         .bind(submitter_data.user_id)
@@ -1090,13 +1090,16 @@ impl SubmitterQueries {
             created_at: row.get(14),
             updated_at: row.get(15),
             decline_reason: row.get(16),
+            session_id: row.get(17),
+            viewed_at: row.get(18),
+            timezone: row.get(19),
         })
     }
 
     pub async fn get_submitters_by_template(pool: &PgPool, template_id: i64) -> Result<Vec<DbSubmitter>, sqlx::Error> {
         eprintln!("Getting submitters for template_id: {}", template_id);
         let rows = sqlx::query(
-            "SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason 
+            "SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone
              FROM submitters WHERE template_id = $1 ORDER BY created_at "
         )
         .bind(template_id)
@@ -1124,6 +1127,9 @@ impl SubmitterQueries {
                 created_at: row.get(14),
                 updated_at: row.get(15),
                 decline_reason: row.get(16),
+                session_id: row.get(17),
+                viewed_at: row.get(18),
+                timezone: row.get(19),
             });
         }
         Ok(submitters)
@@ -1132,7 +1138,7 @@ impl SubmitterQueries {
     pub async fn get_submitters_by_user(pool: &PgPool, user_id: i64) -> Result<Vec<DbSubmitter>, sqlx::Error> {
         eprintln!("Getting submitters for user_id: {}", user_id);
         let rows = sqlx::query(
-            "SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason 
+            "SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone
              FROM submitters WHERE user_id = $1 ORDER BY created_at "
         )
         .bind(user_id)
@@ -1160,6 +1166,9 @@ impl SubmitterQueries {
                 created_at: row.get(14),
                 updated_at: row.get(15),
                 decline_reason: row.get(16),
+                session_id: row.get(17),
+                viewed_at: row.get(18),
+                timezone: row.get(19),
             });
         }
         Ok(submitters)
@@ -1167,7 +1176,7 @@ impl SubmitterQueries {
 
     pub async fn get_submitter_by_token(pool: &PgPool, token: &str) -> Result<Option<DbSubmitter>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason 
+            "SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone
              FROM submitters WHERE token = $1"
         )
         .bind(token)
@@ -1193,6 +1202,9 @@ impl SubmitterQueries {
                 created_at: row.get(14),
                 updated_at: row.get(15),
                 decline_reason: row.get(16),
+                session_id: row.get(17),
+                viewed_at: row.get(18),
+                timezone: row.get(19),
             }))
         } else {
             Ok(None)
@@ -1206,7 +1218,7 @@ impl SubmitterQueries {
         let row = sqlx::query(
             "UPDATE submitters SET status = COALESCE($1, status), signed_at = COALESCE($2, signed_at), updated_at = $3 
              WHERE id = $4 
-             RETURNING id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason"
+             RETURNING id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone"
         )
         .bind(status)
         .bind(signed_at)
@@ -1234,6 +1246,9 @@ impl SubmitterQueries {
                 created_at: row.get(14),
                 updated_at: row.get(15),
                 decline_reason: row.get(16),
+                session_id: row.get(17),
+                viewed_at: row.get(18),
+                timezone: row.get(19),
             }))
         } else {
             Ok(None)
@@ -1246,17 +1261,21 @@ impl SubmitterQueries {
         bulk_signatures: &serde_json::Value,
         ip_address: Option<&str>,
         user_agent: Option<&str>,
+        session_id: Option<&str>,
+        timezone: Option<&str>,
     ) -> Result<Option<DbSubmitter>, sqlx::Error> {
         let now = Utc::now();
 
         let row = sqlx::query(
-            "UPDATE submitters SET bulk_signatures = $1, ip_address = $2, user_agent = $3, status = 'signed', signed_at = $4, updated_at = $4 
-             WHERE id = $5 
-             RETURNING id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason"
+            "UPDATE submitters SET bulk_signatures = $1, ip_address = $2, user_agent = $3, session_id = $4, timezone = $5, status = 'signed', signed_at = $6, updated_at = $6 
+             WHERE id = $7 
+             RETURNING id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone"
         )
         .bind(bulk_signatures)
         .bind(ip_address)
         .bind(user_agent)
+        .bind(session_id)
+        .bind(timezone)
         .bind(now)
         .bind(id)
         .fetch_optional(pool)
@@ -1281,6 +1300,9 @@ impl SubmitterQueries {
                 created_at: row.get(14),
                 updated_at: row.get(15),
                 decline_reason: row.get(16),
+                session_id: row.get(17),
+                viewed_at: row.get(18),
+                timezone: row.get(19),
             }))
         } else {
             Ok(None)
@@ -1294,18 +1316,22 @@ impl SubmitterQueries {
         bulk_signatures: &serde_json::Value,
         ip_address: Option<&str>,
         user_agent: Option<&str>,
+        session_id: Option<&str>,
+        timezone: Option<&str>,
     ) -> Result<Option<DbSubmitter>, sqlx::Error> {
         let now = Utc::now();
 
         let row = sqlx::query(
-            "UPDATE submitters SET status = 'declined', decline_reason = $1, bulk_signatures = $2, ip_address = $3, user_agent = $4, updated_at = $5 
-             WHERE id = $6 
-             RETURNING id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason "
+            "UPDATE submitters SET status = 'declined', decline_reason = $1, bulk_signatures = $2, ip_address = $3, user_agent = $4, session_id = $5, timezone = $6, updated_at = $7 
+             WHERE id = $8 
+             RETURNING id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone"
         )
         .bind(decline_reason)
         .bind(bulk_signatures)
         .bind(ip_address)
         .bind(user_agent)
+        .bind(session_id)
+        .bind(timezone)
         .bind(now)
         .bind(id)
         .fetch_optional(pool)
@@ -1330,6 +1356,9 @@ impl SubmitterQueries {
                 created_at: row.get(14),
                 updated_at: row.get(15),
                 decline_reason: row.get(16),
+                session_id: row.get(17),
+                viewed_at: row.get(18),
+                timezone: row.get(19),
             }))
         } else {
             Ok(None)
@@ -1338,7 +1367,7 @@ impl SubmitterQueries {
 
     pub async fn get_submitter_by_id(pool: &PgPool, id: i64) -> Result<Option<DbSubmitter>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason 
+            "SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone
              FROM submitters WHERE id = $1"
         )
         .bind(id)
@@ -1364,6 +1393,9 @@ impl SubmitterQueries {
                 created_at: row.get(14),
                 updated_at: row.get(15),
                 decline_reason: row.get(16),
+                session_id: row.get(17),
+                viewed_at: row.get(18),
+                timezone: row.get(19),
             }))
         } else {
             Ok(None)
@@ -1374,7 +1406,7 @@ impl SubmitterQueries {
     pub async fn get_pending_reminders(pool: &PgPool) -> Result<Vec<DbSubmitter>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason
+            SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone
             FROM submitters
             WHERE status IN ('pending', 'sent', 'viewed')
               AND reminder_config IS NOT NULL
@@ -1405,6 +1437,9 @@ impl SubmitterQueries {
                 created_at: row.get(14),
                 updated_at: row.get(15),
                 decline_reason: row.get(16),
+                session_id: row.get(17),
+                viewed_at: row.get(18),
+                timezone: row.get(19),
             });
         }
         Ok(submitters)
@@ -1505,7 +1540,7 @@ impl SubmitterQueries {
             .map(|i| format!("${}", i))
             .collect();
         let query_str = format!(
-            "SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason 
+            "SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone
              FROM submitters 
              WHERE user_id IN ({}) 
              ORDER BY created_at DESC",
@@ -1539,6 +1574,9 @@ impl SubmitterQueries {
                 created_at: row.get(14),
                 updated_at: row.get(15),
                 decline_reason: row.get(16),
+                session_id: row.get(17),
+                viewed_at: row.get(18),
+                timezone: row.get(19),
             });
         }
         Ok(submitters)
@@ -1649,7 +1687,7 @@ impl SignatureQueries {
     ) -> Result<Option<DbSubmitter>, sqlx::Error> {
         let row = sqlx::query(
             r#"
-            SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason
+            SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone
             FROM submitters
             WHERE id = $1 AND bulk_signatures IS NOT NULL
             "#
@@ -1677,6 +1715,9 @@ impl SignatureQueries {
                 created_at: row.get(14),
                 updated_at: row.get(15),
                 decline_reason: row.get(16),
+                session_id: row.get(17),
+                viewed_at: row.get(18),
+                timezone: row.get(19),
             })),
             None => Ok(None),
         }

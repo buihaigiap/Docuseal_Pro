@@ -104,7 +104,22 @@ const SignPage = () => {
     }));
 
     try {
-      const data = await upstashService.bulkSign(signingToken, { signatures: signaturePayload, ip_address: '127.0.0.1', user_agent: navigator.userAgent });
+      // Generate or retrieve session ID
+      let sessionId = sessionStorage.getItem('docuseal_session_id');
+      if (!sessionId) {
+        sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+        sessionStorage.setItem('docuseal_session_id', sessionId);
+      }
+
+      // Get user's timezone
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+      const data = await upstashService.bulkSign(signingToken, { 
+        signatures: signaturePayload, 
+        user_agent: navigator.userAgent,
+        session_id: sessionId,
+        timezone: timezone
+      });
       if(data.success) {
         alert("Document signed successfully!");
         fetchSubmitterInfo();

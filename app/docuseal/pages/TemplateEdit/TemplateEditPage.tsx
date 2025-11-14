@@ -338,9 +338,21 @@ const TemplateEditPage = () => {
         reason: globalSettings?.require_signing_reason ? reason : undefined
       }));
 
+      // Generate or retrieve session ID
+      let sessionId = sessionStorage.getItem('docuseal_session_id');
+      if (!sessionId) {
+        sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+        sessionStorage.setItem('docuseal_session_id', sessionId);
+      }
+
+      // Get user's timezone
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
       const data = await upstashService.bulkSign(token, {
         signatures,
-        user_agent: navigator.userAgent
+        user_agent: navigator.userAgent,
+        session_id: sessionId,
+        timezone: timezone
       });
       console.log(data)
       if (data.success) {
@@ -401,11 +413,23 @@ const TemplateEditPage = () => {
         reason: globalSettings?.require_signing_reason && (field.field_type === 'signature' || field.field_type === 'initials') ? reason : undefined
       }));
 
+      // Generate or retrieve session ID
+      let sessionId = sessionStorage.getItem('docuseal_session_id');
+      if (!sessionId) {
+        sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+        sessionStorage.setItem('docuseal_session_id', sessionId);
+      }
+
+      // Get user's timezone
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
       const data = await upstashService.bulkSign(token, {
         signatures,
         action: 'decline',
         decline_reason: declineReason.trim(),
-        user_agent: navigator.userAgent
+        user_agent: navigator.userAgent,
+        session_id: sessionId,
+        timezone: timezone
       });
 
       if (data.success) {

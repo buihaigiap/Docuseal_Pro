@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State, Extension},
+    extract::{Path, State, Extension, ConnectInfo},
     http::{StatusCode, header},
     response::{Json, Response, IntoResponse},
     routing::{get, put, delete},
@@ -7,6 +7,7 @@ use axum::{
     middleware,
     body::Body,
 };
+use std::net::SocketAddr;
 use crate::common::responses::ApiResponse;
 use crate::database::queries::{SubmitterQueries, UserQueries, SubmissionFieldQueries, GlobalSettingsQueries, TemplateQueries};
 use crate::common::jwt::{auth_middleware, verify_jwt};
@@ -450,10 +451,15 @@ pub async fn get_public_submitter(
 )]
 pub async fn submit_bulk_signatures(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Path(token): Path<String>,
     Json(payload): Json<crate::models::signature::BulkSignatureRequest>,
 ) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
     let pool = &state.lock().await.db_pool;
+
+    // Extract real IP address from socket
+    let real_ip = addr.ip().to_string();
+    eprintln!("Client IP: {}", real_ip);
 
     match SubmitterQueries::get_submitter_by_token(pool, &token).await {
         Ok(Some(db_submitter)) => {
@@ -525,8 +531,10 @@ pub async fn submit_bulk_signatures(
                         db_submitter.id,
                         decline_reason,
                         &bulk_signatures,
-                        payload.ip_address.as_deref(),
+                        Some(&real_ip),
                         payload.user_agent.as_deref(),
+                        payload.session_id.as_deref(),
+                        payload.timezone.as_deref(),
                     ).await {
                         Ok(Some(updated_submitter)) => {
                             let reminder_config = updated_submitter.reminder_config.as_ref()
@@ -602,12 +610,22 @@ pub async fn submit_bulk_signatures(
 
             let bulk_signatures = serde_json::Value::Array(signatures_array);
 
+            eprintln!("=== SUBMITTER UPDATE DEBUG ===");
+            eprintln!("Submitter ID: {}", db_submitter.id);
+            eprintln!("Real IP: {}", real_ip);
+            eprintln!("User Agent: {:?}", payload.user_agent);
+            eprintln!("Session ID: {:?}", payload.session_id);
+            eprintln!("Timezone: {:?}", payload.timezone);
+            eprintln!("==============================");
+
             match SubmitterQueries::update_submitter_with_signatures(
                 pool,
                 db_submitter.id,
                 &bulk_signatures,
-                payload.ip_address.as_deref(),
+                Some(&real_ip),
                 payload.user_agent.as_deref(),
+                payload.session_id.as_deref(),
+                payload.timezone.as_deref(),
             ).await {
                 Ok(Some(updated_submitter)) => {
                     let reminder_config = updated_submitter.reminder_config.as_ref()
@@ -2170,262 +2188,6 @@ fn merge_pdfs(pdf_bytes_list: Vec<Vec<u8>>) -> Result<Vec<u8>, Box<dyn std::erro
     Ok(pdf_bytes_list.concat())
 }
 
-#[utoipa::path(
-    get,
-    path = "/public/download/:token",
-    params(
-        ("token" = String, Path, description = "Submitter token")
-    ),
-    responses(
-        (status = 200, description = "PDF file downloaded successfully"),
-        (status = 404, description = "Submitter not found")
-    ),
-    tag = "submitters"
-)]
-pub async fn download_signed_pdf(
-    State(state): State<AppState>,
-    Path(token): Path<String>,
-    headers: axum::http::HeaderMap,
-) -> impl IntoResponse {
-    let pool = &state.lock().await.db_pool;
-    
-    // Get submitter by token
-    let db_submitter = match SubmitterQueries::get_submitter_by_token(pool, &token).await {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            return Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("Invalid token"))
-                .unwrap();
-        },
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Failed to get submitter: {}", e)))
-                .unwrap();
-        }
-    };
-    
-    // Get template
-    let db_template = match crate::database::queries::TemplateQueries::get_template_by_id(pool, db_submitter.template_id).await {
-        Ok(Some(t)) => t,
-        Ok(None) => {
-            return Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("Template not found"))
-                .unwrap();
-        },
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Failed to get template: {}", e)))
-                .unwrap();
-        }
-    };
-    
-    // Get template with fields
-    let template = match crate::routes::templates::convert_db_template_to_template_with_fields(db_template.clone(), pool).await {
-        Ok(t) => t,
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Failed to load template: {}", e)))
-                .unwrap();
-        }
-    };
-
-    // Get global settings to check if signature ID should be added
-    let global_settings = match crate::database::queries::GlobalSettingsQueries::get_global_settings(pool).await {
-        Ok(Some(settings)) => settings,
-        Ok(None) => {
-            eprintln!("Warning: Global settings not found, using defaults");
-            // Continue with default settings (signature ID disabled)
-            crate::database::models::DbGlobalSettings {
-                id: 1,
-                company_name: None,
-                timezone: None,
-                locale: None,
-                force_2fa_with_authenticator_app: false,
-                add_signature_id_to_the_documents: false,
-                require_signing_reason: false,
-                allow_typed_text_signatures: true,
-                allow_to_resubmit_completed_forms: false,
-                allow_to_decline_documents: false,
-                remember_and_pre_fill_signatures: false,
-                require_authentication_for_file_download_links: false,
-                combine_completed_documents_and_audit_log: false,
-                expirable_file_download_links: false,
-                created_at: chrono::Utc::now(),
-                updated_at: chrono::Utc::now(),
-            }
-        },
-        Err(e) => {
-            eprintln!("Warning: Failed to get global settings: {}", e);
-            // Continue with default settings (signature ID disabled)
-            crate::database::models::DbGlobalSettings {
-                id: 1,
-                company_name: None,
-                timezone: None,
-                locale: None,
-                force_2fa_with_authenticator_app: false,
-                add_signature_id_to_the_documents: false,
-                require_signing_reason: false,
-                allow_typed_text_signatures: true,
-                allow_to_resubmit_completed_forms: false,
-                allow_to_decline_documents: false,
-                remember_and_pre_fill_signatures: false,
-                require_authentication_for_file_download_links: false,
-                combine_completed_documents_and_audit_log: false,
-                expirable_file_download_links: false,
-                created_at: chrono::Utc::now(),
-                updated_at: chrono::Utc::now(),
-            }
-        }
-    };
-    
-    // Check if authentication is required for file download links
-    if global_settings.require_authentication_for_file_download_links {
-        let auth_header = headers
-            .get(axum::http::header::AUTHORIZATION)
-            .and_then(|header| header.to_str().ok())
-            .and_then(|header| header.strip_prefix("Bearer "));
-        
-        let token = match auth_header {
-            Some(token) => token,
-            None => {
-                return Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .body(Body::from("Authentication required for file download"))
-                    .unwrap();
-            }
-        };
-        
-        let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "your-secret-key".to_string());
-        match verify_jwt(token, &secret) {
-            Ok(_) => {
-                // Authentication successful, continue
-            },
-            Err(_) => {
-                return Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .body(Body::from("Invalid authentication token"))
-                    .unwrap();
-            }
-        }
-    }
-    
-    // Get document URL
-    let doc_url = match template.documents.as_ref().and_then(|docs| docs.get(0)) {
-        Some(doc) => &doc.url,
-        None => {
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::from("Template has no document"))
-                .unwrap();
-        }
-    };
-    
-    // Download PDF from storage
-    eprintln!("=== DOWNLOAD PDF DEBUG ===");
-    eprintln!("Document URL: {}", doc_url);
-    eprintln!("Template ID: {}", db_template.id);
-    eprintln!("Submitter ID: {}", db_submitter.id);
-    
-    let storage_service = match StorageService::new().await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("❌ Storage service initialization error: {}", e);
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Storage error: {}", e)))
-                .unwrap();
-        }
-    };
-    
-    eprintln!("✅ Storage service initialized");
-    
-    let pdf_bytes = match storage_service.download_file(doc_url).await {
-        Ok(bytes) => {
-            eprintln!("✅ PDF downloaded successfully, size: {} bytes", bytes.len());
-            bytes
-        },
-        Err(e) => {
-            eprintln!("❌ Failed to download PDF from storage: {}", e);
-            eprintln!("Error details: {:?}", e);
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Failed to download PDF: {}", e)))
-                .unwrap();
-        }
-    };
-    
-    // Get submission fields for this submitter (not template fields)
-    let submission_fields = match SubmissionFieldQueries::get_submission_fields_by_submitter_id(pool, db_submitter.id).await {
-        Ok(fields) => fields,
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Failed to get submission fields: {}", e)))
-                .unwrap();
-        }
-    };
-    
-    // Extract signatures from this submitter
-    let mut signatures_to_render: Vec<(String, String, String, f64, f64, f64, f64, i32, serde_json::Value)> = Vec::new();
-    
-    if let Some(bulk_sigs) = &db_submitter.bulk_signatures {
-        if let Some(sigs_array) = bulk_sigs.as_array() {
-            for sig in sigs_array {
-                let field_id = sig.get("field_id").and_then(|v| v.as_i64()).unwrap_or(0);
-                let signature_value = sig.get("signature_value")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                
-                // Find field info in submission fields (not template fields)
-                if let Some(field) = submission_fields.iter().find(|f| f.id == field_id) {
-                    if let Some(position_json) = &field.position {
-                        // Parse position from JSON
-                        if let Ok(position) = serde_json::from_value::<crate::models::template::FieldPosition>(position_json.clone()) {
-                            signatures_to_render.push((
-                                field.name.clone(),
-                                field.field_type.clone(),
-                                signature_value,
-                                position.x,
-                                position.y,
-                                position.width,
-                                position.height,
-                                position.page,
-                                sig.clone() // Include the full signature JSON
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // Render signatures on PDF
-    let signed_pdf_bytes = match render_signatures_on_pdf(&pdf_bytes, &signatures_to_render, &global_settings, &db_submitter) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Failed to render PDF: {}", e)))
-                .unwrap();
-        }
-    };
-    
-    // Return PDF file directly
-    let filename = format!("signed_{}_{}.pdf", template.slug, db_submitter.id);
-    
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/pdf")
-        .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename))
-        .body(Body::from(signed_pdf_bytes))
-        .unwrap()
-}
 
 #[utoipa::path(
     put,
@@ -2557,6 +2319,134 @@ pub async fn send_copy_email(
         }
         Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
         Err(e) => ApiResponse::internal_error(format!("Failed to get submitter: {}", e)),
+    }
+}
+
+// Get audit log for a submitter
+#[utoipa::path(
+    get,
+    path = "/api/submitters/{token}/audit-log",
+    params(
+        ("token" = String, Path, description = "Submitter token")
+    ),
+    responses(
+        (status = 200, description = "Audit log retrieved successfully"),
+        (status = 404, description = "Submitter not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn get_submitter_audit_log(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> (StatusCode, Json<ApiResponse<Vec<serde_json::Value>>>) {
+    let pool = &state.lock().await.db_pool;
+
+    // Get submitter info
+    match SubmitterQueries::get_submitter_by_token(pool, &token).await {
+        Ok(Some(submitter)) => {
+            // Build detailed audit log entries from database
+            let mut audit_entries = Vec::new();
+
+            // Get template for document info
+            let template = TemplateQueries::get_template_by_id(pool, submitter.template_id).await;
+
+            // Add header information (Envelope ID, Document ID, etc.)
+            let envelope_info = serde_json::json!({
+                "type": "envelope_info",
+                "envelope_id": submitter.id,
+                "document_id": submitter.template_id,
+                "token": submitter.token,
+                "status": submitter.status,
+                "template_name": template.as_ref().ok().and_then(|t| t.as_ref().map(|t| t.name.clone())).unwrap_or_else(|| "Unknown".to_string())
+            });
+            audit_entries.push(envelope_info);
+
+            // 1. Document Created event
+            if let Ok(Some(template)) = template {
+                audit_entries.push(serde_json::json!({
+                    "timestamp": template.created_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+                    "action": "Document Created",
+                    "user": submitter.email.clone(),
+                    "details": format!("Template '{}' was uploaded and configured", template.name),
+                    "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string())
+                }));
+            }
+
+            // 2. Document Sent event (when submitter was created)
+            audit_entries.push(serde_json::json!({
+                "timestamp": submitter.created_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+                "action": "Document Sent",
+                "user": "System",
+                "details": format!("Document sent to {} for signature", submitter.email),
+                "ip": "System",
+                "user_agent": "System",
+                "session_id": "N/A",
+                "timezone": "UTC"
+            }));
+
+            // 3. Form Viewed event (if submitter accessed it)
+            if let Some(viewed_at) = submitter.viewed_at {
+                audit_entries.push(serde_json::json!({
+                    "timestamp": viewed_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+                    "action": "Form Viewed",
+                    "user": submitter.email.clone(),
+                    "details": format!("Form opened and viewed by {}", submitter.email),
+                    "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string())
+                }));
+            } else if submitter.ip_address.is_some() {
+                // Fallback if viewed_at not set but IP exists
+                audit_entries.push(serde_json::json!({
+                    "timestamp": submitter.updated_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+                    "action": "Form Viewed",
+                    "user": submitter.email.clone(),
+                    "details": format!("Form accessed by {}", submitter.email),
+                    "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string())
+                }));
+            }
+
+            // 4. Document Signed event (if completed)
+            if submitter.status == "signed" || submitter.status == "completed" {
+                if let Some(signed_at) = submitter.signed_at {
+                    audit_entries.push(serde_json::json!({
+                        "timestamp": signed_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+                        "action": "Document Signed",
+                        "user": submitter.email.clone(),
+                        "details": format!("Document signed and submitted by {}", submitter.email),
+                        "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+                        "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+                        "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+                        "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string())
+                    }));
+                }
+            }
+
+            // 5. Submission Completed event
+            if submitter.status == "completed" {
+                audit_entries.push(serde_json::json!({
+                    "timestamp": submitter.updated_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+                    "action": "Submission Completed",
+                    "user": submitter.email.clone(),
+                    "details": "All required fields completed and document submitted successfully",
+                    "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string())
+                }));
+            }
+
+            ApiResponse::success(audit_entries, "Audit log retrieved successfully".to_string())
+        },
+        Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to get audit log: {}", e)),
     }
 }
 
