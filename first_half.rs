@@ -771,7 +771,7 @@ pub async fn get_public_submitter_signatures(
 fn render_signatures_on_pdf(
     pdf_bytes: &[u8],
     signatures: &[(String, String, String, f64, f64, f64, f64, i32, serde_json::Value)], // (field_name, field_type, signature_value, x, y, w, h, page, signature_json)
-    global_settings: &crate::database::models::DbGlobalSettings,
+    user_settings: &crate::database::models::DbGlobalSettings,
     submitter: &crate::database::models::DbSubmitter,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     use lopdf::{Document, Object, Stream, Dictionary};

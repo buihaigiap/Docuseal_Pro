@@ -18,6 +18,15 @@ export default defineConfig(({ mode }) => {
             target: env.BASE_URL ,
             changeOrigin: true,
             secure: false,
+            configure: (proxy, options) => {
+              proxy.on('proxyReq', (proxyReq, req, res) => {
+                // Forward Authorization header
+                const authHeader = req.headers.authorization;
+                if (authHeader) {
+                  proxyReq.setHeader('Authorization', authHeader);
+                }
+              });
+            }
           },
           '/public': {
             target: env.BASE_URL ,

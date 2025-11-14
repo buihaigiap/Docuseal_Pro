@@ -2008,7 +2008,7 @@ impl OAuthTokenQueries {
 impl GlobalSettingsQueries {
     pub async fn get_global_settings(pool: &PgPool) -> Result<Option<DbGlobalSettings>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, company_name, timezone, locale, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at FROM global_settings WHERE id = 1"
+            "SELECT id, user_id, company_name, timezone, locale, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at FROM global_settings WHERE user_id IS NULL"
         )
         .fetch_optional(pool)
         .await?;
@@ -2016,6 +2016,7 @@ impl GlobalSettingsQueries {
         match row {
             Some(row) => Ok(Some(DbGlobalSettings {
                 id: row.try_get("id")?,
+                user_id: row.try_get("user_id")?,
                 company_name: row.try_get("company_name")?,
                 timezone: row.try_get("timezone")?,
                 locale: row.try_get("locale")?,
@@ -2036,6 +2037,73 @@ impl GlobalSettingsQueries {
         }
     }
 
+    pub async fn get_user_settings(pool: &PgPool, user_id: i32) -> Result<Option<DbGlobalSettings>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT id, user_id, company_name, timezone, locale, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at FROM global_settings WHERE user_id = $1"
+        )
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(DbGlobalSettings {
+                id: row.try_get("id")?,
+                user_id: row.try_get("user_id")?,
+                company_name: row.try_get("company_name")?,
+                timezone: row.try_get("timezone")?,
+                locale: row.try_get("locale")?,
+                force_2fa_with_authenticator_app: row.try_get("force_2fa_with_authenticator_app")?,
+                add_signature_id_to_the_documents: row.try_get("add_signature_id_to_the_documents")?,
+                require_signing_reason: row.try_get("require_signing_reason")?,
+                allow_typed_text_signatures: row.try_get("allow_typed_text_signatures")?,
+                allow_to_resubmit_completed_forms: row.try_get("allow_to_resubmit_completed_forms")?,
+                allow_to_decline_documents: row.try_get("allow_to_decline_documents")?,
+                remember_and_pre_fill_signatures: row.try_get("remember_and_pre_fill_signatures")?,
+                require_authentication_for_file_download_links: row.try_get("require_authentication_for_file_download_links")?,
+                combine_completed_documents_and_audit_log: row.try_get("combine_completed_documents_and_audit_log")?,
+                expirable_file_download_links: row.try_get("expirable_file_download_links")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn create_user_settings(pool: &PgPool, user_id: i32) -> Result<DbGlobalSettings, sqlx::Error> {
+        let now = Utc::now();
+        let row = sqlx::query(
+            r#"
+            INSERT INTO global_settings (user_id, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at)
+            VALUES ($1, false, false, false, true, false, false, false, false, false, false, $2, $2)
+            RETURNING id, user_id, company_name, timezone, locale, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at
+            "#
+        )
+        .bind(user_id)
+        .bind(now)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(DbGlobalSettings {
+            id: row.try_get("id")?,
+            user_id: row.try_get("user_id")?,
+            company_name: row.try_get("company_name")?,
+            timezone: row.try_get("timezone")?,
+            locale: row.try_get("locale")?,
+            force_2fa_with_authenticator_app: row.try_get("force_2fa_with_authenticator_app")?,
+            add_signature_id_to_the_documents: row.try_get("add_signature_id_to_the_documents")?,
+            require_signing_reason: row.try_get("require_signing_reason")?,
+            allow_typed_text_signatures: row.try_get("allow_typed_text_signatures")?,
+            allow_to_resubmit_completed_forms: row.try_get("allow_to_resubmit_completed_forms")?,
+            allow_to_decline_documents: row.try_get("allow_to_decline_documents")?,
+            remember_and_pre_fill_signatures: row.try_get("remember_and_pre_fill_signatures")?,
+            require_authentication_for_file_download_links: row.try_get("require_authentication_for_file_download_links")?,
+            combine_completed_documents_and_audit_log: row.try_get("combine_completed_documents_and_audit_log")?,
+            expirable_file_download_links: row.try_get("expirable_file_download_links")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+
     pub async fn update_global_settings(pool: &PgPool, settings: UpdateGlobalSettings) -> Result<DbGlobalSettings, sqlx::Error> {
         let now = Utc::now();
 
@@ -2049,7 +2117,7 @@ impl GlobalSettingsQueries {
                 remember_and_pre_fill_signatures = $10, require_authentication_for_file_download_links = $11, 
                 combine_completed_documents_and_audit_log = $12, expirable_file_download_links = $13, 
                 updated_at = $14
-            WHERE id = 1
+            WHERE user_id IS NULL
             "#
         )
         .bind(settings.company_name)
@@ -2071,6 +2139,105 @@ impl GlobalSettingsQueries {
 
         // Return the updated settings
         Self::get_global_settings(pool).await?.ok_or(sqlx::Error::RowNotFound)
+    }
+
+    pub async fn update_user_settings(pool: &PgPool, user_id: i32, settings: UpdateGlobalSettings) -> Result<DbGlobalSettings, sqlx::Error> {
+        let now = Utc::now();
+
+        // First check if user settings exist
+        let existing_settings = Self::get_user_settings(pool, user_id).await?;
+
+        if existing_settings.is_none() {
+            // Create user settings with the provided values if they don't exist
+            let row = sqlx::query(
+                r#"
+                INSERT INTO global_settings (user_id, company_name, timezone, locale, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+                RETURNING id, user_id, company_name, timezone, locale, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at
+                "#
+            )
+            .bind(user_id)
+            .bind(settings.company_name.as_deref())
+            .bind(settings.timezone.as_deref())
+            .bind(settings.locale.as_deref())
+            .bind(settings.force_2fa_with_authenticator_app.unwrap_or(false))
+            .bind(settings.add_signature_id_to_the_documents.unwrap_or(false))
+            .bind(settings.require_signing_reason.unwrap_or(false))
+            .bind(settings.allow_typed_text_signatures.unwrap_or(true))
+            .bind(settings.allow_to_resubmit_completed_forms.unwrap_or(false))
+            .bind(settings.allow_to_decline_documents.unwrap_or(false))
+            .bind(settings.remember_and_pre_fill_signatures.unwrap_or(false))
+            .bind(settings.require_authentication_for_file_download_links.unwrap_or(false))
+            .bind(settings.combine_completed_documents_and_audit_log.unwrap_or(false))
+            .bind(settings.expirable_file_download_links.unwrap_or(false))
+            .bind(now)
+            .fetch_one(pool)
+            .await?;
+
+            return Ok(DbGlobalSettings {
+                id: row.try_get("id")?,
+                user_id: row.try_get("user_id")?,
+                company_name: row.try_get("company_name")?,
+                timezone: row.try_get("timezone")?,
+                locale: row.try_get("locale")?,
+                force_2fa_with_authenticator_app: row.try_get("force_2fa_with_authenticator_app")?,
+                add_signature_id_to_the_documents: row.try_get("add_signature_id_to_the_documents")?,
+                require_signing_reason: row.try_get("require_signing_reason")?,
+                allow_typed_text_signatures: row.try_get("allow_typed_text_signatures")?,
+                allow_to_resubmit_completed_forms: row.try_get("allow_to_resubmit_completed_forms")?,
+                allow_to_decline_documents: row.try_get("allow_to_decline_documents")?,
+                remember_and_pre_fill_signatures: row.try_get("remember_and_pre_fill_signatures")?,
+                require_authentication_for_file_download_links: row.try_get("require_authentication_for_file_download_links")?,
+                combine_completed_documents_and_audit_log: row.try_get("combine_completed_documents_and_audit_log")?,
+                expirable_file_download_links: row.try_get("expirable_file_download_links")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            });
+        }
+
+        // Update existing settings
+        let mut query = sqlx::query(
+            r#"
+            UPDATE global_settings
+            SET company_name = COALESCE($1, company_name),
+                timezone = COALESCE($2, timezone),
+                locale = COALESCE($3, locale),
+                force_2fa_with_authenticator_app = COALESCE($4, force_2fa_with_authenticator_app),
+                add_signature_id_to_the_documents = COALESCE($5, add_signature_id_to_the_documents),
+                require_signing_reason = COALESCE($6, require_signing_reason),
+                allow_typed_text_signatures = COALESCE($7, allow_typed_text_signatures),
+                allow_to_resubmit_completed_forms = COALESCE($8, allow_to_resubmit_completed_forms),
+                allow_to_decline_documents = COALESCE($9, allow_to_decline_documents),
+                remember_and_pre_fill_signatures = COALESCE($10, remember_and_pre_fill_signatures),
+                require_authentication_for_file_download_links = COALESCE($11, require_authentication_for_file_download_links),
+                combine_completed_documents_and_audit_log = COALESCE($12, combine_completed_documents_and_audit_log),
+                expirable_file_download_links = COALESCE($13, expirable_file_download_links),
+                updated_at = $14
+            WHERE user_id = $15
+            "#
+        );
+        
+        // Bind string options properly
+        query = query.bind(settings.company_name.as_deref());
+        query = query.bind(settings.timezone.as_deref());
+        query = query.bind(settings.locale.as_deref());
+        query = query.bind(settings.force_2fa_with_authenticator_app);
+        query = query.bind(settings.add_signature_id_to_the_documents);
+        query = query.bind(settings.require_signing_reason);
+        query = query.bind(settings.allow_typed_text_signatures);
+        query = query.bind(settings.allow_to_resubmit_completed_forms);
+        query = query.bind(settings.allow_to_decline_documents);
+        query = query.bind(settings.remember_and_pre_fill_signatures);
+        query = query.bind(settings.require_authentication_for_file_download_links);
+        query = query.bind(settings.combine_completed_documents_and_audit_log);
+        query = query.bind(settings.expirable_file_download_links);
+        query = query.bind(now);
+        query = query.bind(user_id);
+        
+        query.execute(pool).await?;
+
+        // Return the updated settings
+        Self::get_user_settings(pool, user_id).await?.ok_or(sqlx::Error::RowNotFound)
     }
 
     pub async fn create_default_global_settings(pool: &PgPool) -> Result<(), sqlx::Error> {

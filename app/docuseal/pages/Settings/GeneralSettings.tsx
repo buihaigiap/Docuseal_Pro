@@ -68,22 +68,27 @@ const GeneralSettings = () => {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const response = await upstashService.getBasicSettings();
-        const s = response.data;
-        setCompanyName(s.company_name || '');
-        setTimezone(s.timezone || '');
-        setLocale(s.locale || '');
+        // Fetch user settings for both basic info and preferences
+        const userResponse = await upstashService.getUserSettings();
+        const userSettings = userResponse.data;
+        
+        // Set basic info from user settings
+        setCompanyName(userSettings.company_name || '');
+        setTimezone(userSettings.timezone || '');
+        setLocale(userSettings.locale || '');
+        
+        // Set preferences from user settings
         setPreferences({
-          force2fa: s.force_2fa_with_authenticator_app || false,
-          addSignatureId: s.add_signature_id_to_the_documents || false,
-          requireSigningReason: s.require_signing_reason || false,
-          allowTypedTextSignatures: s.allow_typed_text_signatures || false,
-          allowResubmitCompletedForms: s.allow_to_resubmit_completed_forms || false,
-          allowDeclineDocuments: s.allow_to_decline_documents || false,
-          rememberPrefillSignatures: s.remember_and_pre_fill_signatures || false,
-          requireAuthForDownload: s.require_authentication_for_file_download_links || false,
-          combineCompletedAudit: s.combine_completed_documents_and_audit_log || false,
-          expirableDownloadLinks: s.expirable_file_download_links || false
+          force2fa: userSettings.force_2fa_with_authenticator_app || false,
+          addSignatureId: userSettings.add_signature_id_to_the_documents || false,
+          requireSigningReason: userSettings.require_signing_reason || false,
+          allowTypedTextSignatures: userSettings.allow_typed_text_signatures || false,
+          allowResubmitCompletedForms: userSettings.allow_to_resubmit_completed_forms || false,
+          allowDeclineDocuments: userSettings.allow_to_decline_documents || false,
+          rememberPrefillSignatures: userSettings.remember_and_pre_fill_signatures || false,
+          requireAuthForDownload: userSettings.require_authentication_for_file_download_links || false,
+          combineCompletedAudit: userSettings.combine_completed_documents_and_audit_log || false,
+          expirableDownloadLinks: userSettings.expirable_file_download_links || false
         });
       } catch (err) {
         toast.error('Failed to fetch settings');
@@ -118,9 +123,9 @@ const GeneralSettings = () => {
             onChange={async (e) => {
               const newValue = e.target.value;
               setCompanyName(newValue);
-              // Auto-save company name
+              // Auto-save company name to user settings
               try {
-                await upstashService.updateBasicSettings({
+                await upstashService.updateUserSettings({
                   company_name: newValue
                 });
                 toast.success('Company name updated');
@@ -142,9 +147,9 @@ const GeneralSettings = () => {
                 onChange={async (e) => {
                   const newValue = e.target.value;
                   setTimezone(newValue);
-                  // Auto-save timezone
+                  // Auto-save timezone to user settings
                   try {
-                    await upstashService.updateBasicSettings({
+                    await upstashService.updateUserSettings({
                       timezone: newValue
                     });
                     toast.success('Timezone updated');
@@ -171,9 +176,9 @@ const GeneralSettings = () => {
                   setLocale(newValue);
                   // Change language immediately
                   i18n.changeLanguage(newValue);
-                  // Auto-save locale
+                  // Auto-save locale to user settings
                   try {
-                    await upstashService.updateBasicSettings({
+                    await upstashService.updateUserSettings({
                       locale: newValue
                     });
                     toast.success('Language updated');
@@ -216,9 +221,9 @@ const GeneralSettings = () => {
                       ...prev,
                       [key]: newValue
                     }));
-                    // Auto-save the preference
+                    // Auto-save the preference using user settings API
                     try {
-                      await upstashService.updateBasicSettings({
+                      console.log('Updating user setting:', {
                         [key === 'force2fa' ? 'force_2fa_with_authenticator_app' :
                          key === 'addSignatureId' ? 'add_signature_id_to_the_documents' :
                          key === 'requireSigningReason' ? 'require_signing_reason' :
@@ -230,8 +235,22 @@ const GeneralSettings = () => {
                          key === 'combineCompletedAudit' ? 'combine_completed_documents_and_audit_log' :
                          'expirable_file_download_links']: newValue
                       });
+                      await upstashService.updateUserSettings({
+                        [key === 'force2fa' ? 'force_2fa_with_authenticator_app' :
+                         key === 'addSignatureId' ? 'add_signature_id_to_the_documents' :
+                         key === 'requireSigningReason' ? 'require_signing_reason' :
+                         key === 'allowTypedTextSignatures' ? 'allow_typed_text_signatures' :
+                         key === 'allowResubmitCompletedForms' ? 'allow_to_resubmit_completed_forms' :
+                         key === 'allowDeclineDocuments' ? 'allow_to_decline_documents' :
+                         key === 'rememberPrefillSignatures' ? 'remember_and_pre_fill_signatures' :
+                         key === 'requireAuthForDownload' ? 'require_authentication_for_file_download_links' :
+                         key === 'combineCompletedAudit' ? 'combine_completed_documents_and_audit_log' :
+                         'expirable_file_download_links']: newValue
+                      });
+                      console.log('User setting updated successfully');
                       toast.success(`${label} updated`);
                     } catch (err) {
+                      console.error('Failed to update user setting:', err);
                       toast.error(`Failed to update ${label}`);
                       // Revert the change on error
                       setPreferences((prev) => ({

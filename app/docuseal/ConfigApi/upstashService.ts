@@ -201,6 +201,19 @@ const upstashService = {
         return await axiosClient.put(url, data)
     },
 
+    // User Settings APIs (per-user preferences)
+    getUserSettings: async (): Promise<any> => {
+        const url = '/api/settings/user';
+        return await axiosClient.get(url)
+    },
+    updateUserSettings: async (data: any): Promise<any> => {
+        const url = '/api/settings/user';
+        console.log('Making PUT request to:', url, 'with data:', data);
+        const result = await axiosClient.put(url, data);
+        console.log('PUT request result:', result);
+        return result;
+    },
+
     // 2FA APIs
     setup2FA: async (email?: string): Promise<any> => {
         const url = `/api/auth/2fa/setup${email ? `?email=${encodeURIComponent(email)}` : ''}`;

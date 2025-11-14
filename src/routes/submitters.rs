@@ -467,13 +467,13 @@ pub async fn submit_bulk_signatures(
             if let Some(action) = &payload.action {
                 if action == "decline" {
                     // Check global settings to see if declining is allowed
-                    let global_settings = match GlobalSettingsQueries::get_global_settings(pool).await {
+                    let user_settings = match GlobalSettingsQueries::get_user_settings(pool, db_submitter.user_id as i32).await {
                         Ok(Some(settings)) => settings,
                         Ok(None) => return ApiResponse::internal_error("Global settings not found".to_string()),
                         Err(e) => return ApiResponse::internal_error(format!("Failed to get global settings: {}", e)),
                     };
                     
-                    if !global_settings.allow_to_decline_documents {
+                    if !user_settings.allow_to_decline_documents {
                         return ApiResponse::bad_request("Declining documents is not allowed".to_string());
                     }
                     
@@ -897,7 +897,7 @@ pub async fn get_public_submitter_signatures(
 fn render_signatures_on_pdf(
     pdf_bytes: &[u8],
     signatures: &[(String, String, String, f64, f64, f64, f64, i32, serde_json::Value)], // (field_name, field_type, signature_value, x, y, w, h, page, signature_json)
-    global_settings: &crate::database::models::DbGlobalSettings,
+    user_settings: &crate::database::models::DbGlobalSettings,
     submitter: &crate::database::models::DbSubmitter,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     use lopdf::{Document, Object, Stream, Dictionary};
@@ -1035,7 +1035,7 @@ fn render_signatures_on_pdf(
                 // Calculate text height dynamically (matching SignatureRenderer.tsx)
                 let reason = signature_json.get("reason").and_then(|r| r.as_str()).unwrap_or("");
                 let text_height = calculate_signature_text_height(
-                    &global_settings,
+                    &user_settings,
                     Some(submitter.id),
                     &submitter.email,
                     reason
@@ -1073,7 +1073,7 @@ fn render_signatures_on_pdf(
                 }
                 
                 // Add signature ID information below the signature (always show for downloaded PDFs)
-                render_signature_id_info(&mut doc, page_id, submitter, &signature_json, x_pos, pdf_y, field_width, field_height, global_settings)?;
+                render_signature_id_info(&mut doc, page_id, submitter, &signature_json, x_pos, pdf_y, field_width, field_height, user_settings)?;
             },
             "image" => {
                 // Hiển thị <img> với giá trị làm nguồn, được co giãn để vừa với khu vực trường
@@ -1091,7 +1091,7 @@ fn render_signatures_on_pdf(
                 // Calculate text height dynamically (matching SignatureRenderer.tsx)
                 let reason = signature_json.get("reason").and_then(|r| r.as_str()).unwrap_or("");
                 let text_height = calculate_signature_text_height(
-                    &global_settings,
+                    &user_settings,
                     Some(submitter.id),
                     &submitter.email,
                     reason
@@ -1145,7 +1145,7 @@ fn render_signatures_on_pdf(
                 
                 // Add signature ID information below signatures (always show for downloaded PDFs)
                 if field_type == "signature" {
-                    render_signature_id_info(&mut doc, page_id, submitter, &signature_json, x_pos, pdf_y, field_width, field_height, global_settings)?;
+                    render_signature_id_info(&mut doc, page_id, submitter, &signature_json, x_pos, pdf_y, field_width, field_height, user_settings)?;
                 }
             }
         }
@@ -1195,20 +1195,20 @@ fn hash_id(value: i64) -> String {
 
 // Calculate text height for signature info (matching SignatureRenderer.tsx logic)
 fn calculate_signature_text_height(
-    global_settings: &crate::database::models::DbGlobalSettings,
+    user_settings: &crate::database::models::DbGlobalSettings,
     submitter_id: Option<i64>,
     submitter_email: &str,
     reason: &str,
 ) -> f64 {
     let mut line_count = 0;
     
-    if global_settings.add_signature_id_to_the_documents {
+    if user_settings.add_signature_id_to_the_documents {
         if submitter_id.is_some() { line_count += 1; }
         if !submitter_email.is_empty() { line_count += 1; }
         line_count += 1; // date
     }
     
-    if global_settings.require_signing_reason && !reason.is_empty() {
+    if user_settings.require_signing_reason && !reason.is_empty() {
         line_count += 1;
     }
     
@@ -1230,7 +1230,7 @@ fn render_signature_id_info(
     pdf_y: f64,
     field_width: f64,
     field_height: f64,
-    global_settings: &crate::database::models::DbGlobalSettings,
+    user_settings: &crate::database::models::DbGlobalSettings,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use lopdf::{Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
@@ -1248,7 +1248,7 @@ fn render_signature_id_info(
     let signed_at = submitter.signed_at.unwrap_or(chrono::Utc::now());
     
     // Parse timezone from global settings or use default GMT+7
-    let timezone_str = global_settings.timezone.as_deref().unwrap_or("Asia/Ho_Chi_Minh");
+    let timezone_str = user_settings.timezone.as_deref().unwrap_or("Asia/Ho_Chi_Minh");
     
     // Map common timezone names to IANA identifiers (matching SignatureRenderer)
     let timezone_mapped = match timezone_str {
@@ -1300,7 +1300,7 @@ fn render_signature_id_info(
     let signed_at_formatted = signed_at.with_timezone(&timezone_offset);
     
     // Format date according to locale (simplified)
-    let locale = global_settings.locale.as_deref().unwrap_or("vi-VN");
+    let locale = user_settings.locale.as_deref().unwrap_or("vi-VN");
     let date_str = if locale.starts_with("vi") {
         // Vietnamese format: DD/MM/YYYY, HH:MM:SS
         signed_at_formatted.format("%d/%m/%Y, %H:%M:%S").to_string()
@@ -1312,12 +1312,12 @@ fn render_signature_id_info(
     let mut signature_info_parts = Vec::new();
     
     // Always show reason first if require_signing_reason is enabled and reason exists
-    if global_settings.require_signing_reason && !reason.is_empty() {
+    if user_settings.require_signing_reason && !reason.is_empty() {
         signature_info_parts.push(format!("Reason: {}", reason));
     }
     
     // Show ID, email, and date if add_signature_id_to_the_documents is enabled
-    if global_settings.add_signature_id_to_the_documents {
+    if user_settings.add_signature_id_to_the_documents {
         signature_info_parts.push(format!("ID: {}", signature_id));
         signature_info_parts.push(signer_email.clone());
         signature_info_parts.push(date_str);
@@ -1330,7 +1330,7 @@ fn render_signature_id_info(
 
     // Calculate text height dynamically (matching SignatureRenderer.tsx)
     let text_height = calculate_signature_text_height(
-        global_settings,
+        user_settings,
         Some(submitter.id),
         &signer_email,
         reason
@@ -2207,22 +2207,22 @@ pub async fn resubmit_submitter(
 ) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
     let pool = &state.lock().await.db_pool;
 
-    // Check global settings
-    match GlobalSettingsQueries::get_global_settings(pool).await {
-        Ok(Some(settings)) => {
-            if !settings.allow_to_resubmit_completed_forms {
-                return ApiResponse::forbidden("Resubmitting completed forms is not allowed".to_string());
-            }
-        }
-        Ok(None) => {
-            // No settings found, assume feature is disabled by default
-            return ApiResponse::forbidden("Resubmitting completed forms is not allowed".to_string());
-        }
-        Err(e) => return ApiResponse::internal_error(format!("Failed to check settings: {}", e)),
-    }
-
     match SubmitterQueries::get_submitter_by_token(pool, &token).await {
         Ok(Some(db_submitter)) => {
+            // Check global settings
+            match GlobalSettingsQueries::get_user_settings(pool, db_submitter.user_id as i32).await {
+                Ok(Some(settings)) => {
+                    if !settings.allow_to_resubmit_completed_forms {
+                        return ApiResponse::forbidden("Resubmitting completed forms is not allowed".to_string());
+                    }
+                }
+                Ok(None) => {
+                    // No settings found, assume feature is disabled by default
+                    return ApiResponse::forbidden("Resubmitting completed forms is not allowed".to_string());
+                }
+                Err(e) => return ApiResponse::internal_error(format!("Failed to check settings: {}", e)),
+            }
+
             // Only allow resubmit if status is 'signed' or 'completed'
             if db_submitter.status != "signed" && db_submitter.status != "completed" {
                 return ApiResponse::bad_request("Cannot resubmit: submission is not completed".to_string());

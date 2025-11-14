@@ -60,6 +60,11 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> Result<Respons
         .and_then(|header| header.to_str().ok())
         .and_then(|header| header.strip_prefix("Bearer "));
 
+    println!("Authorization header present: {}", auth_header.is_some());
+    if let Some(header) = request.headers().get(header::AUTHORIZATION) {
+        println!("Full Authorization header: {:?}", header);
+    }
+
     let token = match auth_header {
         Some(token) => token,
         None => {

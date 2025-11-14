@@ -302,6 +302,7 @@ pub struct CreatePaymentRecord {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct DbGlobalSettings {
     pub id: i32,
+    pub user_id: Option<i32>,
     pub company_name: Option<String>,
     pub timezone: Option<String>,
     pub locale: Option<String>,

@@ -145,6 +145,13 @@ pub async fn register_handler(
 
     match UserQueries::create_user(pool, create_user).await {
         Ok(db_user) => {
+            // Create default global settings for the new user
+            let user_id_i32 = db_user.id as i32;
+            match GlobalSettingsQueries::create_user_settings(pool, user_id_i32).await {
+                Ok(_) => println!("✅ Created default global settings for user {}", db_user.id),
+                Err(e) => println!("⚠️  Warning: Failed to create default settings for user {}: {}", db_user.id, e),
+            }
+            
             let user: User = db_user.into();
             ApiResponse::created(user, "User registered successfully. You can now login.".to_string())
         }
@@ -356,7 +363,14 @@ pub async fn activate_user(
     };
 
     match UserQueries::create_user(pool, create_user).await {
-        Ok(_) => {
+        Ok(db_user) => {
+            // Create default global settings for the new user
+            let user_id_i32 = db_user.id as i32;
+            match GlobalSettingsQueries::create_user_settings(pool, user_id_i32).await {
+                Ok(_) => println!("✅ Created default global settings for user {}", db_user.id),
+                Err(e) => println!("⚠️  Warning: Failed to create default settings for user {}: {}", db_user.id, e),
+            }
+            
             // Mark invitation as used
             if let Err(e) = sqlx::query("UPDATE user_invitations SET is_used = TRUE WHERE id = $1")
                 .bind(invitation.id)
@@ -1318,20 +1332,19 @@ pub struct UpdateBasicSettingsRequest {
 )]
 pub async fn get_basic_settings_handler(
     State(state): State<AppState>,
+    Extension(user_id): Extension<i64>,
 ) -> (StatusCode, Json<ApiResponse<DbGlobalSettings>>) {
     let pool = &state.lock().await.db_pool;
+    let user_id_i32 = user_id as i32;
 
-    match GlobalSettingsQueries::get_global_settings(pool).await {
-        Ok(Some(settings)) => ApiResponse::success(settings, "Basic settings retrieved successfully".to_string()),
+    // Get user settings (not global settings)
+    match GlobalSettingsQueries::get_user_settings(pool, user_id_i32).await {
+        Ok(Some(settings)) => ApiResponse::success(settings, "User settings retrieved successfully".to_string()),
         Ok(None) => {
-            // Create default settings if not exist
-            if let Err(e) = GlobalSettingsQueries::create_default_global_settings(pool).await {
-                return ApiResponse::internal_error(format!("Failed to create default settings: {}", e));
-            }
-            // Try to get again
-            match GlobalSettingsQueries::get_global_settings(pool).await {
-                Ok(Some(settings)) => ApiResponse::success(settings, "Basic settings retrieved successfully".to_string()),
-                _ => ApiResponse::internal_error("Failed to retrieve settings after creation".to_string()),
+            // Create default user settings if not exist
+            match GlobalSettingsQueries::create_user_settings(pool, user_id_i32).await {
+                Ok(settings) => ApiResponse::success(settings, "User settings created and retrieved successfully".to_string()),
+                Err(e) => ApiResponse::internal_error(format!("Failed to create user settings: {}", e)),
             }
         }
         Err(e) => ApiResponse::internal_error(format!("Database error: {}", e)),
@@ -1362,11 +1375,11 @@ pub async fn update_basic_settings_handler(
     let current_settings = match GlobalSettingsQueries::get_global_settings(pool).await {
         Ok(Some(settings)) => settings,
         Ok(None) => {
-            // Create default settings if not exist
+            // Create default global settings only if not exist (for backward compatibility)
+            // This should ideally be done via migration
             if let Err(e) = GlobalSettingsQueries::create_default_global_settings(pool).await {
                 return ApiResponse::internal_error(format!("Failed to create default settings: {}", e));
             }
-            // Try to get again
             match GlobalSettingsQueries::get_global_settings(pool).await {
                 Ok(Some(settings)) => settings,
                 _ => return ApiResponse::internal_error("Failed to retrieve settings after creation".to_string()),

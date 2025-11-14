@@ -72,7 +72,7 @@ use models::template::Template;
         routes::submitters::get_submitter_audit_log,
         routes::reminder_settings::get_reminder_settings,
         routes::reminder_settings::update_reminder_settings,
-        routes::global_settings::get_global_settings
+        routes::global_settings::get_user_settings,
         // routes::subscription::get_subscription_status,
         // routes::subscription::get_payment_link
     ),
