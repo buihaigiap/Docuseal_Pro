@@ -9,6 +9,7 @@ pub struct DbUserReminderSettings {
     pub first_reminder_hours: Option<i32>,  // NULL by default
     pub second_reminder_hours: Option<i32>,  // NULL by default
     pub third_reminder_hours: Option<i32>,  // NULL by default
+    pub completion_notification_email: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -20,6 +21,7 @@ pub struct CreateUserReminderSettings {
     pub first_reminder_hours: Option<i32>,
     pub second_reminder_hours: Option<i32>,
     pub third_reminder_hours: Option<i32>,
+    pub completion_notification_email: Option<String>,
 }
 
 // Update user reminder settings request
@@ -28,6 +30,7 @@ pub struct UpdateUserReminderSettings {
     pub first_reminder_hours: Option<i32>,
     pub second_reminder_hours: Option<i32>,
     pub third_reminder_hours: Option<i32>,
+    pub completion_notification_email: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

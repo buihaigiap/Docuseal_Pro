@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import {Box,CardContent,Typography,FormControl,InputLabel,Select,MenuItem,Button,
+import {Box,CardContent,Typography,FormControl,InputLabel,Select,MenuItem,Button,FormControlLabel,Switch,TextField,
 } from '@mui/material';
 import {NotificationsActive,Email,Warning,ErrorOutline,
 } from '@mui/icons-material';
@@ -12,6 +12,7 @@ export default function ReminderSettingsPage() {
     first_reminder_hours: null,
     second_reminder_hours: null,
     third_reminder_hours: null,
+    completion_notification_email: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -36,6 +37,7 @@ export default function ReminderSettingsPage() {
         first_reminder_hours: settings.first_reminder_hours,
         second_reminder_hours: settings.second_reminder_hours,
         third_reminder_hours: settings.third_reminder_hours,
+        completion_notification_email: settings.completion_notification_email || null,
       });
     } finally {
       setSaving(false);
@@ -50,6 +52,13 @@ export default function ReminderSettingsPage() {
         [field]: event.target.value === '0' ? null : Number(event.target.value),
       });
     };
+
+  const handleTextChange = (field: string) => (event: any) => {
+    setSettings({
+      ...settings,
+      [field]: event.target.value,
+    });
+  };
 
   const reminderConfigs = [
     {
@@ -114,6 +123,22 @@ export default function ReminderSettingsPage() {
               </Typography>
             </FormControl>
           ))}
+        </Box>
+
+        {/* Notification on Completion */}
+        <Box mt={3}>
+          <TextField
+            fullWidth
+            label="Completion Notification Email"
+            value={settings.completion_notification_email}
+            onChange={handleTextChange('completion_notification_email')}
+            placeholder="Enter email address for completion notifications"
+            type="email"
+            sx={{ mb: 1 }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            Enter an email address to receive notifications when a document submission is fully completed by all signers
+          </Typography>
         </Box>
 
         {/* Actions */}

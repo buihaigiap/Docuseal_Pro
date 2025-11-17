@@ -63,28 +63,28 @@ impl ReminderQueue {
                 None => continue, // No reminder config, skip
             };
 
-            // Calculate hours since creation
+            // Calculate minutes since creation (for testing - using minutes instead of hours)
             let now = Utc::now();
-            let hours_since_created = (now - submitter.created_at).num_hours();
+            let minutes_since_created = (now - submitter.created_at).num_minutes();
             
             // Determine which reminder to send based on time elapsed
             let reminder_to_send = if submitter.reminder_count == 0 {
-                // First reminder
-                if hours_since_created >= reminder_config.first_reminder_hours as i64 {
+                // First reminder - after 1 minute
+                if minutes_since_created >= reminder_config.first_reminder_hours as i64 {
                     Some(1)
                 } else {
                     None
                 }
             } else if submitter.reminder_count == 1 {
-                // Second reminder
-                if hours_since_created >= reminder_config.second_reminder_hours as i64 {
+                // Second reminder - after 2 minutes
+                if minutes_since_created >= reminder_config.second_reminder_hours as i64 {
                     Some(2)
                 } else {
                     None
                 }
             } else if submitter.reminder_count == 2 {
-                // Third reminder
-                if hours_since_created >= reminder_config.third_reminder_hours as i64 {
+                // Third reminder - after 3 minutes
+                if minutes_since_created >= reminder_config.third_reminder_hours as i64 {
                     Some(3)
                 } else {
                     None

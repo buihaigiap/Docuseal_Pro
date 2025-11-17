@@ -748,4 +748,128 @@ impl EmailService {
 
         Ok(())
     }
+
+    pub async fn send_completion_notification(
+        &self,
+        to_email: &str,
+        submission_name: &str,
+        signers: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        if self.test_mode {
+            println!("TEST MODE: Would send completion notification to {} for submission: {}", to_email, submission_name);
+            return Ok(());
+        }
+
+        println!("Attempting to send completion notification email to: {}", to_email);
+        println!("SMTP Host: {}, Port: {}, Username: {}", self.smtp_host, self.smtp_port, self.smtp_username);
+
+        let subject = format!("Document '{}' has been completed", submission_name);
+
+        let html_body = format!(
+            r#"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Completed</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }}
+        .header {{
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }}
+        .content {{
+            background-color: #ffffff;
+            padding: 20px;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+        }}
+        .footer {{
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e9ecef;
+            font-size: 12px;
+            color: #6c757d;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>Document Completed Successfully</h2>
+    </div>
+    <div class="content">
+        <p>Hi there,</p>
+        <p>"<strong>{}</strong>" has been completed by the following signers: {}.</p>
+        <p>You can now download the completed document from your dashboard.</p>
+        <div class="footer">
+            <p>This is an automated notification from DocuSeal.</p>
+        </div>
+    </div>
+</body>
+</html>
+            "#,
+            submission_name, signers
+        );
+
+        let email = Message::builder()
+            .from(self.from_email.parse()?)
+            .to(to_email.parse()?)
+            .subject(subject)
+            .header(lettre::message::header::ContentType::TEXT_HTML)
+            .body(html_body)?;
+
+        let mailer = if self.smtp_host == "localhost" {
+            AsyncSmtpTransport::<Tokio1Executor>::unencrypted_localhost()
+        } else {
+            let creds = Credentials::new(self.smtp_username.clone(), self.smtp_password.clone());
+
+            // Try STARTTLS first (port 587), fallback to SSL/TLS (port 465) if it fails
+            let transport_result = if self.smtp_port == 587 {
+                println!("Trying STARTTLS on port 587...");
+                AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&self.smtp_host)
+                    .map(|t| t.credentials(creds.clone()).port(self.smtp_port).build())
+                    .or_else(|_| {
+                        println!("STARTTLS failed, trying SSL/TLS on port 465...");
+                        AsyncSmtpTransport::<Tokio1Executor>::relay(&self.smtp_host)
+                            .map(|t| t.credentials(creds).port(465).build())
+                    })
+            } else {
+                println!("Using direct relay on port {}...", self.smtp_port);
+                AsyncSmtpTransport::<Tokio1Executor>::relay(&self.smtp_host)
+                    .map(|t| t.credentials(creds).port(self.smtp_port).build())
+            };
+
+            match transport_result {
+                Ok(mailer) => {
+                    println!("SMTP transport created successfully");
+                    mailer
+                }
+                Err(e) => {
+                    eprintln!("Failed to create SMTP transport: {}", e);
+                    return Err(Box::new(e));
+                }
+            }
+        };
+
+        match mailer.send(email).await {
+            Ok(_) => {
+                println!("Completion notification sent successfully to: {}", to_email);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Failed to send email via SMTP: {}", e);
+                Err(Box::new(e))
+            }
+        }
+    }
 }

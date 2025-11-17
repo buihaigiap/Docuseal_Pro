@@ -1589,6 +1589,43 @@ impl SubmitterQueries {
             .await?;
         Ok(())
     }
+
+    pub async fn get_submitters_by_template_id(pool: &PgPool, template_id: i64) -> Result<Vec<DbSubmitter>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone
+             FROM submitters WHERE template_id = $1"
+        )
+        .bind(template_id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut submitters = Vec::new();
+        for row in rows {
+            submitters.push(DbSubmitter {
+                id: row.get(0),
+                template_id: row.get(1),
+                user_id: row.get(2),
+                name: row.get(3),
+                email: row.get(4),
+                status: row.get(5),
+                signed_at: row.get(6),
+                token: row.get(7),
+                bulk_signatures: row.get(8),
+                ip_address: row.get(9),
+                user_agent: row.get(10),
+                reminder_config: row.get(11),
+                last_reminder_sent_at: row.get(12),
+                reminder_count: row.get(13),
+                created_at: row.get(14),
+                updated_at: row.get(15),
+                decline_reason: row.get(16),
+                session_id: row.get(17),
+                viewed_at: row.get(18),
+                timezone: row.get(19),
+            });
+        }
+        Ok(submitters)
+    }
 }
 
 impl SubmissionFieldQueries {
@@ -1763,7 +1800,7 @@ impl UserReminderSettingsQueries {
     // Get user reminder settings
     pub async fn get_by_user_id(pool: &PgPool, user_id: i64) -> Result<Option<super::models::DbUserReminderSettings>, sqlx::Error> {
         let row = sqlx::query_as::<_, super::models::DbUserReminderSettings>(
-            "SELECT id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, created_at, updated_at 
+            "SELECT id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, completion_notification_email, created_at, updated_at 
              FROM user_reminder_settings WHERE user_id = $1"
         )
         .bind(user_id)
@@ -1779,15 +1816,16 @@ impl UserReminderSettingsQueries {
 
         let row = sqlx::query_as::<_, super::models::DbUserReminderSettings>(
             r#"
-            INSERT INTO user_reminder_settings (user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, created_at, updated_at
+            INSERT INTO user_reminder_settings (user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, completion_notification_email, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, completion_notification_email, created_at, updated_at
             "#
         )
         .bind(settings_data.user_id)
         .bind(settings_data.first_reminder_hours)
         .bind(settings_data.second_reminder_hours)
         .bind(settings_data.third_reminder_hours)
+        .bind(settings_data.completion_notification_email)
         .bind(now)
         .bind(now)
         .fetch_one(pool)
@@ -1806,14 +1844,16 @@ impl UserReminderSettingsQueries {
             SET first_reminder_hours = COALESCE($1, first_reminder_hours),
                 second_reminder_hours = COALESCE($2, second_reminder_hours),
                 third_reminder_hours = COALESCE($3, third_reminder_hours),
-                updated_at = $4
-            WHERE user_id = $5
-            RETURNING id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, created_at, updated_at
+                completion_notification_email = $4,
+                updated_at = $5
+            WHERE user_id = $6
+            RETURNING id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, completion_notification_email, created_at, updated_at
             "#
         )
         .bind(update_data.first_reminder_hours)
         .bind(update_data.second_reminder_hours)
         .bind(update_data.third_reminder_hours)
+        .bind(update_data.completion_notification_email)
         .bind(now)
         .bind(user_id)
         .fetch_optional(pool)
@@ -1835,6 +1875,7 @@ impl UserReminderSettingsQueries {
             first_reminder_hours: None,   // User must set
             second_reminder_hours: None,  // User must set
             third_reminder_hours: None,   // User must set
+            completion_notification_email: None, // User must set
         };
 
         Self::create(pool, default_settings).await

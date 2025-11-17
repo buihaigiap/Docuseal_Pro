@@ -663,6 +663,49 @@ pub async fn submit_bulk_signatures(
                 payload.timezone.as_deref(),
             ).await {
                 Ok(Some(updated_submitter)) => {
+                    // Check if all submitters for this template are now completed
+                    match SubmitterQueries::get_submitters_by_template_id(pool, db_submitter.template_id).await {
+                        Ok(all_submitters) => {
+                            let all_completed = all_submitters.iter().all(|s| s.status == "signed" || s.status == "completed");
+                            
+                            if all_completed {
+                                // Get user reminder settings to check for completion notification email
+                                match crate::database::queries::UserReminderSettingsQueries::get_by_user_id(pool, db_submitter.user_id).await {
+                                    Ok(Some(reminder_settings)) => {
+                                        if let Some(ref completion_email) = reminder_settings.completion_notification_email {
+                                            // Get template name for the email
+                                            match crate::database::queries::TemplateQueries::get_template_by_id(pool, db_submitter.template_id).await {
+                                                Ok(Some(template)) => {
+                                                    // Send completion notification email
+                                                    match crate::services::email::EmailService::new() {
+                                                        Ok(email_service) => {
+                                                            match email_service.send_completion_notification(
+                                                                completion_email,
+                                                                &template.name,
+                                                                &all_submitters.iter().map(|s| s.email.clone()).collect::<Vec<_>>().join(", ")
+                                                            ).await {
+                                                                Ok(_) => println!("Completion notification email sent to: {}", completion_email),
+                                                                Err(e) => eprintln!("Failed to send completion notification email: {}", e),
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            eprintln!("Failed to initialize email service for completion notification: {}", e);
+                                                        }
+                                                    }
+                                                }
+                                                Ok(None) => eprintln!("Template not found for completion notification"),
+                                                Err(e) => eprintln!("Failed to get template for completion notification: {}", e),
+                                            }
+                                        }
+                                    }
+                                    Ok(None) => {} // No reminder settings, skip
+                                    Err(e) => eprintln!("Failed to get reminder settings for completion notification: {}", e),
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("Failed to check if all submitters completed: {}", e),
+                    }
+                    
                     let reminder_config = updated_submitter.reminder_config.as_ref()
                         .and_then(|v| serde_json::from_value(v.clone()).ok());
                         
