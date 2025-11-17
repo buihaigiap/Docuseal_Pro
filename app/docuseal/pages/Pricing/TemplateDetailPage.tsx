@@ -141,8 +141,9 @@ const TemplateDetailPage = () => {
         navigate(`/pricing`);
         return;
       }
-    } catch (err) {
-        toast.error(err.response);
+    } catch (err: any) {
+        console.error('Create submission error:', err);
+        toast.error(err.error || err.message || t('templates.detail.errors.unexpectedError'));
     } finally {
       setSubmitting(false);
     }
@@ -159,7 +160,7 @@ const TemplateDetailPage = () => {
         toast.success(t('templates.detail.success.submitterDeleted'));
         fetchTemplateInfo(); // Refresh the template info to update the UI
       } else {
-        toast.error(data.message || t('templates.detail.errors.submitterDeletionFailed'));
+        toast.error(data.error || data.message || t('templates.detail.errors.submitterDeletionFailed'));
       }
     } catch (err) {
       console.error('Delete error:', err);
@@ -174,7 +175,7 @@ const TemplateDetailPage = () => {
         toast.success(t('templates.detail.success.templateCloned'));
         navigate(`/templates/${data.data.id}`);
       } else {
-        toast.error(data.error || t('templates.detail.errors.templateCloneFailed'));
+        toast.error(data.error || data.message || t('templates.detail.errors.templateCloneFailed'));
       }
     } catch (err) {
       toast.error(t('templates.detail.errors.unexpectedCloneError'));
@@ -192,7 +193,7 @@ const TemplateDetailPage = () => {
         toast.success(t('templates.detail.success.templateDeleted'));
         navigate('/');
       } else {
-        toast.error(data.error || t('templates.detail.errors.templateDeletionFailed'));
+        toast.error(data.error || data.message || t('templates.detail.errors.templateDeletionFailed'));
       }
     } catch (err) {
       toast.error(t('templates.detail.errors.unexpectedTemplateDeleteError'));

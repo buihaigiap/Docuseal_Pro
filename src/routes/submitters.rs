@@ -663,28 +663,35 @@ pub async fn submit_bulk_signatures(
                 payload.timezone.as_deref(),
             ).await {
                 Ok(Some(updated_submitter)) => {
-                    // Check if all submitters for this template are now completed
-                    match SubmitterQueries::get_submitters_by_template_id(pool, db_submitter.template_id).await {
-                        Ok(all_submitters) => {
-                            let all_completed = all_submitters.iter().all(|s| s.status == "signed" || s.status == "completed");
-                            
-                            if all_completed {
-                                // Get user reminder settings to check for completion notification email
-                                match crate::database::queries::UserReminderSettingsQueries::get_by_user_id(pool, db_submitter.user_id).await {
-                                    Ok(Some(reminder_settings)) => {
-                                        if let Some(ref completion_email) = reminder_settings.completion_notification_email {
-                                            // Get template name for the email
-                                            match crate::database::queries::TemplateQueries::get_template_by_id(pool, db_submitter.template_id).await {
-                                                Ok(Some(template)) => {
+                    // Send completion notification email for each successful signature
+                    // Get user reminder settings to check for completion notification email
+                    match crate::database::queries::UserReminderSettingsQueries::get_by_user_id(pool, db_submitter.user_id).await {
+                        Ok(Some(reminder_settings)) => {
+                            if reminder_settings.receive_notification_on_completion.unwrap_or(false) {
+                                if let Some(ref completion_email) = reminder_settings.completion_notification_email {
+                                    // Get template name for the email
+                                    match crate::database::queries::TemplateQueries::get_template_by_id(pool, db_submitter.template_id).await {
+                                        Ok(Some(template)) => {
+                                            // Get all submitters to show progress
+                                            match SubmitterQueries::get_submitters_by_template_id(pool, db_submitter.template_id).await {
+                                                Ok(all_submitters) => {
+                                                    let completed_count = all_submitters.iter().filter(|s| s.status == "signed" || s.status == "completed").count();
+                                                    let total_count = all_submitters.len();
+
                                                     // Send completion notification email
                                                     match crate::services::email::EmailService::new() {
                                                         Ok(email_service) => {
                                                             match email_service.send_completion_notification(
                                                                 completion_email,
                                                                 &template.name,
-                                                                &all_submitters.iter().map(|s| s.email.clone()).collect::<Vec<_>>().join(", ")
+                                                                &format!("signers have completed"),
+                                                                &all_submitters.iter()
+                                                                    .filter(|s| s.status == "signed" || s.status == "completed")
+                                                                    .map(|s| s.email.clone())
+                                                                    .collect::<Vec<_>>()
+                                                                    .join(", ")
                                                             ).await {
-                                                                Ok(_) => println!("Completion notification email sent to: {}", completion_email),
+                                                                Ok(_) => println!("Completion notification email sent to: {} ({} of {} completed)", completion_email, completed_count, total_count),
                                                                 Err(e) => eprintln!("Failed to send completion notification email: {}", e),
                                                             }
                                                         }
@@ -693,17 +700,17 @@ pub async fn submit_bulk_signatures(
                                                         }
                                                     }
                                                 }
-                                                Ok(None) => eprintln!("Template not found for completion notification"),
-                                                Err(e) => eprintln!("Failed to get template for completion notification: {}", e),
+                                                Err(e) => eprintln!("Failed to get submitters for completion notification: {}", e),
                                             }
                                         }
+                                        Ok(None) => eprintln!("Template not found for completion notification"),
+                                        Err(e) => eprintln!("Failed to get template for completion notification: {}", e),
                                     }
-                                    Ok(None) => {} // No reminder settings, skip
-                                    Err(e) => eprintln!("Failed to get reminder settings for completion notification: {}", e),
                                 }
                             }
                         }
-                        Err(e) => eprintln!("Failed to check if all submitters completed: {}", e),
+                        Ok(None) => {} // No reminder settings, skip
+                        Err(e) => eprintln!("Failed to get reminder settings for completion notification: {}", e),
                     }
                     
                     let reminder_config = updated_submitter.reminder_config.as_ref()

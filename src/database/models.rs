@@ -9,8 +9,7 @@ pub struct DbUserReminderSettings {
     pub first_reminder_hours: Option<i32>,  // NULL by default
     pub second_reminder_hours: Option<i32>,  // NULL by default
     pub third_reminder_hours: Option<i32>,  // NULL by default
-    pub fourth_reminder_hours: Option<i32>,  // NULL by default
-    pub fifth_reminder_hours: Option<i32>,  // NULL by default
+    pub receive_notification_on_completion: Option<bool>,
     pub completion_notification_email: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -23,8 +22,7 @@ pub struct CreateUserReminderSettings {
     pub first_reminder_hours: Option<i32>,
     pub second_reminder_hours: Option<i32>,
     pub third_reminder_hours: Option<i32>,
-    pub fourth_reminder_hours: Option<i32>,
-    pub fifth_reminder_hours: Option<i32>,
+    pub receive_notification_on_completion: Option<bool>,
     pub completion_notification_email: Option<String>,
 }
 
@@ -34,8 +32,7 @@ pub struct UpdateUserReminderSettings {
     pub first_reminder_hours: Option<i32>,
     pub second_reminder_hours: Option<i32>,
     pub third_reminder_hours: Option<i32>,
-    pub fourth_reminder_hours: Option<i32>,
-    pub fifth_reminder_hours: Option<i32>,
+    pub receive_notification_on_completion: Option<bool>,
     pub completion_notification_email: Option<String>,
 }
 
@@ -214,6 +211,7 @@ pub struct DbSubmitter {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub decline_reason: Option<String>,
+    pub template_name: Option<String>, // Added for reminder emails
 }// Create submitter request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSubmitter {

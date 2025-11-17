@@ -34,6 +34,8 @@ impl EmailService {
             .parse()
             .unwrap_or(false);
 
+        println!("EmailService initialized with test_mode: {}", test_mode);
+
         Ok(Self {
             smtp_host,
             smtp_port,
@@ -216,12 +218,15 @@ impl EmailService {
         signature_link: &str,
         reminder_number: i32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        let subject = format!("Nhắc nhở ký tài liệu (Lần {}): {}", reminder_number, submission_name);
+        println!("🎯 EMAIL SUBJECT: {}", subject);
+        println!("send_signature_reminder called with test_mode: {}, reminder_number: {}", self.test_mode, reminder_number);
+        println!("📧 Email details: to={}, name={}, submission={}, link={}", to_email, to_name, submission_name, signature_link);
+        
         if self.test_mode {
             println!("TEST MODE: Would send reminder #{} to {} ({}) with link: {}", reminder_number, to_email, to_name, signature_link);
             return Ok(());
         }
-
-        let subject = format!("Nhắc nhở ký tài liệu (Lần {}): {}", reminder_number, submission_name);
 
         let html_body = format!(
             r#"
@@ -753,6 +758,7 @@ impl EmailService {
         &self,
         to_email: &str,
         submission_name: &str,
+        progress: &str,
         signers: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         if self.test_mode {
@@ -763,7 +769,7 @@ impl EmailService {
         println!("Attempting to send completion notification email to: {}", to_email);
         println!("SMTP Host: {}, Port: {}, Username: {}", self.smtp_host, self.smtp_port, self.smtp_username);
 
-        let subject = format!("Document '{}' has been completed", submission_name);
+        let subject = format!("Document '{}' - Signature Progress Update", submission_name);
 
         let html_body = format!(
             r#"
@@ -772,7 +778,7 @@ impl EmailService {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document Completed</title>
+    <title>Document Signature Progress</title>
     <style>
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -794,6 +800,18 @@ impl EmailService {
             border: 1px solid #e9ecef;
             border-radius: 8px;
         }}
+        .progress {{
+            background-color: #e9ecef;
+            border-radius: 20px;
+            height: 20px;
+            margin: 10px 0;
+        }}
+        .progress-bar {{
+            background-color: #007bff;
+            height: 100%;
+            border-radius: 20px;
+            transition: width 0.3s ease;
+        }}
         .footer {{
             margin-top: 20px;
             padding-top: 20px;
@@ -805,12 +823,14 @@ impl EmailService {
 </head>
 <body>
     <div class="header">
-        <h2>Document Completed Successfully</h2>
+        <h2>Document Signature Progress Update</h2>
     </div>
     <div class="content">
         <p>Hi there,</p>
-        <p>"<strong>{}</strong>" has been completed by the following signers: {}.</p>
-        <p>You can now download the completed document from your dashboard.</p>
+        <p>There's an update on document "<strong>{}</strong>".</p>
+        <p><strong>Progress: {}</strong></p>
+        <p><strong>Completed Signers: {}</strong></p>
+        <p>You will receive another notification when the document is fully completed by all signers.</p>
         <div class="footer">
             <p>This is an automated notification from DocuSeal.</p>
         </div>
@@ -818,7 +838,7 @@ impl EmailService {
 </body>
 </html>
             "#,
-            submission_name, signers
+            submission_name, progress, signers
         );
 
         let email = Message::builder()

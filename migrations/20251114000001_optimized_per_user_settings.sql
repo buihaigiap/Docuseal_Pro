@@ -6,19 +6,19 @@
 ALTER TABLE global_settings DROP CONSTRAINT IF EXISTS global_settings_id_check;
 
 -- Add user_id column, nullable for global settings
-ALTER TABLE global_settings ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
 
 -- Add preference columns with NOT NULL constraints
-ALTER TABLE global_settings ADD COLUMN force_2fa_with_authenticator_app BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE global_settings ADD COLUMN add_signature_id_to_the_documents BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE global_settings ADD COLUMN require_signing_reason BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE global_settings ADD COLUMN allow_typed_text_signatures BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE global_settings ADD COLUMN allow_to_resubmit_completed_forms BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE global_settings ADD COLUMN allow_to_decline_documents BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE global_settings ADD COLUMN remember_and_pre_fill_signatures BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE global_settings ADD COLUMN require_authentication_for_file_download_links BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE global_settings ADD COLUMN combine_completed_documents_and_audit_log BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE global_settings ADD COLUMN expirable_file_download_links BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS force_2fa_with_authenticator_app BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS add_signature_id_to_the_documents BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS require_signing_reason BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS allow_typed_text_signatures BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS allow_to_resubmit_completed_forms BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS allow_to_decline_documents BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS remember_and_pre_fill_signatures BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS require_authentication_for_file_download_links BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS combine_completed_documents_and_audit_log BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS expirable_file_download_links BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Create unique constraint on user_id (NULL allowed for global)
 ALTER TABLE global_settings ADD CONSTRAINT unique_user_or_global UNIQUE (user_id);

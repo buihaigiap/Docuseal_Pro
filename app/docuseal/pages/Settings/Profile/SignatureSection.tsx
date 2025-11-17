@@ -156,7 +156,7 @@ const SignatureSection: React.FC<SignatureSectionProps> = ({
       }
     } catch (error: any) {
       console.error('Error saving:', error);
-      toast.error(error?.response?.data?.error || `Failed to save ${title.toLowerCase()}`);
+      toast.error(error?.error || error?.message || `Failed to save ${title.toLowerCase()}`);
     } finally {
       setLoading(false);
     }
@@ -191,7 +191,7 @@ const SignatureSection: React.FC<SignatureSectionProps> = ({
       }
     } catch (error: any) {
       console.error('Error deleting:', error);
-      toast.error(error?.response?.data?.error || `Failed to delete ${title.toLowerCase()}`);
+      toast.error(error?.error || error?.message || `Failed to delete ${title.toLowerCase()}`);
     } finally {
       setLoading(false);
     }

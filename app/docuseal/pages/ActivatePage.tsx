@@ -37,7 +37,7 @@ const ActivatePage: React.FC = () => {
         toast.success('Account activated successfully! You can now log in.');
         setPassword('');
       } else {
-        toast.error(data.message || 'Activation failed. The link may have expired. Please try again.');
+        toast.error(data.error || data.message || 'Activation failed. The link may have expired. Please try again.');
       }
     } catch (error) {
       toast.error('Activation failed. The link may have expired. Please try again.');

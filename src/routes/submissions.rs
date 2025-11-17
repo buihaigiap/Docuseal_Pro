@@ -97,7 +97,7 @@ pub async fn create_submission(
                     // Get user's default reminder settings
                     match crate::database::queries::UserReminderSettingsQueries::get_or_create_default(pool, user_id).await {
                         Ok(user_settings) => {
-                            // Check if first 3 minutes are configured (not NULL) - auto enabled
+                            // Check if all hours are configured (not NULL) - auto enabled
                             if let (Some(first), Some(second), Some(third)) = (
                                 user_settings.first_reminder_hours,
                                 user_settings.second_reminder_hours,
@@ -108,12 +108,10 @@ pub async fn create_submission(
                                     first_reminder_hours: first,
                                     second_reminder_hours: second,
                                     third_reminder_hours: third,
-                                    fourth_reminder_hours: user_settings.fourth_reminder_hours,
-                                    fifth_reminder_hours: user_settings.fifth_reminder_hours,
                                 };
                                 serde_json::to_value(&config).ok()
                             } else {
-                                // Minutes not configured yet - reminders disabled
+                                // Hours not configured yet - reminders disabled
                                 None
                             }
                         }

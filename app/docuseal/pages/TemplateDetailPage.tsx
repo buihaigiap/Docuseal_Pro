@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { TemplateFullInfo, Submitter, NewSubmitter, NewTemplateField, Template, SubmissionSignaturesResponse } from '../types';
-import Toast from '../components/Toast';
 import InviteModal from '../components/InviteModal';
 import upstashService from '../ConfigApi/upstashService';
 import { PDFDocument, rgb } from 'pdf-lib';
@@ -10,6 +9,7 @@ import { Box, Button, CircularProgress, Typography, Paper, Grid, Alert, useMedia
 import { useTheme } from '@mui/material/styles';
 import { Trash2 , Copy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import toast from 'react-hot-toast';
 const TemplateDetailPage = () => {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
@@ -22,14 +22,13 @@ const TemplateDetailPage = () => {
   const [partnerEmails, setPartnerEmails] = useState<Record<string, string>>({});
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({open: false, message: '', severity: 'info'});
   const fetchTemplateInfo = useCallback(async () => {
     setLoading(true);
     try {
       const data = await upstashService.getTemplateFullInfo(parseInt(id));
       if (data.success) {
         const templateData = data.data;
-        const template: Template = {
+        const template: any = {
           id: templateData.template.id,
           name: templateData.template.name,
           file_url: templateData.template.documents?.[0]?.url || '',
@@ -89,7 +88,7 @@ const TemplateDetailPage = () => {
     } catch (err) {
       console.error('💥 API fetch failed with exception:', err, 'isMobile:', isMobile);
       // Mock data for development
-      const mockTemplate: Template = {
+      const mockTemplate: any = {
         id: parseInt(id!),
         name: 'Sample Template',
         file_url: 'https://example.com/sample.pdf',
@@ -135,24 +134,24 @@ const TemplateDetailPage = () => {
     e.preventDefault();
     const submitters = Object.entries(partnerEmails).map(([partner, email]) => ({ name: partner, email }));
     if (submitters.some(s => !s.email)) {
-      setSnackbar({open: true, message: t('templates.detail.errors.fillAllEmails'), severity: 'warning'});
+      toast.error(t('templates.detail.errors.fillAllEmails'));
       return;
     }
-
     try {
       const data = await upstashService.createSubmission({ template_id: parseInt(id!), submitters });
+      console.log('Create submission response:', data);
       if (data.success) {
-        setSnackbar({open: true, message: t('templates.detail.success.submissionCreated'), severity: 'success'});
+        toast.success(t('templates.detail.success.submissionCreated'));
         fetchTemplateInfo();
         setPartnerEmails(Object.fromEntries(Object.keys(partnerEmails).map(p => [p, ''])));
         setShowInviteModal(false);
       } else {
-        setSnackbar({open: true, message: data.error || t('templates.detail.errors.submissionCreationFailed'), severity: 'error'});
+        toast.error(data.error || data.message || t('templates.detail.errors.submissionCreationFailed'));
       }
-    } catch (err) {
-      setSnackbar({open: true, message: t('templates.detail.errors.unexpectedError'), severity: 'error'});
-    } finally {
-    }
+    } catch (err: any) {
+      console.error('Create submission error:', err);
+      toast.error(err.error || err.message || t('templates.detail.errors.unexpectedError'));
+    } 
   };
 
   const handleViewSubmission = (submissionToken: string) => {
@@ -303,7 +302,7 @@ const TemplateDetailPage = () => {
 
     } catch (err: any) {
       console.error('Download error:', err);
-      setSnackbar({open: true, message: `${t('templates.detail.errors.downloadFailed')}: ${err.message}`, severity: 'error'});
+      toast.error(`${t('templates.detail.errors.downloadFailed')}: ${err.message}`);
     }
   };
 
@@ -311,14 +310,14 @@ const TemplateDetailPage = () => {
     try {
       const data = await upstashService.deleteSubmitter(submitterId);
       if (data.success) {
-        setSnackbar({open: true, message: t('templates.detail.success.submitterDeleted'), severity: 'success'});
+        toast.success(t('templates.detail.success.submitterDeleted'));
         fetchTemplateInfo(); // Refresh the template info to update the UI
       } else {
-        setSnackbar({open: true, message: data.message || t('templates.detail.errors.submitterDeletionFailed'), severity: 'error'});
+        toast.error(data.message || data.error || t('templates.detail.errors.submitterDeletionFailed'));
       }
     } catch (err) {
       console.error('Delete error:', err);
-      setSnackbar({open: true, message: t('templates.detail.errors.unexpectedDeleteError'), severity: 'error'});
+      toast.error(t('templates.detail.errors.unexpectedDeleteError'));
     }
   };
 
@@ -326,13 +325,13 @@ const TemplateDetailPage = () => {
     try {
       const data = await upstashService.cloneTemplate(id);
       if (data.success) {
-        setSnackbar({open: true, message: t('templates.detail.success.templateCloned'), severity: 'success'});
+        toast.success(t('templates.detail.success.templateCloned'));
         navigate(`/templates/${data.data.id}`);
       } else {
-        setSnackbar({open: true, message: data.error || t('templates.detail.errors.templateCloneFailed'), severity: 'error'});
+        toast.error(data.error || data.message || t('templates.detail.errors.templateCloneFailed'));
       }
     } catch (err) {
-      setSnackbar({open: true, message: t('templates.detail.errors.unexpectedCloneError'), severity: 'error'});
+      toast.error(t('templates.detail.errors.unexpectedCloneError'));
     }
   };
 
@@ -344,13 +343,13 @@ const TemplateDetailPage = () => {
     try {
       const data = await upstashService.deleteTemplate(parseInt(id!));
       if (data.success) {
-        setSnackbar({open: true, message: t('templates.detail.success.templateDeleted'), severity: 'success'});
+        toast.success(t('templates.detail.success.templateDeleted'));
         navigate('/'); // Navigate back to dashboard after deletion
       } else {
-        setSnackbar({open: true, message: data.error || t('templates.detail.errors.templateDeletionFailed'), severity: 'error'});
+        toast.error(data.error || data.message || t('templates.detail.errors.templateDeletionFailed'));
       }
     } catch (err) {
-      setSnackbar({open: true, message: t('templates.detail.errors.unexpectedTemplateDeleteError'), severity: 'error'});
+      toast.error(t('templates.detail.errors.unexpectedTemplateDeleteError'));
     }
   };
 
@@ -500,11 +499,11 @@ const TemplateDetailPage = () => {
                                       upstashService.deleteSubmitter(party.id)
                                     );
                                     await Promise.all(deletePromises);
-                                    setSnackbar({open: true, message: t('templates.detail.success.bulkSignatureDeleted'), severity: 'success'});
+                                    toast.success(t('templates.detail.success.bulkSignatureDeleted'));
                                     fetchTemplateInfo();
                                   } catch (err) {
                                     console.error('Bulk delete error:', err);
-                                    setSnackbar({open: true, message: t('templates.detail.errors.bulkSignatureDeletionFailed'), severity: 'error'});
+                                    toast.error(t('templates.detail.errors.bulkSignatureDeletionFailed'));
                                   }
                                 }
                               }}
@@ -621,13 +620,7 @@ const TemplateDetailPage = () => {
         partnerEmails={partnerEmails}
         onPartnerEmailsChange={setPartnerEmails}
         onSubmit={handleCreateSubmission}
-      />   
-        <Toast
-          open={snackbar.open}
-          message={snackbar.message}
-          severity={snackbar.severity}
-          onClose={() => setSnackbar({...snackbar, open: false})}
-        />
+      />
     </Box>
   );
 };

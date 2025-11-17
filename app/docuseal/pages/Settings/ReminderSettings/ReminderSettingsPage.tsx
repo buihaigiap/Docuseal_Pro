@@ -12,8 +12,7 @@ export default function ReminderSettingsPage() {
     first_reminder_hours: null,
     second_reminder_hours: null,
     third_reminder_hours: null,
-    fourth_reminder_hours: null,
-    fifth_reminder_hours: null,
+    receive_notification_on_completion: false,
     completion_notification_email: '',
   });
   const [loading, setLoading] = useState(true);
@@ -39,8 +38,7 @@ export default function ReminderSettingsPage() {
         first_reminder_hours: settings.first_reminder_hours,
         second_reminder_hours: settings.second_reminder_hours,
         third_reminder_hours: settings.third_reminder_hours,
-        fourth_reminder_hours: settings.fourth_reminder_hours,
-        fifth_reminder_hours: settings.fifth_reminder_hours,
+        receive_notification_on_completion: settings.receive_notification_on_completion,
         completion_notification_email: settings.completion_notification_email || null,
       });
     } finally {
@@ -64,6 +62,13 @@ export default function ReminderSettingsPage() {
     });
   };
 
+  const handleSwitchChange = (field: string) => (event: any) => {
+    setSettings({
+      ...settings,
+      [field]: event.target.checked,
+    });
+  };
+
   const reminderConfigs = [
     {
       key: 'first_reminder_hours',
@@ -82,18 +87,6 @@ export default function ReminderSettingsPage() {
       label: '🚨 Third Reminder',
       description: 'Send the third urgent email after this amount of time',
       previewText: 'Urgent email',
-    },
-    {
-      key: 'fourth_reminder_hours',
-      label: '🔥 Fourth Reminder',
-      description: 'Send the fourth critical email after this amount of time',
-      previewText: 'Critical reminder email',
-    },
-    {
-      key: 'fifth_reminder_hours',
-      label: '💥 Fifth (Final) Reminder',
-      description: 'Send the final last-chance email after this amount of time',
-      previewText: 'Final last-chance email',
     },
   ] as const;
 
@@ -143,6 +136,17 @@ export default function ReminderSettingsPage() {
 
         {/* Notification on Completion */}
         <Box mt={3}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={settings.receive_notification_on_completion}
+                onChange={handleSwitchChange('receive_notification_on_completion')}
+                color="primary"
+              />
+            }
+            label="Enable signature progress notifications"
+            sx={{ mb: 2 }}
+          />
           <TextField
             fullWidth
             label="Completion Notification Email"
@@ -150,10 +154,11 @@ export default function ReminderSettingsPage() {
             onChange={handleTextChange('completion_notification_email')}
             placeholder="Enter email address for completion notifications"
             type="email"
+            // disabled={!settings.receive_notification_on_completion}
             sx={{ mb: 1 }}
           />
           <Typography variant="caption" color="text.secondary">
-            Enter an email address to receive notifications when a document submission is fully completed by all signers
+            Enter an email address to receive notifications each time a signer completes their signature
           </Typography>
         </Box>
 

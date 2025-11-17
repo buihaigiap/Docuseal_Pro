@@ -77,9 +77,9 @@ const TemplatesGrid: React.FC<TemplatesGridProps> = ({ templates, onRefresh, cur
         onRefresh();
         toast.success('Template deleted successfully!');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Delete template error:', error);
-      toast.error(error?.response?.data?.error );
+      toast.error(error?.error || error?.message || 'Failed to delete template');
     }
   };
 

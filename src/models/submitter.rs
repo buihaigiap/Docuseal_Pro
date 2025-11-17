@@ -14,12 +14,6 @@ pub struct ReminderConfig {
     /// Hours after creation to send third reminder (default: 168 = 7 days)
     #[serde(default = "default_third_reminder")]
     pub third_reminder_hours: i32,
-    /// Hours after creation to send fourth reminder (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fourth_reminder_hours: Option<i32>,
-    /// Hours after creation to send fifth reminder (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fifth_reminder_hours: Option<i32>,
 }
 
 fn default_first_reminder() -> i32 { 24 }
@@ -32,8 +26,6 @@ impl Default for ReminderConfig {
             first_reminder_hours: 24,
             second_reminder_hours: 72,
             third_reminder_hours: 168,
-            fourth_reminder_hours: None,
-            fifth_reminder_hours: None,
         }
     }
 }

@@ -1093,6 +1093,7 @@ impl SubmitterQueries {
             session_id: row.get(17),
             viewed_at: row.get(18),
             timezone: row.get(19),
+            template_name: None,
         })
     }
 
@@ -1130,6 +1131,7 @@ impl SubmitterQueries {
                 session_id: row.get(17),
                 viewed_at: row.get(18),
                 timezone: row.get(19),
+            template_name: None,
             });
         }
         Ok(submitters)
@@ -1169,6 +1171,7 @@ impl SubmitterQueries {
                 session_id: row.get(17),
                 viewed_at: row.get(18),
                 timezone: row.get(19),
+            template_name: None,
             });
         }
         Ok(submitters)
@@ -1205,6 +1208,7 @@ impl SubmitterQueries {
                 session_id: row.get(17),
                 viewed_at: row.get(18),
                 timezone: row.get(19),
+            template_name: None,
             }))
         } else {
             Ok(None)
@@ -1249,6 +1253,7 @@ impl SubmitterQueries {
                 session_id: row.get(17),
                 viewed_at: row.get(18),
                 timezone: row.get(19),
+            template_name: None,
             }))
         } else {
             Ok(None)
@@ -1303,6 +1308,7 @@ impl SubmitterQueries {
                 session_id: row.get(17),
                 viewed_at: row.get(18),
                 timezone: row.get(19),
+            template_name: None,
             }))
         } else {
             Ok(None)
@@ -1359,6 +1365,7 @@ impl SubmitterQueries {
                 session_id: row.get(17),
                 viewed_at: row.get(18),
                 timezone: row.get(19),
+            template_name: None,
             }))
         } else {
             Ok(None)
@@ -1396,6 +1403,7 @@ impl SubmitterQueries {
                 session_id: row.get(17),
                 viewed_at: row.get(18),
                 timezone: row.get(19),
+            template_name: None,
             }))
         } else {
             Ok(None)
@@ -1406,12 +1414,13 @@ impl SubmitterQueries {
     pub async fn get_pending_reminders(pool: &PgPool) -> Result<Vec<DbSubmitter>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, template_id, user_id, name, email, status, signed_at, token, bulk_signatures, ip_address, user_agent, reminder_config, last_reminder_sent_at, reminder_count, created_at, updated_at, decline_reason, session_id, viewed_at, timezone
-            FROM submitters
-            WHERE status IN ('pending', 'sent', 'viewed')
-              AND reminder_config IS NOT NULL
-              AND reminder_count < 3
-            ORDER BY created_at
+            SELECT s.id, s.template_id, s.user_id, s.name, s.email, s.status, s.signed_at, s.token, s.bulk_signatures, s.ip_address, s.user_agent, s.reminder_config, s.last_reminder_sent_at, s.reminder_count, s.created_at, s.updated_at, s.decline_reason, s.session_id, s.viewed_at, s.timezone, t.name as template_name
+            FROM submitters s
+            LEFT JOIN templates t ON s.template_id = t.id
+            WHERE s.status IN ('pending', 'sent', 'viewed')
+              AND s.reminder_config IS NOT NULL
+              AND s.reminder_count < 3
+            ORDER BY s.created_at
             "#
         )
         .fetch_all(pool)
@@ -1440,6 +1449,7 @@ impl SubmitterQueries {
                 session_id: row.get(17),
                 viewed_at: row.get(18),
                 timezone: row.get(19),
+                template_name: row.get(20),
             });
         }
         Ok(submitters)
@@ -1577,6 +1587,7 @@ impl SubmitterQueries {
                 session_id: row.get(17),
                 viewed_at: row.get(18),
                 timezone: row.get(19),
+            template_name: None,
             });
         }
         Ok(submitters)
@@ -1622,6 +1633,7 @@ impl SubmitterQueries {
                 session_id: row.get(17),
                 viewed_at: row.get(18),
                 timezone: row.get(19),
+            template_name: None,
             });
         }
         Ok(submitters)
@@ -1755,6 +1767,7 @@ impl SignatureQueries {
                 session_id: row.get(17),
                 viewed_at: row.get(18),
                 timezone: row.get(19),
+            template_name: None,
             })),
             None => Ok(None),
         }
@@ -1800,7 +1813,7 @@ impl UserReminderSettingsQueries {
     // Get user reminder settings
     pub async fn get_by_user_id(pool: &PgPool, user_id: i64) -> Result<Option<super::models::DbUserReminderSettings>, sqlx::Error> {
         let row = sqlx::query_as::<_, super::models::DbUserReminderSettings>(
-            "SELECT id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, fourth_reminder_hours, fifth_reminder_hours, completion_notification_email, created_at, updated_at 
+            "SELECT id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, receive_notification_on_completion, completion_notification_email, created_at, updated_at 
              FROM user_reminder_settings WHERE user_id = $1"
         )
         .bind(user_id)
@@ -1816,17 +1829,16 @@ impl UserReminderSettingsQueries {
 
         let row = sqlx::query_as::<_, super::models::DbUserReminderSettings>(
             r#"
-            INSERT INTO user_reminder_settings (user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, fourth_reminder_hours, fifth_reminder_hours, completion_notification_email, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, fourth_reminder_hours, fifth_reminder_hours, completion_notification_email, created_at, updated_at
+            INSERT INTO user_reminder_settings (user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, receive_notification_on_completion, completion_notification_email, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, receive_notification_on_completion, completion_notification_email, created_at, updated_at
             "#
         )
         .bind(settings_data.user_id)
         .bind(settings_data.first_reminder_hours)
         .bind(settings_data.second_reminder_hours)
         .bind(settings_data.third_reminder_hours)
-        .bind(settings_data.fourth_reminder_hours)
-        .bind(settings_data.fifth_reminder_hours)
+        .bind(settings_data.receive_notification_on_completion)
         .bind(settings_data.completion_notification_email)
         .bind(now)
         .bind(now)
@@ -1846,19 +1858,17 @@ impl UserReminderSettingsQueries {
             SET first_reminder_hours = COALESCE($1, first_reminder_hours),
                 second_reminder_hours = COALESCE($2, second_reminder_hours),
                 third_reminder_hours = COALESCE($3, third_reminder_hours),
-                fourth_reminder_hours = COALESCE($4, fourth_reminder_hours),
-                fifth_reminder_hours = COALESCE($5, fifth_reminder_hours),
-                completion_notification_email = $6,
-                updated_at = $7
-            WHERE user_id = $8
-            RETURNING id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, fourth_reminder_hours, fifth_reminder_hours, completion_notification_email, created_at, updated_at
+                receive_notification_on_completion = $4,
+                completion_notification_email = $5,
+                updated_at = $6
+            WHERE user_id = $7
+            RETURNING id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, receive_notification_on_completion, completion_notification_email, created_at, updated_at
             "#
         )
         .bind(update_data.first_reminder_hours)
         .bind(update_data.second_reminder_hours)
         .bind(update_data.third_reminder_hours)
-        .bind(update_data.fourth_reminder_hours)
-        .bind(update_data.fifth_reminder_hours)
+        .bind(update_data.receive_notification_on_completion)
         .bind(update_data.completion_notification_email)
         .bind(now)
         .bind(user_id)
@@ -1881,8 +1891,7 @@ impl UserReminderSettingsQueries {
             first_reminder_hours: Some(1),   // Default 1 minute for testing
             second_reminder_hours: Some(2),  // Default 2 minutes for testing
             third_reminder_hours: Some(3),   // Default 3 minutes for testing
-            fourth_reminder_hours: None,     // Optional
-            fifth_reminder_hours: None,      // Optional
+            receive_notification_on_completion: None, // User must set
             completion_notification_email: None, // User must set
         };
 

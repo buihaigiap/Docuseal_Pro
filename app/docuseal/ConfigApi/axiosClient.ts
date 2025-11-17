@@ -38,9 +38,19 @@ axiosClient.interceptors.response.use((response) => {
     }
     return response;
 }, (error) => {
-    if (error.data) {
-        return error.data;
+    // Handle different error formats
+    if (error.response && error.response.data) {
+        // Server responded with error data
+        throw error.response.data;
+    } else if (error.data) {
+        // Error data is directly on error object
+        throw error.data;
+    } else if (error.message) {
+        // Fallback to error message
+        throw { message: error.message };
+    } else {
+        // Generic error
+        throw { message: 'An unexpected error occurred' };
     }
-    throw error;
 });
 export default axiosClient;
