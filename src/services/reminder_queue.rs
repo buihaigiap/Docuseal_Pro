@@ -89,8 +89,30 @@ impl ReminderQueue {
                 } else {
                     None
                 }
+            } else if submitter.reminder_count == 3 {
+                // Fourth reminder - after configured minutes
+                if let Some(fourth_hours) = reminder_config.fourth_reminder_hours {
+                    if minutes_since_created >= fourth_hours as i64 {
+                        Some(4)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else if submitter.reminder_count == 4 {
+                // Fifth reminder - after configured minutes
+                if let Some(fifth_hours) = reminder_config.fifth_reminder_hours {
+                    if minutes_since_created >= fifth_hours as i64 {
+                        Some(5)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             } else {
-                None // Already sent all 3 reminders
+                None // Already sent all reminders
             };
 
             if let Some(reminder_number) = reminder_to_send {

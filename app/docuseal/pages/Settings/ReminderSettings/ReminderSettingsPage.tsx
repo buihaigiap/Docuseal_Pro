@@ -12,6 +12,8 @@ export default function ReminderSettingsPage() {
     first_reminder_hours: null,
     second_reminder_hours: null,
     third_reminder_hours: null,
+    fourth_reminder_hours: null,
+    fifth_reminder_hours: null,
     completion_notification_email: '',
   });
   const [loading, setLoading] = useState(true);
@@ -37,6 +39,8 @@ export default function ReminderSettingsPage() {
         first_reminder_hours: settings.first_reminder_hours,
         second_reminder_hours: settings.second_reminder_hours,
         third_reminder_hours: settings.third_reminder_hours,
+        fourth_reminder_hours: settings.fourth_reminder_hours,
+        fifth_reminder_hours: settings.fifth_reminder_hours,
         completion_notification_email: settings.completion_notification_email || null,
       });
     } finally {
@@ -75,9 +79,21 @@ export default function ReminderSettingsPage() {
     },
     {
       key: 'third_reminder_hours',
-      label: '🚨 Third (Final) Reminder',
-      description: 'Send the final urgent email after this amount of time',
-      previewText: 'Final urgent email',
+      label: '🚨 Third Reminder',
+      description: 'Send the third urgent email after this amount of time',
+      previewText: 'Urgent email',
+    },
+    {
+      key: 'fourth_reminder_hours',
+      label: '🔥 Fourth Reminder',
+      description: 'Send the fourth critical email after this amount of time',
+      previewText: 'Critical reminder email',
+    },
+    {
+      key: 'fifth_reminder_hours',
+      label: '💥 Fifth (Final) Reminder',
+      description: 'Send the final last-chance email after this amount of time',
+      previewText: 'Final last-chance email',
     },
   ] as const;
 

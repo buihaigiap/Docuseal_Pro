@@ -18,14 +18,16 @@ pub struct UserReminderSettingsResponse {
     pub first_reminder_hours: Option<i32>,
     pub second_reminder_hours: Option<i32>,
     pub third_reminder_hours: Option<i32>,
+    pub fourth_reminder_hours: Option<i32>,
+    pub fifth_reminder_hours: Option<i32>,
     pub completion_notification_email: Option<String>,
-    /// Reminders are enabled when all 3 hours are configured (non-NULL)
+    /// Reminders are enabled when at least the first 3 hours are configured (non-NULL)
     pub enabled: bool,
 }
 
 impl From<DbUserReminderSettings> for UserReminderSettingsResponse {
     fn from(db: DbUserReminderSettings) -> Self {
-        // Auto-enable if all 3 hours are set
+        // Auto-enable if first 3 hours are set
         let enabled = db.first_reminder_hours.is_some() 
             && db.second_reminder_hours.is_some() 
             && db.third_reminder_hours.is_some();
@@ -34,6 +36,8 @@ impl From<DbUserReminderSettings> for UserReminderSettingsResponse {
             first_reminder_hours: db.first_reminder_hours,
             second_reminder_hours: db.second_reminder_hours,
             third_reminder_hours: db.third_reminder_hours,
+            fourth_reminder_hours: db.fourth_reminder_hours,
+            fifth_reminder_hours: db.fifth_reminder_hours,
             completion_notification_email: db.completion_notification_email,
             enabled,
         }
@@ -45,6 +49,8 @@ pub struct UpdateReminderSettingsRequest {
     pub first_reminder_hours: Option<i32>,
     pub second_reminder_hours: Option<i32>,
     pub third_reminder_hours: Option<i32>,
+    pub fourth_reminder_hours: Option<i32>,
+    pub fifth_reminder_hours: Option<i32>,
     pub completion_notification_email: Option<String>,
 }
 
@@ -74,7 +80,7 @@ pub async fn get_reminder_settings(
 }
 
 /// Update current user's reminder settings
-/// Reminders are automatically enabled when all 3 hours are configured (non-NULL)
+/// Reminders are automatically enabled when the first 3 hours are configured (non-NULL)
 #[utoipa::path(
     put,
     path = "/api/reminder-settings",
@@ -132,6 +138,8 @@ pub async fn update_reminder_settings(
         first_reminder_hours: payload.first_reminder_hours,
         second_reminder_hours: payload.second_reminder_hours,
         third_reminder_hours: payload.third_reminder_hours,
+        fourth_reminder_hours: payload.fourth_reminder_hours,
+        fifth_reminder_hours: payload.fifth_reminder_hours,
         completion_notification_email: payload.completion_notification_email,
     };
 

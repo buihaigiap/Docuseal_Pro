@@ -1800,7 +1800,7 @@ impl UserReminderSettingsQueries {
     // Get user reminder settings
     pub async fn get_by_user_id(pool: &PgPool, user_id: i64) -> Result<Option<super::models::DbUserReminderSettings>, sqlx::Error> {
         let row = sqlx::query_as::<_, super::models::DbUserReminderSettings>(
-            "SELECT id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, completion_notification_email, created_at, updated_at 
+            "SELECT id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, fourth_reminder_hours, fifth_reminder_hours, completion_notification_email, created_at, updated_at 
              FROM user_reminder_settings WHERE user_id = $1"
         )
         .bind(user_id)
@@ -1816,15 +1816,17 @@ impl UserReminderSettingsQueries {
 
         let row = sqlx::query_as::<_, super::models::DbUserReminderSettings>(
             r#"
-            INSERT INTO user_reminder_settings (user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, completion_notification_email, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, completion_notification_email, created_at, updated_at
+            INSERT INTO user_reminder_settings (user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, fourth_reminder_hours, fifth_reminder_hours, completion_notification_email, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, fourth_reminder_hours, fifth_reminder_hours, completion_notification_email, created_at, updated_at
             "#
         )
         .bind(settings_data.user_id)
         .bind(settings_data.first_reminder_hours)
         .bind(settings_data.second_reminder_hours)
         .bind(settings_data.third_reminder_hours)
+        .bind(settings_data.fourth_reminder_hours)
+        .bind(settings_data.fifth_reminder_hours)
         .bind(settings_data.completion_notification_email)
         .bind(now)
         .bind(now)
@@ -1844,15 +1846,19 @@ impl UserReminderSettingsQueries {
             SET first_reminder_hours = COALESCE($1, first_reminder_hours),
                 second_reminder_hours = COALESCE($2, second_reminder_hours),
                 third_reminder_hours = COALESCE($3, third_reminder_hours),
-                completion_notification_email = $4,
-                updated_at = $5
-            WHERE user_id = $6
-            RETURNING id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, completion_notification_email, created_at, updated_at
+                fourth_reminder_hours = COALESCE($4, fourth_reminder_hours),
+                fifth_reminder_hours = COALESCE($5, fifth_reminder_hours),
+                completion_notification_email = $6,
+                updated_at = $7
+            WHERE user_id = $8
+            RETURNING id, user_id, first_reminder_hours, second_reminder_hours, third_reminder_hours, fourth_reminder_hours, fifth_reminder_hours, completion_notification_email, created_at, updated_at
             "#
         )
         .bind(update_data.first_reminder_hours)
         .bind(update_data.second_reminder_hours)
         .bind(update_data.third_reminder_hours)
+        .bind(update_data.fourth_reminder_hours)
+        .bind(update_data.fifth_reminder_hours)
         .bind(update_data.completion_notification_email)
         .bind(now)
         .bind(user_id)
@@ -1872,9 +1878,11 @@ impl UserReminderSettingsQueries {
         // Create default settings (all NULL - user must configure)
         let default_settings = super::models::CreateUserReminderSettings {
             user_id,
-            first_reminder_hours: None,   // User must set
-            second_reminder_hours: None,  // User must set
-            third_reminder_hours: None,   // User must set
+            first_reminder_hours: Some(1),   // Default 1 minute for testing
+            second_reminder_hours: Some(2),  // Default 2 minutes for testing
+            third_reminder_hours: Some(3),   // Default 3 minutes for testing
+            fourth_reminder_hours: None,     // Optional
+            fifth_reminder_hours: None,      // Optional
             completion_notification_email: None, // User must set
         };
 
