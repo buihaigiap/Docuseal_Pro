@@ -146,6 +146,7 @@ pub async fn get_template_full_info(
                             updated_at: db_sub.updated_at,
                             template_name: None,
                             decline_reason: db_sub.decline_reason,
+                            can_download: None,
                         }
                     }).collect::<Vec<_>>();
 
@@ -3042,24 +3043,41 @@ pub async fn upload_file(
     let mut filename = String::new();
     let mut content_type = String::new();
 
+    println!("🔍 [FILE UPLOAD] Starting to parse multipart data...");
+
     // Parse multipart form data
     while let Some(field) = multipart.next_field().await.unwrap_or(None) {
         let field_name = field.name().unwrap_or("").to_string();
+        let field_filename = field.file_name().map(|s| s.to_string());
+        let field_content_type = field.content_type().map(|s| s.to_string());
+        
+        println!("📦 [FILE UPLOAD] Found field: {}", field_name);
+        println!("   - filename: {:?}", field_filename);
+        println!("   - content-type: {:?}", field_content_type);
 
         match field_name.as_str() {
             "file" => {
-                filename = field.file_name().unwrap_or("uploaded_file").to_string();
+                filename = field_filename.unwrap_or_else(|| "uploaded_file".to_string());
+                println!("📄 [FILE UPLOAD] Using filename: {}", filename);
                 
                 // Determine content type from filename
                 content_type = get_content_type_from_filename(&filename).to_string();
+                println!("📋 [FILE UPLOAD] Determined Content-Type: {}", content_type);
                 
+                // Read bytes from field
                 file_data = field.bytes().await.unwrap_or_default().to_vec();
+                println!("💾 [FILE UPLOAD] File size after read: {} bytes", file_data.len());
             }
-            _ => {}
+            _ => {
+                println!("⚠️ [FILE UPLOAD] Ignoring unknown field: {}", field_name);
+            }
         }
     }
 
+    println!("✅ [FILE UPLOAD] Parsing complete. File data size: {}", file_data.len());
+
     if file_data.is_empty() {
+        println!("❌ [FILE UPLOAD] ERROR: No file data received!");
         return ApiResponse::bad_request("File is required".to_string());
     }
 

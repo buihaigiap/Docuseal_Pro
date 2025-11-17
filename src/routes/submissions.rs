@@ -151,6 +151,7 @@ pub async fn create_submission(
                             updated_at: db_submitter.updated_at,
                             template_name: None,
                             decline_reason: db_submitter.decline_reason,
+                            can_download: None,
                         };
                         created_submitters.push(submitter_api.clone());
 

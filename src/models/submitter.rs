@@ -53,6 +53,9 @@ pub struct Submitter {
     pub template_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decline_reason: Option<String>,
+    /// Whether the submitter can download documents (based on expirable_file_download_links setting)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub can_download: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

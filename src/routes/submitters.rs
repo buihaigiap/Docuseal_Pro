@@ -61,6 +61,7 @@ pub async fn get_submitters(
                     updated_at: db_submitter.updated_at,
                     template_name: None,
                     decline_reason: db_submitter.decline_reason,
+                    can_download: None,
                 };
                 all_submitters.push(submitter);
             }
@@ -125,6 +126,7 @@ pub async fn get_submitter(
                 updated_at: db_submitter.updated_at,
                 template_name: None,
                 decline_reason: db_submitter.decline_reason,
+                can_download: None,
             };
             ApiResponse::success(submitter, "Submitter retrieved successfully".to_string())
         }
@@ -265,6 +267,7 @@ pub async fn update_submitter(
                         updated_at: db_submitter.updated_at,
                         template_name: None,
                         decline_reason: db_submitter.decline_reason,
+                        can_download: None,
                     };
                     ApiResponse::success(submitter, "Submitter updated successfully".to_string())
                 }
@@ -372,6 +375,7 @@ pub async fn update_public_submitter(
                         updated_at: updated_submitter.updated_at,
                         template_name: None,
                         decline_reason: updated_submitter.decline_reason,
+                        can_download: None,
                     };
                     ApiResponse::success(submitter, "Submitter updated successfully".to_string())
                 }
@@ -411,6 +415,35 @@ pub async fn get_public_submitter(
                 Ok(Some(template)) => Some(template.name),
                 _ => None,
             };
+            
+            // Get user settings to check expirable_file_download_links
+            let user_settings = GlobalSettingsQueries::get_user_settings(pool, db_submitter.user_id as i32).await
+                .ok()
+                .flatten();
+            
+            // Calculate can_download based on expirable_file_download_links setting
+            let can_download = if let Some(settings) = user_settings {
+                if settings.expirable_file_download_links {
+                    // Check if it's been more than 2 minutes since signing (for testing)
+                    if let Some(signed_at) = db_submitter.signed_at {
+                        let now = chrono::Utc::now();
+                        let elapsed = now.signed_duration_since(signed_at);
+                        let elapsed_minutes = elapsed.num_minutes();
+                        
+                        // Can download if less than 2 minutes have passed (for testing)
+                        Some(elapsed_minutes < 2)
+                    } else {
+                        // Not signed yet, can't download
+                        Some(false)
+                    }
+                } else {
+                    // expirable_file_download_links is false, always can download
+                    Some(true)
+                }
+            } else {
+                // No settings found, default to true
+                Some(true)
+            };
                 
             let submitter = crate::models::submitter::Submitter {
                 id: Some(db_submitter.id),
@@ -429,6 +462,7 @@ pub async fn get_public_submitter(
                 updated_at: db_submitter.updated_at,
                 template_name,
                 decline_reason: db_submitter.decline_reason,
+                can_download,
             };
             ApiResponse::success(submitter, "Submitter retrieved successfully".to_string())
         }
@@ -557,6 +591,7 @@ pub async fn submit_bulk_signatures(
                                 updated_at: updated_submitter.updated_at,
                                 template_name: None,
                                 decline_reason: updated_submitter.decline_reason,
+                                can_download: None,
                             };
                             return ApiResponse::success(submitter, "Document declined successfully".to_string())
                         }
@@ -648,6 +683,7 @@ pub async fn submit_bulk_signatures(
                         updated_at: updated_submitter.updated_at,
                         template_name: None,
                         decline_reason: updated_submitter.decline_reason,
+                        can_download: None,
                     };
                     ApiResponse::success(submitter, "Bulk signatures submitted successfully".to_string())
                 }
@@ -2253,6 +2289,7 @@ pub async fn resubmit_submitter(
                                 updated_at: updated_submitter.updated_at,
                                 template_name: None,
                                 decline_reason: updated_submitter.decline_reason,
+                                can_download: None,
                             };
                             ApiResponse::success(submitter, "Submitter resubmitted successfully".to_string())
                         }

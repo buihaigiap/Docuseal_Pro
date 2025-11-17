@@ -40,7 +40,6 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
   const overlayRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const [docState, setDocState] = useState<DocumentState | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [pageWidth, setPageWidth] = useState(0);
@@ -72,7 +71,6 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
 
     const loadDocument = async () => {
       try {
-        setLoading(true);
         setError("");
         setDocState(null);
 
@@ -164,9 +162,7 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
         console.error("Document load error:", err);
         setError(err.message || "Failed to load document");
         onError?.(err.message || "Failed to load document");
-      } finally {
-        if (!isCancelled) setLoading(false);
-      }
+      } 
     };
 
     const loadImages = async (response: any) => {
@@ -361,13 +357,7 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
 
       {/* Main Content */}
       <div className="flex-1 rounded-lg justify-center items-start min-h-[80vh] relative shadow-inner">
-          {loading && <div className="absolute inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-20">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div><span className="ml-3 text-white">
-              Loading Document...</span>
-            </div>
-          }
           {renderContent()}
-          
       </div>
     </div>
   );

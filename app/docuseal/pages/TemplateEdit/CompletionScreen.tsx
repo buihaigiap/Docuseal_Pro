@@ -5,6 +5,7 @@ import CreateTemplateButtonProps from '../../components/CreateTemplateButton';
 import { useNavigate } from 'react-router-dom';
 import { downloadSignedPDF, fetchAuditLog, generateMockAuditLog } from '../../services/pdfDownloadService';
 import { useBasicSettings } from '../../hooks/useBasicSettings';
+import { useEffect, useState } from 'react';
 
 interface CompletionScreenProps {
   signedDate: string;
@@ -21,7 +22,28 @@ const CompletionScreen: React.FC<CompletionScreenProps> = ({
 }) => {
   const navigate = useNavigate();
   const { globalSettings } = useBasicSettings();
-
+  const [canDownload, setCanDownload] = useState<boolean>(true);
+  
+  console.log('globalSettings' , globalSettings)
+  
+  useEffect(() => {
+    // Fetch submitter info to get can_download status
+    const fetchSubmitterInfo = async () => {
+      try {
+        const result = await upstashService.getSubmitterInfo(token);
+        if (result.success && result.data) {
+          // If can_download is undefined, default to true (backward compatibility)
+          setCanDownload(result.data.can_download !== false);
+        }
+      } catch (error) {
+        console.error('Error fetching submitter info:', error);
+        // On error, default to true to avoid breaking existing functionality
+        setCanDownload(true);
+      }
+    };
+    
+    fetchSubmitterInfo();
+  }, [token]);
   const handleSendEmail = async () => {
     try {
       await upstashService.sendCopyEmail(token);
@@ -131,18 +153,34 @@ const CompletionScreen: React.FC<CompletionScreenProps> = ({
             SEND COPY TO EMAIL
           </Button>
 
-          <Button
-            variant="outlined"
-            fullWidth
-            sx={{
-              textTransform: 'none',
-              borderColor: '#4f46e5',
-              color: 'white',
-            }}
-            onClick={handleDownload}
-          >
-            DOWNLOAD DOCUMENTS
-          </Button>
+          {canDownload && (
+            <Button
+              variant="outlined"
+              fullWidth
+              sx={{
+                textTransform: 'none',
+                borderColor: '#4f46e5',
+                color: 'white',
+              }}
+              onClick={handleDownload}
+            >
+              DOWNLOAD DOCUMENTS
+            </Button>
+          )}
+          
+          {!canDownload && (
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: '#9ca3af', 
+                textAlign: 'center',
+                fontStyle: 'italic',
+                py: 1
+              }}
+            >
+              Download link has expired (40 minutes after signing)
+            </Typography>
+          )}
 
           {allowResubmit && (
             <CreateTemplateButtonProps

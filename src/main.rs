@@ -6,6 +6,7 @@ mod database;
 mod constants;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -230,15 +231,17 @@ async fn main() {
     let swagger_routes = SwaggerUi::new("/swagger-ui")
         .url("/api-docs/openapi.json", openapi_json);
 
-    // Serve static files from frontend build directory
-    let static_files_service = ServeDir::new("app/docuseal/dist")
-        .not_found_service(ServeFile::new("app/docuseal/dist/index.html"));
+    // Serve static files from frontend build directory with proper SPA fallback
+    let serve_dir = ServeDir::new("app/docuseal/dist");
+    let spa_fallback = ServeFile::new("app/docuseal/dist/index.html");
 
     // Combine all routes
     let app = Router::new()
         .merge(api_routes)
         .merge(swagger_routes)
-        .fallback_service(static_files_service)
+        .nest_service("/assets", ServeDir::new("app/docuseal/dist/assets"))
+        .fallback_service(serve_dir.fallback(spa_fallback))
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100MB limit for file uploads
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 
