@@ -2327,7 +2327,7 @@ impl GlobalSettingsQueries {
 impl EmailTemplateQueries {
     pub async fn get_templates_by_user(pool: &PgPool, user_id: i64) -> Result<Vec<DbEmailTemplate>, sqlx::Error> {
         let rows = sqlx::query(
-            "SELECT id, user_id, template_type, subject, body, body_format, is_default, created_at, updated_at FROM email_templates WHERE user_id = $1 ORDER BY created_at DESC"
+            "SELECT id, user_id, template_type, subject, body, body_format, is_default, attach_documents, attach_audit_log, created_at, updated_at FROM email_templates WHERE user_id = $1 ORDER BY created_at DESC"
         )
         .bind(user_id)
         .fetch_all(pool)
@@ -2343,6 +2343,8 @@ impl EmailTemplateQueries {
                 body: row.try_get("body")?,
                 body_format: row.try_get("body_format")?,
                 is_default: row.try_get("is_default")?,
+                attach_documents: row.try_get("attach_documents")?,
+                attach_audit_log: row.try_get("attach_audit_log")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             });
@@ -2352,7 +2354,7 @@ impl EmailTemplateQueries {
 
     pub async fn get_templates_by_type(pool: &PgPool, user_id: i64, template_type: &str) -> Result<Vec<DbEmailTemplate>, sqlx::Error> {
         let rows = sqlx::query(
-            "SELECT id, user_id, template_type, subject, body, body_format, is_default, created_at, updated_at FROM email_templates WHERE user_id = $1 AND template_type = $2 ORDER BY is_default DESC, created_at DESC"
+            "SELECT id, user_id, template_type, subject, body, body_format, is_default, attach_documents, attach_audit_log, created_at, updated_at FROM email_templates WHERE user_id = $1 AND template_type = $2 ORDER BY is_default DESC, created_at DESC"
         )
         .bind(user_id)
         .bind(template_type)
@@ -2369,6 +2371,8 @@ impl EmailTemplateQueries {
                 body: row.try_get("body")?,
                 body_format: row.try_get("body_format")?,
                 is_default: row.try_get("is_default")?,
+                attach_documents: row.try_get("attach_documents")?,
+                attach_audit_log: row.try_get("attach_audit_log")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             });
@@ -2378,7 +2382,7 @@ impl EmailTemplateQueries {
 
     pub async fn get_default_template_by_type(pool: &PgPool, user_id: i64, template_type: &str) -> Result<Option<DbEmailTemplate>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, user_id, template_type, subject, body, body_format, is_default, created_at, updated_at FROM email_templates WHERE user_id = $1 AND template_type = $2 AND is_default = true"
+            "SELECT id, user_id, template_type, subject, body, body_format, is_default, attach_documents, attach_audit_log, created_at, updated_at FROM email_templates WHERE user_id = $1 AND template_type = $2 AND is_default = true"
         )
         .bind(user_id)
         .bind(template_type)
@@ -2394,6 +2398,8 @@ impl EmailTemplateQueries {
                 body: row.try_get("body")?,
                 body_format: row.try_get("body_format")?,
                 is_default: row.try_get("is_default")?,
+                attach_documents: row.try_get("attach_documents")?,
+                attach_audit_log: row.try_get("attach_audit_log")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             })),
@@ -2403,7 +2409,7 @@ impl EmailTemplateQueries {
 
     pub async fn get_template_by_id(pool: &PgPool, id: i64, user_id: i64) -> Result<Option<DbEmailTemplate>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, user_id, template_type, subject, body, body_format, is_default, created_at, updated_at FROM email_templates WHERE id = $1 AND user_id = $2"
+            "SELECT id, user_id, template_type, subject, body, body_format, is_default, attach_documents, attach_audit_log, created_at, updated_at FROM email_templates WHERE id = $1 AND user_id = $2"
         )
         .bind(id)
         .bind(user_id)
@@ -2419,6 +2425,8 @@ impl EmailTemplateQueries {
                 body: row.try_get("body")?,
                 body_format: row.try_get("body_format")?,
                 is_default: row.try_get("is_default")?,
+                attach_documents: row.try_get("attach_documents")?,
+                attach_audit_log: row.try_get("attach_audit_log")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             })),
@@ -2429,7 +2437,7 @@ impl EmailTemplateQueries {
     pub async fn create_template(pool: &PgPool, template_data: CreateEmailTemplate, user_id: i64) -> Result<DbEmailTemplate, sqlx::Error> {
         let now = Utc::now();
         let row = sqlx::query(
-            "INSERT INTO email_templates (user_id, template_type, subject, body, body_format, is_default, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, user_id, template_type, subject, body, body_format, is_default, created_at, updated_at"
+            "INSERT INTO email_templates (user_id, template_type, subject, body, body_format, is_default, attach_documents, attach_audit_log, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, user_id, template_type, subject, body, body_format, is_default, attach_documents, attach_audit_log, created_at, updated_at"
         )
         .bind(user_id)
         .bind(&template_data.template_type)
@@ -2437,6 +2445,8 @@ impl EmailTemplateQueries {
         .bind(&template_data.body)
         .bind(&template_data.body_format)
         .bind(template_data.is_default)
+        .bind(template_data.attach_documents)
+        .bind(template_data.attach_audit_log)
         .bind(now)
         .bind(now)
         .fetch_one(pool)
@@ -2450,6 +2460,8 @@ impl EmailTemplateQueries {
             body: row.try_get("body")?,
             body_format: row.try_get("body_format")?,
             is_default: row.try_get("is_default")?,
+            attach_documents: row.try_get("attach_documents")?,
+            attach_audit_log: row.try_get("attach_audit_log")?,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
         })
@@ -2486,8 +2498,18 @@ impl EmailTemplateQueries {
             query.push_str(&format!(", is_default = ${}", param_count));
             params.push(format!("${}", param_count));
         }
+        if let Some(attach_documents) = update_data.attach_documents {
+            param_count += 1;
+            query.push_str(&format!(", attach_documents = ${}", param_count));
+            params.push(format!("${}", param_count));
+        }
+        if let Some(attach_audit_log) = update_data.attach_audit_log {
+            param_count += 1;
+            query.push_str(&format!(", attach_audit_log = ${}", param_count));
+            params.push(format!("${}", param_count));
+        }
 
-        query.push_str(&format!(" WHERE id = ${} AND user_id = ${} RETURNING id, user_id, template_type, subject, body, body_format, is_default, created_at, updated_at", param_count + 1, param_count + 2));
+        query.push_str(&format!(" WHERE id = ${} AND user_id = ${} RETURNING id, user_id, template_type, subject, body, body_format, is_default, attach_documents, attach_audit_log, created_at, updated_at", param_count + 1, param_count + 2));
 
         let mut sql_query = sqlx::query(&query).bind(now);
 
@@ -2506,6 +2528,12 @@ impl EmailTemplateQueries {
         if let Some(is_default) = update_data.is_default {
             sql_query = sql_query.bind(is_default);
         }
+        if let Some(attach_documents) = update_data.attach_documents {
+            sql_query = sql_query.bind(attach_documents);
+        }
+        if let Some(attach_audit_log) = update_data.attach_audit_log {
+            sql_query = sql_query.bind(attach_audit_log);
+        }
         sql_query = sql_query.bind(id).bind(user_id);
 
         let row = sql_query.fetch_optional(pool).await?;
@@ -2519,6 +2547,8 @@ impl EmailTemplateQueries {
                 body: row.try_get("body")?,
                 body_format: row.try_get("body_format")?,
                 is_default: row.try_get("is_default")?,
+                attach_documents: row.try_get("attach_documents")?,
+                attach_audit_log: row.try_get("attach_audit_log")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             })),

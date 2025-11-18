@@ -920,7 +920,7 @@ fn render_signatures_on_pdf(
                 // Signature area: full field height MINUS text height (matching SignatureRenderer.tsx)
                 // Important: Signature is rendered in the TOP portion, text in BOTTOM portion
                 let sig_height = field_height - text_height;
-                let sig_y = pdf_y + text_height; // Signature Y position in PDF coordinates (bottom-left origin)
+                let sig_y = pdf_y + text_height + 5.0; // Signature Y position in PDF coordinates (bottom-left origin) - moved up by 5 points
                 
                 eprintln!("=== INITIALS FIELD DEBUG ===");
                 eprintln!("Field height: {}, Text height: {}, Sig height: {}", field_height, text_height, sig_height);
@@ -979,7 +979,7 @@ fn render_signatures_on_pdf(
                 
                 // For text fields, calculate signature area
                 let sig_height = field_height - text_height;
-                let sig_y = pdf_y + text_height;
+                let sig_y = pdf_y + text_height + 5.0;
                 
                 // Mặc định (trường văn bản hoặc chữ ký): Kiểm tra xem có phải vector signature không
                 if signature_value.starts_with('[') {

@@ -355,6 +355,8 @@ pub struct DbEmailTemplate {
     pub body: String,
     pub body_format: String, // 'text' or 'html'
     pub is_default: bool,
+    pub attach_documents: bool,
+    pub attach_audit_log: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -367,6 +369,8 @@ pub struct CreateEmailTemplate {
     pub body: String,
     pub body_format: String, // 'text' or 'html'
     pub is_default: bool,
+    pub attach_documents: bool,
+    pub attach_audit_log: bool,
 }
 
 // Update email template request
@@ -377,5 +381,7 @@ pub struct UpdateEmailTemplate {
     pub body: Option<String>,
     pub body_format: Option<String>, // 'text' or 'html'
     pub is_default: Option<bool>,
+    pub attach_documents: Option<bool>,
+    pub attach_audit_log: Option<bool>,
 }
 

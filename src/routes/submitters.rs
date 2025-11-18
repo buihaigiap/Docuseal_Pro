@@ -9,7 +9,7 @@ use axum::{
 };
 use std::net::SocketAddr;
 use crate::common::responses::ApiResponse;
-use crate::database::queries::{SubmitterQueries, UserQueries, SubmissionFieldQueries, GlobalSettingsQueries, TemplateQueries, EmailTemplateQueries};
+use crate::database::queries::{SubmitterQueries, UserQueries, SubmissionFieldQueries, GlobalSettingsQueries, TemplateQueries, EmailTemplateQueries, TemplateFieldQueries};
 use crate::common::jwt::{auth_middleware, verify_jwt};
 use crate::common::authorization::require_admin_or_team_member;
 use crate::services::storage::StorageService;
@@ -17,6 +17,7 @@ use chrono::Utc;
 use serde_json;
 use md5;
 use crate::models::signature::SignatureInfo;
+use sqlx::PgPool;
 
 use crate::routes::web::AppState;
 
@@ -717,15 +718,53 @@ pub async fn submit_bulk_signatures(
                                                                     let subject = replace_template_variables(&email_template.subject, &variables);
                                                                     let body = replace_template_variables(&email_template.body, &variables);
 
+                                                                    // Generate attachments if needed
+                                                                    let mut document_path = None;
+                                                                    let mut audit_log_path = None;
+
+                                                                    if email_template.attach_documents {
+                                                                        // Generate signed PDF
+                                                                        if let Ok(storage_service) = StorageService::new().await {
+                                                                            if let Ok(signed_pdf_bytes) = generate_signed_pdf_for_template(pool, db_submitter.template_id, &storage_service).await {
+                                                                                let temp_file = std::env::temp_dir().join(format!("signed_document_{}.pdf", db_submitter.id));
+                                                                                if let Ok(_) = tokio::fs::write(&temp_file, signed_pdf_bytes).await {
+                                                                                    document_path = Some(temp_file.to_string_lossy().to_string());
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+
+                                                                    if email_template.attach_audit_log {
+                                                                        // Generate audit log PDF
+                                                                        if let Ok(audit_pdf_bytes) = generate_audit_log_pdf(pool, db_submitter.id).await {
+                                                                            let temp_file = std::env::temp_dir().join(format!("audit_log_{}.pdf", db_submitter.id));
+                                                                            if let Ok(_) = tokio::fs::write(&temp_file, audit_pdf_bytes).await {
+                                                                                audit_log_path = Some(temp_file.to_string_lossy().to_string());
+                                                                            }
+                                                                        }
+                                                                    }
+
                                                                     match email_service.send_template_email(
                                                                         completion_email,
                                                                         &db_submitter.name,
                                                                         &subject,
                                                                         &body,
                                                                         &email_template.body_format,
+                                                                        email_template.attach_documents,
+                                                                        email_template.attach_audit_log,
+                                                                        document_path.as_deref(),
+                                                                        audit_log_path.as_deref(),
                                                                     ).await {
                                                                         Ok(_) => println!("Template completion notification email sent to: {} ({} of {} completed)", completion_email, completed_count, total_count),
                                                                         Err(e) => eprintln!("Failed to send template completion notification email: {}", e),
+                                                                    }
+
+                                                                    // Clean up temporary files
+                                                                    if let Some(path) = document_path {
+                                                                        let _ = tokio::fs::remove_file(path).await;
+                                                                    }
+                                                                    if let Some(path) = audit_log_path {
+                                                                        let _ = tokio::fs::remove_file(path).await;
                                                                     }
                                                                 },
                                                                 _ => {
@@ -1036,7 +1075,7 @@ fn render_signatures_on_pdf(
     signatures: &[(String, String, String, f64, f64, f64, f64, i32, serde_json::Value)], // (field_name, field_type, signature_value, x, y, w, h, page, signature_json)
     user_settings: &crate::database::models::DbGlobalSettings,
     submitter: &crate::database::models::DbSubmitter,
-) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync + 'static>> {
     use lopdf::{Document, Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
     
@@ -1181,7 +1220,7 @@ fn render_signatures_on_pdf(
                 // Signature area: full field height MINUS text height (matching SignatureRenderer.tsx)
                 // Important: Signature is rendered in the TOP portion, text in BOTTOM portion
                 let sig_height = field_height - text_height;
-                let sig_y = pdf_y + text_height; // Signature Y position in PDF coordinates (bottom-left origin)
+                let sig_y = pdf_y + text_height + 10.0; // Signature Y position in PDF coordinates (bottom-left origin) - moved up by 10 points
                 
                 eprintln!("=== INITIALS FIELD DEBUG ===");
                 eprintln!("Field height: {}, Text height: {}, Sig height: {}", field_height, text_height, sig_height);
@@ -1237,7 +1276,7 @@ fn render_signatures_on_pdf(
                 // Signature area: full field height MINUS text height (matching SignatureRenderer.tsx)
                 // Important: Signature is rendered in the TOP portion, text in BOTTOM portion
                 let sig_height = field_height - text_height;
-                let sig_y = pdf_y + text_height; // Signature Y position in PDF coordinates (bottom-left origin)
+                let sig_y = pdf_y + text_height + 10.0; // Signature Y position in PDF coordinates (bottom-left origin) - moved up by 10 points
                 
                 eprintln!("=== DEFAULT SIGNATURE FIELD DEBUG ===");
                 eprintln!("Field height: {}, Text height: {}, Sig height: {}", field_height, text_height, sig_height);
@@ -1349,9 +1388,9 @@ fn calculate_signature_text_height(
         line_count += 1;
     }
     
-    // Match SignatureRenderer.tsx: (lineCount - 1) * 10 + 8 + 3
+    // Match SignatureRenderer.tsx: (lineCount - 1) * 8 + 8 + 2
     if line_count > 0 {
-        ((line_count - 1) as f64 * 10.0) + 8.0 + 3.0
+        ((line_count - 1) as f64 * 8.0) + 8.0 + 2.0
     } else {
         0.0
     }
@@ -1368,7 +1407,7 @@ fn render_signature_id_info(
     field_width: f64,
     field_height: f64,
     user_settings: &crate::database::models::DbGlobalSettings,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     use lopdf::{Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
 
@@ -1477,15 +1516,15 @@ fn render_signature_id_info(
     // Matching SignatureRenderer.tsx: text starts from bottom and goes up
     let info_x = x_pos + 5.0; // Match frontend padding of 5px
     let font_size = 8.0; // Match frontend font size
-    let line_height = 10.0; // Match frontend line height
+    let line_height = 8.0; // Match frontend line height
     
     // Text area is at the bottom: from pdf_y to (pdf_y + text_height)
     // Calculate actual text height needed
-    let actual_text_height = (signature_info_parts.len() as f64 - 1.0) * line_height + font_size + 3.0;
+    let actual_text_height = (signature_info_parts.len() as f64 - 1.0) * line_height + font_size + 2.0;
     
     // Start rendering from the bottom of text area
-    // First line should be at pdf_y + 3 (bottom padding), last line at the top
-    let text_start_y = pdf_y + 3.0; // Bottom padding: 3px from the bottom
+    // First line should be at pdf_y + 2 (bottom padding), last line at the top
+    let text_start_y = pdf_y + 2.0; // Bottom padding: 2px from the bottom
     
     // Create text content stream for signature info with multiple lines
     let mut text_operations = vec![
@@ -1570,16 +1609,15 @@ fn render_text_field(
     pdf_y: f64,
     field_width: f64,
     field_height: f64,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     use lopdf::{Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
 
     // Calculate font size based on field height
     let font_size = (field_height * 0.65).max(8.0).min(16.0);
 
-    // Calculate baseline for vertical centering
-    let baseline_offset = (field_height - font_size) / 2.0;
-    let baseline_y = pdf_y + baseline_offset + font_size * 0.25;
+    // Calculate baseline for vertical centering (matching frontend middle alignment)
+    let baseline_y = pdf_y + field_height / 2.0;
 
     // Create Arial font if not exists
     let font_name = b"F1".to_vec();
@@ -1705,7 +1743,7 @@ fn render_checkbox_with_check(
     pdf_y: f64,
     field_width: f64,
     field_height: f64,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     use lopdf::{Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
 
@@ -1779,7 +1817,7 @@ fn render_empty_checkbox(
     pdf_y: f64,
     field_width: f64,
     field_height: f64,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     use lopdf::{Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
 
@@ -1848,7 +1886,7 @@ fn render_cells_field(
     pdf_y: f64,
     field_width: f64,
     field_height: f64,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     use lopdf::{Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
 
@@ -1992,7 +2030,7 @@ fn render_initials_field(
     pdf_y: f64,
     _field_width: f64,
     field_height: f64,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     use lopdf::{Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
 
@@ -2042,8 +2080,10 @@ fn render_initials_field(
         }
     }
 
-    // Calculate positioning for initials (absolute positioning, custom line height)
-    let baseline_y = pdf_y + field_height * 0.75; // Higher baseline for initials
+    // Calculate positioning for initials (matching frontend centering logic)
+    // Center in available space, similar to frontend
+    let available_height = field_height;
+    let baseline_y = pdf_y + available_height * 0.5 + 5.0; // Center vertically + 5px offset
 
     // Create text content stream with special positioning for initials
     let text_operations = vec![
@@ -2127,7 +2167,7 @@ fn render_vector_signature(
     pdf_y: f64,
     field_width: f64,
     field_height: f64,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     use lopdf::{Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
 
@@ -2159,17 +2199,21 @@ fn render_vector_signature(
         }
     }
 
-    // Calculate scale to fit in field
+    // Calculate scale to fit in available space (matching frontend SignatureRenderer.tsx)
     let sig_width = max_x - min_x;
     let sig_height = max_y - min_y;
     
-    let scale_x = if sig_width > 0.0 { field_width / sig_width } else { 1.0 };
-    let scale_y = if sig_height > 0.0 { field_height / sig_height } else { 1.0 };
-    let scale = scale_x.min(scale_y) * 0.9; // Use 90% to add padding
+    let padding = 5.0; // Match frontend padding
+    let available_width = field_width - padding * 2.0;
+    let available_height = field_height - padding * 2.0;
+    
+    let scale_x = if sig_width > 0.0 { available_width / sig_width } else { 1.0 };
+    let scale_y = if sig_height > 0.0 { available_height / sig_height } else { 1.0 };
+    let scale = scale_x.min(scale_y);
 
-    // Center the signature
-    let offset_x = x_pos + (field_width - sig_width * scale) / 2.0 - min_x * scale;
-    let offset_y = pdf_y + (field_height - sig_height * scale) / 2.0 - min_y * scale;
+    // Center the signature in available space (matching frontend)
+    let offset_x = x_pos + padding + (available_width - sig_width * scale) / 2.0 - min_x * scale;
+    let offset_y = pdf_y + padding + (available_height - sig_height * scale) / 2.0 - min_y * scale;
     
     let center_offset_x = (field_width - sig_width * scale) / 2.0;
     let center_offset_y = (field_height - sig_height * scale) / 2.0;
@@ -2186,7 +2230,7 @@ fn render_vector_signature(
     let mut operations = Vec::new();
 
     // Set line properties
-    operations.push(Operation::new("w", vec![Object::Real(2.0)])); // Line width
+    operations.push(Operation::new("w", vec![Object::Real(2.5)])); // Line width - match SignatureRenderer
     operations.push(Operation::new("RG", vec![Object::Real(0.0), Object::Real(0.0), Object::Real(0.0)])); // Black color
     operations.push(Operation::new("J", vec![Object::Integer(1)])); // Round line cap
     operations.push(Operation::new("j", vec![Object::Integer(1)])); // Round line join
@@ -2586,6 +2630,395 @@ pub async fn get_submitter_audit_log(
         Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
         Err(e) => ApiResponse::internal_error(format!("Failed to get audit log: {}", e)),
     }
+}
+
+async fn generate_signed_pdf_for_template(
+    pool: &PgPool,
+    template_id: i64,
+    storage_service: &StorageService,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    // Get template
+    let template = TemplateQueries::get_template_by_id(pool, template_id).await?
+        .ok_or("Template not found")?;
+
+    // Get template PDF bytes
+    let pdf_bytes = if let Some(documents) = &template.documents {
+        if let Ok(docs) = serde_json::from_value::<Vec<crate::models::template::Document>>(documents.clone()) {
+            if let Some(first_doc) = docs.first() {
+                // Use the URL as key for storage download
+                storage_service.download_file(&first_doc.url).await?
+            } else {
+                return Err("No documents found in template".into());
+            }
+        } else {
+            return Err("Invalid documents format".into());
+        }
+    } else {
+        return Err("Template has no documents".into());
+    };
+
+    // Get all submitters for this template
+    let submitters = SubmitterQueries::get_submitters_by_template_id(pool, template_id).await?;
+
+    // Get template fields for position information
+    let template_fields = TemplateFieldQueries::get_template_fields(pool, template_id).await?;
+
+    // Collect all signatures with position information
+    let mut all_signatures = Vec::new();
+    for submitter in &submitters {
+        if let Some(bulk_signatures) = &submitter.bulk_signatures {
+            if let Ok(signatures) = serde_json::from_value::<Vec<serde_json::Value>>(bulk_signatures.clone()) {
+                for sig in signatures {
+                    if let (Some(field_name), Some(signature_value)) = (
+                        sig.get("field_name").and_then(|v| v.as_str()),
+                        sig.get("signature_value").and_then(|v| v.as_str()),
+                    ) {
+                        // Find the corresponding template field for position information
+                        if let Some(template_field) = template_fields.iter().find(|f| f.name == field_name) {
+                            // Parse position from JSON
+                            if let Some(position_json) = &template_field.position {
+                                if let Ok(position) = serde_json::from_value::<crate::models::template::FieldPosition>(position_json.clone()) {
+                                    all_signatures.push((
+                                        field_name.to_string(),
+                                        template_field.field_type.clone(),
+                                        signature_value.to_string(),
+                                        position.x,
+                                        position.y,
+                                        position.width,
+                                        position.height,
+                                        position.page,
+                                        sig.clone(),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Get global settings
+    let user_settings = crate::database::queries::GlobalSettingsQueries::get_user_settings(pool, template.user_id as i32).await?
+        .unwrap_or_else(|| crate::database::models::DbGlobalSettings {
+            id: 0,
+            user_id: Some(template.user_id as i32),
+            company_name: None,
+            timezone: Some("UTC".to_string()),
+            locale: Some("en-US".to_string()),
+            force_2fa_with_authenticator_app: false,
+            add_signature_id_to_the_documents: false,
+            require_signing_reason: false,
+            allow_typed_text_signatures: true,
+            allow_to_resubmit_completed_forms: false,
+            allow_to_decline_documents: false,
+            remember_and_pre_fill_signatures: false,
+            require_authentication_for_file_download_links: false,
+            combine_completed_documents_and_audit_log: false,
+            expirable_file_download_links: false,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        });
+
+    // Create a dummy submitter for rendering (we need this for the function signature)
+    let dummy_submitter = submitters.first().ok_or("No submitters found")?;
+
+    // Render signatures on PDF
+    let signed_pdf = render_signatures_on_pdf(
+        &pdf_bytes,
+        &all_signatures,
+        &user_settings,
+        dummy_submitter,
+    )?;
+
+    Ok(signed_pdf)
+}
+
+async fn generate_audit_log_pdf(
+    pool: &PgPool,
+    submitter_id: i64,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    // Get submitter
+    let submitter = SubmitterQueries::get_submitter_by_id(pool, submitter_id).await?
+        .ok_or("Submitter not found")?;
+
+    // Get audit log data (reuse the logic from get_submitter_audit_log)
+    let mut audit_entries = Vec::new();
+
+    // Get template for document info
+    let template = TemplateQueries::get_template_by_id(pool, submitter.template_id).await;
+
+    // Add header information
+    let envelope_info = serde_json::json!({
+        "type": "envelope_info",
+        "envelope_id": submitter.id,
+        "document_id": submitter.template_id,
+        "token": submitter.token,
+        "status": submitter.status,
+        "template_name": template.as_ref().ok().and_then(|t| t.as_ref().map(|t| t.name.clone())).unwrap_or_else(|| "Unknown".to_string())
+    });
+    audit_entries.push(envelope_info);
+
+    // 1. Document Created event
+    if let Ok(Some(template)) = template {
+        audit_entries.push(serde_json::json!({
+            "timestamp": template.created_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+            "action": "Document Created",
+            "user": submitter.email.clone(),
+            "details": format!("Template '{}' was uploaded and configured", template.name),
+            "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+            "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+            "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+            "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string())
+        }));
+    }
+
+    // 2. Document Sent event
+    audit_entries.push(serde_json::json!({
+        "timestamp": submitter.created_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+        "action": "Document Sent",
+        "user": "System",
+        "details": format!("Document sent to {} for signature", submitter.email),
+        "ip": "System",
+        "user_agent": "System",
+        "session_id": "N/A",
+        "timezone": "UTC"
+    }));
+
+    // 3. Form Viewed event
+    if let Some(viewed_at) = submitter.viewed_at {
+        audit_entries.push(serde_json::json!({
+            "timestamp": viewed_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+            "action": "Form Viewed",
+            "user": submitter.email.clone(),
+            "details": format!("Form opened and viewed by {}", submitter.email),
+            "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+            "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+            "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+            "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string())
+        }));
+    } else if submitter.ip_address.is_some() {
+        audit_entries.push(serde_json::json!({
+            "timestamp": submitter.updated_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+            "action": "Form Viewed",
+            "user": submitter.email.clone(),
+            "details": format!("Form accessed by {}", submitter.email),
+            "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+            "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+            "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+            "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string())
+        }));
+    }
+
+    // 4. Document Signed event
+    if submitter.status == "signed" || submitter.status == "completed" {
+        if let Some(signed_at) = submitter.signed_at {
+            audit_entries.push(serde_json::json!({
+                "timestamp": signed_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+                "action": "Document Signed",
+                "user": submitter.email.clone(),
+                "details": format!("Document signed and submitted by {}", submitter.email),
+                "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+                "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+                "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+                "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string())
+            }));
+        }
+    }
+
+    // 5. Submission Completed event
+    if submitter.status == "completed" {
+        audit_entries.push(serde_json::json!({
+            "timestamp": submitter.updated_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+            "action": "Submission Completed",
+            "user": submitter.email.clone(),
+            "details": "All required fields completed and document submitted successfully",
+            "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+            "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+            "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+            "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string())
+        }));
+    }
+
+    // Generate PDF from audit entries
+    use lopdf::{Document, Object, Stream, Dictionary};
+    use lopdf::content::{Content, Operation};
+
+    let mut doc = Document::new();
+    let pages_id = doc.new_object_id();
+
+    // Create Arial font
+    let font_dict_id = {
+        let mut arial_dict = Dictionary::new();
+        arial_dict.set("Type", Object::Name(b"Font".to_vec()));
+        arial_dict.set("Subtype", Object::Name(b"Type1".to_vec()));
+        arial_dict.set("BaseFont", Object::Name(b"Arial".to_vec()));
+        arial_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+        doc.add_object(Object::Dictionary(arial_dict))
+    };
+
+    let resources_id = doc.add_object(Object::Dictionary(Dictionary::from_iter(vec![
+        ("Font", Object::Dictionary(Dictionary::from_iter(vec![
+            ("F1", Object::Reference(font_dict_id)),
+        ]))),
+    ])));
+
+    // Create content with audit log text
+    let mut content = Content { operations: vec![] };
+
+    // Begin text object
+    content.operations.push(Operation::new("BT", vec![]));
+
+    // Set font and size
+    content.operations.push(Operation::new("Tf", vec![
+        Object::Name(b"F1".to_vec()),
+        Object::Real(12.0),
+    ]));
+
+    // Set text color to black
+    content.operations.push(Operation::new("rg", vec![
+        Object::Real(0.0),
+        Object::Real(0.0),
+        Object::Real(0.0),
+    ]));
+
+    // Position text at top
+    content.operations.push(Operation::new("Td", vec![
+        Object::Real(50.0),
+        Object::Real(750.0),
+    ]));
+
+    // Add title
+    content.operations.push(Operation::new("Tj", vec![
+        Object::string_literal("AUDIT LOG".to_string()),
+    ]));
+
+    // Move to next line
+    content.operations.push(Operation::new("Td", vec![
+        Object::Real(0.0),
+        Object::Real(-20.0),
+    ]));
+
+    // Add separator
+    content.operations.push(Operation::new("Tj", vec![
+        Object::string_literal("=========".to_string()),
+    ]));
+
+    // Move to next line
+    content.operations.push(Operation::new("Td", vec![
+        Object::Real(0.0),
+        Object::Real(-20.0),
+    ]));
+
+    // Add audit entries
+    let mut y_pos = 710.0;
+    for entry in audit_entries {
+        if y_pos < 50.0 {
+            // Would need new page, but for now we'll truncate
+            break;
+        }
+
+        if let Some(action) = entry.get("action").and_then(|v| v.as_str()) {
+            content.operations.push(Operation::new("Tj", vec![
+                Object::string_literal(format!("Action: {}", action)),
+            ]));
+            content.operations.push(Operation::new("Td", vec![
+                Object::Real(0.0),
+                Object::Real(-15.0),
+            ]));
+            y_pos -= 15.0;
+        }
+
+        if let Some(timestamp) = entry.get("timestamp").and_then(|v| v.as_str()) {
+            content.operations.push(Operation::new("Tj", vec![
+                Object::string_literal(format!("Timestamp: {}", timestamp)),
+            ]));
+            content.operations.push(Operation::new("Td", vec![
+                Object::Real(0.0),
+                Object::Real(-15.0),
+            ]));
+            y_pos -= 15.0;
+        }
+
+        if let Some(user) = entry.get("user").and_then(|v| v.as_str()) {
+            content.operations.push(Operation::new("Tj", vec![
+                Object::string_literal(format!("User: {}", user)),
+            ]));
+            content.operations.push(Operation::new("Td", vec![
+                Object::Real(0.0),
+                Object::Real(-15.0),
+            ]));
+            y_pos -= 15.0;
+        }
+
+        if let Some(details) = entry.get("details").and_then(|v| v.as_str()) {
+            content.operations.push(Operation::new("Tj", vec![
+                Object::string_literal(format!("Details: {}", details)),
+            ]));
+            content.operations.push(Operation::new("Td", vec![
+                Object::Real(0.0),
+                Object::Real(-15.0),
+            ]));
+            y_pos -= 15.0;
+        }
+
+        if let Some(ip) = entry.get("ip").and_then(|v| v.as_str()) {
+            content.operations.push(Operation::new("Tj", vec![
+                Object::string_literal(format!("IP: {}", ip)),
+            ]));
+            content.operations.push(Operation::new("Td", vec![
+                Object::Real(0.0),
+                Object::Real(-15.0),
+            ]));
+            y_pos -= 15.0;
+        }
+
+        // Add spacing between entries
+        content.operations.push(Operation::new("Td", vec![
+            Object::Real(0.0),
+            Object::Real(-10.0),
+        ]));
+        y_pos -= 10.0;
+    }
+
+    // End text object
+    content.operations.push(Operation::new("ET", vec![]));
+
+    let content_id = doc.add_object(Object::Stream(Stream::new(Dictionary::new(), content.encode()?)));
+
+    let page_id = doc.add_object(Object::Dictionary(Dictionary::from_iter(vec![
+        ("Type", Object::Name("Page".into())),
+        ("Parent", pages_id.into()),
+        ("Contents", content_id.into()),
+        ("Resources", resources_id.into()),
+        ("MediaBox", Object::Array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(612),
+            Object::Integer(792),
+        ])),
+    ])));
+
+    let pages = Object::Dictionary(Dictionary::from_iter(vec![
+        ("Type", Object::Name("Pages".into())),
+        ("Kids", Object::Array(vec![page_id.into()])),
+        ("Count", Object::Integer(1)),
+    ]));
+
+    doc.objects.insert(pages_id, pages);
+
+    let catalog_id = doc.add_object(Object::Dictionary(Dictionary::from_iter(vec![
+        ("Type", Object::Name("Catalog".into())),
+        ("Pages", pages_id.into()),
+    ])));
+
+    doc.trailer.set("Root", catalog_id);
+
+    // Save PDF to bytes
+    let mut buffer = Vec::new();
+    doc.save_to(&mut buffer)?;
+
+    Ok(buffer)
 }
 
 pub fn create_submitter_router() -> Router<AppState> {

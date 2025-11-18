@@ -152,7 +152,7 @@ export const renderSignatureToImage = (signatureData: string, width: number, hei
         if (options?.globalSettings?.require_signing_reason && options?.reason) {
           lineCount += 1;
         }
-        textHeight = lineCount > 0 ? (lineCount - 1) * 10 + 8 + 3 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding
+        textHeight = lineCount > 0 ? (lineCount - 1) * 8 + 8 + 2 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding
       }
 
       console.log('Text height calculation:', { textHeight, globalSettings_add_signature_id: options?.globalSettings?.add_signature_id_to_the_documents, require_signing_reason: options?.globalSettings?.require_signing_reason, reason: options?.reason });
@@ -238,8 +238,8 @@ export const renderSignatureToImage = (signatureData: string, width: number, hei
         ctx.textBaseline = 'bottom';
 
         // Calculate line height
-        const lineHeight = 10;
-        let y = canvasHeight - 3;
+        const lineHeight = 8;
+        let y = canvasHeight - 2;
 
         // Draw lines from bottom to top
         for (let i = textToShow.length - 1; i >= 0; i--) {

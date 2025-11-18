@@ -175,6 +175,10 @@ impl ReminderQueue {
                             &subject,
                             &body,
                             &email_template.body_format,
+                            email_template.attach_documents,
+                            email_template.attach_audit_log,
+                            None,
+                            None,
                         ).await {
                             Ok(_) => {
                                 println!("✅ Template reminder #{} sent successfully to submitter {}", reminder_number, submitter.id);

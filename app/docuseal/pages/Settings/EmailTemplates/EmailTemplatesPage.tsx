@@ -16,6 +16,8 @@ interface EmailTemplate {
   body: string;
   body_format: string;
   is_default: boolean;
+  attach_documents?: boolean;
+  attach_audit_log?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -31,6 +33,8 @@ export default function EmailTemplatesPage() {
     body: '',
     body_format: 'text',
     is_default: false,
+    attach_documents: false,
+    attach_audit_log: false,
   });
   const [activeTab, setActiveTab] = useState(0);
   const [bodyText, setBodyText] = useState('');
@@ -68,6 +72,8 @@ export default function EmailTemplatesPage() {
       body: '',
       body_format: 'text',
       is_default: false,
+      attach_documents: false,
+      attach_audit_log: false,
     });
     setBodyText('');
     setBodyHtml('');
@@ -82,6 +88,8 @@ export default function EmailTemplatesPage() {
       body: template.body,
       body_format: template.body_format,
       is_default: template.is_default,
+      attach_documents: template.attach_documents || false,
+      attach_audit_log: template.attach_audit_log || false,
     });
     setBodyText(template.body_format === 'text' ? template.body : '');
     setBodyHtml(template.body_format === 'html' ? template.body : '');
@@ -107,6 +115,8 @@ export default function EmailTemplatesPage() {
         body: formData.body,
         body_format: formData.body_format,
         is_default: formData.is_default,
+        attach_documents: formData.attach_documents,
+        attach_audit_log: formData.attach_audit_log,
       };
 
       if (editingTemplate) {
@@ -375,6 +385,31 @@ export default function EmailTemplatesPage() {
               label="Set as default template"
               sx={{ mt: 2 }}
             />
+
+            {formData.template_type === 'completion' && (
+              <>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.attach_documents}
+                      onChange={(e) => setFormData({ ...formData, attach_documents: e.target.checked })}
+                    />
+                  }
+                  label="Attach documents: Nếu bật, email sẽ tự động đính kèm các tài liệu đã ký (PDF gốc với chữ ký) để người nhận có thể tải xuống trực tiếp."
+                  sx={{ mt: 2 }}
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.attach_audit_log}
+                      onChange={(e) => setFormData({ ...formData, attach_audit_log: e.target.checked })}
+                    />
+                  }
+                  label="Attach audit log PDF: Nếu bật, email sẽ tự động đính kèm một tệp PDF ghi nhật ký kiểm tra (audit log), chứa lịch sử các hành động ký, thời gian, và thông tin xác thực để đảm bảo tính minh bạch và tuân thủ pháp lý."
+                  sx={{ mt: 2 }}
+                />
+              </>
+            )}
           </Box>
         </DialogContent>
         <DialogActions color='white'> 

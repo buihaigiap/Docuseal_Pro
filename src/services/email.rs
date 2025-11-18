@@ -1,5 +1,6 @@
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+use lettre::message::{Attachment, MultiPart, SinglePart, header::ContentDisposition};
 use std::env;
 
 #[derive(Clone)]
@@ -900,24 +901,65 @@ impl EmailService {
         subject: &str,
         body: &str,
         body_format: &str,
+        attach_documents: bool,
+        attach_audit_log: bool,
+        document_path: Option<&str>,
+        audit_log_path: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         if self.test_mode {
             println!("TEST MODE: Would send template email to {} ({}) with subject: {}", to_email, to_name, subject);
             return Ok(());
         }
 
-        let email_builder = Message::builder()
+        let mut email_builder = Message::builder()
             .from(format!("{} <{}>", self.from_name, self.from_email).parse()?)
             .to(format!("{} <{}>", to_name, to_email).parse()?)
             .subject(subject.to_string());
 
-        let email = if body_format == "html" {
-            email_builder.header(lettre::message::header::ContentType::TEXT_HTML)
-                .body(body.to_string())?
+        // Add the body
+        let body_part = if body_format == "html" {
+            SinglePart::builder()
+                .header(lettre::message::header::ContentType::TEXT_HTML)
+                .body(body.to_string())
         } else {
-            email_builder.header(lettre::message::header::ContentType::TEXT_PLAIN)
-                .body(body.to_string())?
+            SinglePart::builder()
+                .header(lettre::message::header::ContentType::TEXT_PLAIN)
+                .body(body.to_string())
         };
+
+        let multipart_builder = MultiPart::mixed().singlepart(body_part);
+
+        // Add attachments if requested
+        let multipart_builder = if attach_documents && document_path.is_some() {
+            if let Ok(content) = tokio::fs::read(document_path.unwrap()).await {
+                let attachment = SinglePart::builder()
+                    .header(lettre::message::header::ContentType::parse("application/pdf").unwrap())
+                    .header(ContentDisposition::attachment("signed_document.pdf"))
+                    .body(content);
+                multipart_builder.singlepart(attachment)
+            } else {
+                multipart_builder
+            }
+        } else {
+            multipart_builder
+        };
+
+        let multipart_builder = if attach_audit_log && audit_log_path.is_some() {
+            if let Ok(content) = tokio::fs::read(audit_log_path.unwrap()).await {
+                let attachment = SinglePart::builder()
+                    .header(lettre::message::header::ContentType::parse("application/pdf").unwrap())
+                    .header(ContentDisposition::attachment("audit_log.pdf"))
+                    .body(content);
+                multipart_builder.singlepart(attachment)
+            } else {
+                multipart_builder
+            }
+        } else {
+            multipart_builder
+        };
+
+        let multipart = multipart_builder;
+        let email = email_builder.multipart(multipart)?;
 
         let creds = Credentials::new(self.smtp_username.clone(), self.smtp_password.clone());
 

@@ -114,7 +114,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           if (globalSettings?.require_signing_reason && reason) {
             lineCount += 1;
           }
-          textHeight = lineCount > 0 ? (lineCount - 1) * 10 + 8 + 3 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding
+          textHeight = lineCount > 0 ? (lineCount - 1) * 6 + 8 + 2 + 10 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding + gap
         }
 
         // Calculate scale to fit image in canvas, leaving space for text if needed
@@ -124,7 +124,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         
         // Center the image in the available space
         const offsetX = (width - scaledWidth) / 2;
-        const offsetY = ((height - textHeight) - scaledHeight) / 2;
+        const offsetY = ((height - textHeight) - scaledHeight) / 2 + 5; // Moved up by 5 pixels
         
         // Clear canvas again before drawing
         ctx.clearRect(0, 0, width, height);
@@ -239,7 +239,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         if (globalSettings?.require_signing_reason && reason) {
           lineCount += 1;
         }
-        textHeight = lineCount > 0 ? (lineCount - 1) * 10 + 8 + 3 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding
+        textHeight = lineCount > 0 ? (lineCount - 1) * 6 + 8 + 2 + 10 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding + gap
       }
       
       // Calculate scale to fit signature in canvas with minimal padding, leaving space for text if needed
@@ -250,7 +250,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
 
       // Calculate offset to center signature in available space
       const offsetX = (width - signatureWidth * scale) / 2 - minX * scale;
-      const offsetY = ((height - textHeight) - signatureHeight * scale) / 2 - minY * scale;
+      const offsetY = ((height - textHeight) - signatureHeight * scale) / 2 - minY * scale + 5; // Moved up by 5 pixels
 
       // Draw signature with natural line width similar to original drawing
       ctx.strokeStyle = color;
@@ -308,8 +308,8 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         ctx.textBaseline = 'bottom';
         
         // Calculate line height
-        const lineHeight = 10;
-        let y = height - 3;
+        const lineHeight = 8;
+        let y = height - 2;
         
         // Draw lines from bottom to top
         for (let i = textToShow.length - 1; i >= 0; i--) {
@@ -332,7 +332,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           if (globalSettings?.require_signing_reason && reason) {
             lineCount += 1;
           }
-          textHeight = lineCount > 0 ? (lineCount - 1) * 10 + 8 + 3 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding
+          textHeight = lineCount > 0 ? (lineCount - 1) * 6 + 8 + 2 + 10 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding + gap
         }
         
         const scale = 3;
@@ -380,7 +380,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         ctx.clearRect(0, 0, width, height);
         
         // Calculate Y to center text vertically in available space, then push up for bottom
-        const centerY = ((height - textHeight) - actualHeight) / 2 + metrics.actualBoundingBoxAscent - ((height - textHeight) * 0.01);
+        const centerY = ((height - textHeight) - actualHeight) / 2 + metrics.actualBoundingBoxAscent - ((height - textHeight) * 0.01) + 5; // Moved up by 5 pixels
         
         ctx.fillText(data, width / 2, centerY);
         
@@ -415,8 +415,8 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           ctx.textBaseline = 'bottom';
           
           // Calculate line height
-          const lineHeight = 10;
-          let y = height - 3;
+          const lineHeight = 8;
+          let y = height - 2;
           
           // Draw lines from bottom to top
           for (let i = textToShow.length - 1; i >= 0; i--) {
@@ -438,7 +438,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           if (globalSettings?.require_signing_reason && reason) {
             lineCount += 1;
           }
-          textHeight = lineCount > 0 ? (lineCount - 1) * 10 + 8 + 3 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding
+          textHeight = lineCount > 0 ? (lineCount - 1) * 6 + 8 + 2 + 10 : 0; // More precise: (lines-1)*lineHeight + fontSize + padding + gap
         }
         
         // Default text rendering for signatures
@@ -459,7 +459,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.globalAlpha = 1.0; // Ensure full opacity
-        ctx.fillText(data || '', width / 2, (height - textHeight) / 2);
+        ctx.fillText(data || '', width / 2, (height - textHeight) / 2 + 5); // Moved up by 5 pixels
 
         // Render additional text below the default text if enabled
         let textToShow: string[] = [];
@@ -489,8 +489,8 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           ctx.textBaseline = 'bottom';
           
           // Calculate line height
-          const lineHeight = 10;
-          let y = height - 3;
+          const lineHeight = 8;
+          let y = height - 2;
           
           // Draw lines from bottom to top
           for (let i = textToShow.length - 1; i >= 0; i--) {

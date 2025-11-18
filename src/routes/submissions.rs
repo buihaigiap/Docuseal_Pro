@@ -217,6 +217,10 @@ pub async fn create_submission(
                                         &subject,
                                         &body,
                                         &email_template.body_format,
+                                        email_template.attach_documents,
+                                        email_template.attach_audit_log,
+                                        None,
+                                        None,
                                     ).await {
                                         eprintln!("Failed to send template email to {}: {}", submitter.email, e);
                                     } else {

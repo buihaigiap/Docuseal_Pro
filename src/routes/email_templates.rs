@@ -22,6 +22,8 @@ pub struct EmailTemplateResponse {
     pub body: String,
     pub body_format: String,
     pub is_default: bool,
+    pub attach_documents: bool,
+    pub attach_audit_log: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -36,6 +38,8 @@ impl From<EmailTemplate> for EmailTemplateResponse {
             body: template.body,
             body_format: template.body_format,
             is_default: template.is_default,
+            attach_documents: template.attach_documents,
+            attach_audit_log: template.attach_audit_log,
             created_at: template.created_at,
             updated_at: template.updated_at,
         }

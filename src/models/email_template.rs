@@ -10,6 +10,8 @@ pub struct EmailTemplate {
     pub body: String,
     pub body_format: String, // 'text' or 'html'
     pub is_default: bool,
+    pub attach_documents: bool,
+    pub attach_audit_log: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -24,6 +26,8 @@ impl From<crate::database::models::DbEmailTemplate> for EmailTemplate {
             body: db_template.body,
             body_format: db_template.body_format,
             is_default: db_template.is_default,
+            attach_documents: db_template.attach_documents,
+            attach_audit_log: db_template.attach_audit_log,
             created_at: db_template.created_at,
             updated_at: db_template.updated_at,
         }
