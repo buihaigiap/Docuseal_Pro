@@ -1,7 +1,7 @@
 use sqlx::{PgPool, Row};
 use chrono::{Utc, DateTime};
 
-use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan, DbTemplateFolder, CreateTemplateFolder, DbSubmissionField, CreateSubmissionField, DbGlobalSettings, UpdateGlobalSettings};
+use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan, DbTemplateFolder, CreateTemplateFolder, DbSubmissionField, CreateSubmissionField, DbGlobalSettings, UpdateGlobalSettings, DbEmailTemplate, CreateEmailTemplate, UpdateEmailTemplate};
 use crate::models::signature::SignatureInfo;
 
 // Structured query implementations for better organization
@@ -12,6 +12,7 @@ pub struct TemplateFieldQueries;
 pub struct SubmitterQueries;
 pub struct SubmissionFieldQueries;
 pub struct GlobalSettingsQueries;
+pub struct EmailTemplateQueries;
 
 impl UserQueries {
     pub async fn get_user_by_id(pool: &PgPool, id: i64) -> Result<Option<DbUser>, sqlx::Error> {
@@ -2316,10 +2317,222 @@ impl GlobalSettingsQueries {
             "#
         )
         .bind(now)
-        .bind(now)
         .execute(pool)
         .await?;
 
         Ok(())
+    }
+}
+
+impl EmailTemplateQueries {
+    pub async fn get_templates_by_user(pool: &PgPool, user_id: i64) -> Result<Vec<DbEmailTemplate>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT id, user_id, template_type, subject, body, body_format, is_default, created_at, updated_at FROM email_templates WHERE user_id = $1 ORDER BY created_at DESC"
+        )
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut templates = Vec::new();
+        for row in rows {
+            templates.push(DbEmailTemplate {
+                id: row.try_get("id")?,
+                user_id: row.try_get("user_id")?,
+                template_type: row.try_get("template_type")?,
+                subject: row.try_get("subject")?,
+                body: row.try_get("body")?,
+                body_format: row.try_get("body_format")?,
+                is_default: row.try_get("is_default")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            });
+        }
+        Ok(templates)
+    }
+
+    pub async fn get_templates_by_type(pool: &PgPool, user_id: i64, template_type: &str) -> Result<Vec<DbEmailTemplate>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT id, user_id, template_type, subject, body, body_format, is_default, created_at, updated_at FROM email_templates WHERE user_id = $1 AND template_type = $2 ORDER BY is_default DESC, created_at DESC"
+        )
+        .bind(user_id)
+        .bind(template_type)
+        .fetch_all(pool)
+        .await?;
+
+        let mut templates = Vec::new();
+        for row in rows {
+            templates.push(DbEmailTemplate {
+                id: row.try_get("id")?,
+                user_id: row.try_get("user_id")?,
+                template_type: row.try_get("template_type")?,
+                subject: row.try_get("subject")?,
+                body: row.try_get("body")?,
+                body_format: row.try_get("body_format")?,
+                is_default: row.try_get("is_default")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            });
+        }
+        Ok(templates)
+    }
+
+    pub async fn get_default_template_by_type(pool: &PgPool, user_id: i64, template_type: &str) -> Result<Option<DbEmailTemplate>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT id, user_id, template_type, subject, body, body_format, is_default, created_at, updated_at FROM email_templates WHERE user_id = $1 AND template_type = $2 AND is_default = true"
+        )
+        .bind(user_id)
+        .bind(template_type)
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(DbEmailTemplate {
+                id: row.try_get("id")?,
+                user_id: row.try_get("user_id")?,
+                template_type: row.try_get("template_type")?,
+                subject: row.try_get("subject")?,
+                body: row.try_get("body")?,
+                body_format: row.try_get("body_format")?,
+                is_default: row.try_get("is_default")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn get_template_by_id(pool: &PgPool, id: i64, user_id: i64) -> Result<Option<DbEmailTemplate>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT id, user_id, template_type, subject, body, body_format, is_default, created_at, updated_at FROM email_templates WHERE id = $1 AND user_id = $2"
+        )
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(DbEmailTemplate {
+                id: row.try_get("id")?,
+                user_id: row.try_get("user_id")?,
+                template_type: row.try_get("template_type")?,
+                subject: row.try_get("subject")?,
+                body: row.try_get("body")?,
+                body_format: row.try_get("body_format")?,
+                is_default: row.try_get("is_default")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn create_template(pool: &PgPool, template_data: CreateEmailTemplate, user_id: i64) -> Result<DbEmailTemplate, sqlx::Error> {
+        let now = Utc::now();
+        let row = sqlx::query(
+            "INSERT INTO email_templates (user_id, template_type, subject, body, body_format, is_default, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, user_id, template_type, subject, body, body_format, is_default, created_at, updated_at"
+        )
+        .bind(user_id)
+        .bind(&template_data.template_type)
+        .bind(&template_data.subject)
+        .bind(&template_data.body)
+        .bind(&template_data.body_format)
+        .bind(template_data.is_default)
+        .bind(now)
+        .bind(now)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(DbEmailTemplate {
+            id: row.try_get("id")?,
+            user_id: row.try_get("user_id")?,
+            template_type: row.try_get("template_type")?,
+            subject: row.try_get("subject")?,
+            body: row.try_get("body")?,
+            body_format: row.try_get("body_format")?,
+            is_default: row.try_get("is_default")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+
+    pub async fn update_template(pool: &PgPool, id: i64, user_id: i64, update_data: UpdateEmailTemplate) -> Result<Option<DbEmailTemplate>, sqlx::Error> {
+        let now = Utc::now();
+        let mut query = "UPDATE email_templates SET updated_at = $1".to_string();
+        let mut param_count = 1;
+        let mut params: Vec<String> = vec!["$1".to_string()];
+
+        if let Some(template_type) = &update_data.template_type {
+            param_count += 1;
+            query.push_str(&format!(", template_type = ${}", param_count));
+            params.push(format!("${}", param_count));
+        }
+        if let Some(subject) = &update_data.subject {
+            param_count += 1;
+            query.push_str(&format!(", subject = ${}", param_count));
+            params.push(format!("${}", param_count));
+        }
+        if let Some(body) = &update_data.body {
+            param_count += 1;
+            query.push_str(&format!(", body = ${}", param_count));
+            params.push(format!("${}", param_count));
+        }
+        if let Some(body_format) = &update_data.body_format {
+            param_count += 1;
+            query.push_str(&format!(", body_format = ${}", param_count));
+            params.push(format!("${}", param_count));
+        }
+        if let Some(is_default) = update_data.is_default {
+            param_count += 1;
+            query.push_str(&format!(", is_default = ${}", param_count));
+            params.push(format!("${}", param_count));
+        }
+
+        query.push_str(&format!(" WHERE id = ${} AND user_id = ${} RETURNING id, user_id, template_type, subject, body, body_format, is_default, created_at, updated_at", param_count + 1, param_count + 2));
+
+        let mut sql_query = sqlx::query(&query).bind(now);
+
+        if let Some(template_type) = &update_data.template_type {
+            sql_query = sql_query.bind(template_type);
+        }
+        if let Some(subject) = &update_data.subject {
+            sql_query = sql_query.bind(subject);
+        }
+        if let Some(body) = &update_data.body {
+            sql_query = sql_query.bind(body);
+        }
+        if let Some(body_format) = &update_data.body_format {
+            sql_query = sql_query.bind(body_format);
+        }
+        if let Some(is_default) = update_data.is_default {
+            sql_query = sql_query.bind(is_default);
+        }
+        sql_query = sql_query.bind(id).bind(user_id);
+
+        let row = sql_query.fetch_optional(pool).await?;
+
+        match row {
+            Some(row) => Ok(Some(DbEmailTemplate {
+                id: row.try_get("id")?,
+                user_id: row.try_get("user_id")?,
+                template_type: row.try_get("template_type")?,
+                subject: row.try_get("subject")?,
+                body: row.try_get("body")?,
+                body_format: row.try_get("body_format")?,
+                is_default: row.try_get("is_default")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn delete_template(pool: &PgPool, id: i64, user_id: i64) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM email_templates WHERE id = $1 AND user_id = $2")
+            .bind(id)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 }

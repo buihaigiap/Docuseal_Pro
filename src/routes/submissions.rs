@@ -16,7 +16,7 @@ use crate::models::submission::{Submission, CreateSubmissionRequest};
 use crate::models::submitter::Submitter;
 use crate::database::connection::DbPool;
 use crate::database::models::CreateSubmitter;
-use crate::database::queries::{SubmitterQueries, TemplateQueries, SubmissionFieldQueries};
+use crate::database::queries::{SubmitterQueries, TemplateQueries, SubmissionFieldQueries, EmailTemplateQueries};
 use crate::database::models::CreateSubmissionField;
 use crate::routes::subscription::{can_user_submit, increment_usage_count_by};
 use crate::routes::templates::convert_db_template_to_template;
@@ -25,6 +25,14 @@ use crate::common::authorization::require_admin_or_team_member;
 use crate::services::email::EmailService;
 
 use crate::routes::web::AppState;
+
+fn replace_template_variables(content: &str, variables: &std::collections::HashMap<&str, &str>) -> String {
+    let mut result = content.to_string();
+    for (key, value) in variables {
+        result = result.replace(&format!("{{{}}}", key), value);
+    }
+    result
+}
 
 #[utoipa::path(
     post,
@@ -183,19 +191,51 @@ pub async fn create_submission(
                             }
                         }
 
-                        // Send email to submitter
+                        // Send email to submitter using Email Templates
                         let template = convert_db_template_to_template(db_template.clone());
                         if let Ok(email_service) = EmailService::new() {
-                            if let Err(e) = email_service.send_signature_request(
-                                &submitter.email,
-                                &submitter.name,
-                                &template.name,
-                                &token,
-                            ).await {
-                                eprintln!("Failed to send email to {}: {}", submitter.email, e);
-                            } else {
-                                // Email gửi thành công, tăng đếm
-                                emails_sent_count += 1;
+                            // Try to get user's default invitation template
+                            let email_template_result = EmailTemplateQueries::get_default_template_by_type(
+                                pool, user_id, "invitation"
+                            ).await;
+
+                            match email_template_result {
+                                Ok(Some(email_template)) => {
+                                    // Use custom email template
+                                    let mut variables = std::collections::HashMap::new();
+                                    variables.insert("submitter.name", submitter.name.as_str());
+                                    variables.insert("template.name", template.name.as_str());
+                                    variables.insert("submitter.link", token.as_str());
+                                    variables.insert("account.name", "DocuSeal Pro");
+
+                                    let subject = replace_template_variables(&email_template.subject, &variables);
+                                    let body = replace_template_variables(&email_template.body, &variables);
+
+                                    if let Err(e) = email_service.send_template_email(
+                                        &submitter.email,
+                                        &submitter.name,
+                                        &subject,
+                                        &body,
+                                        &email_template.body_format,
+                                    ).await {
+                                        eprintln!("Failed to send template email to {}: {}", submitter.email, e);
+                                    } else {
+                                        emails_sent_count += 1;
+                                    }
+                                },
+                                _ => {
+                                    // Fall back to default hardcoded email
+                                    if let Err(e) = email_service.send_signature_request(
+                                        &submitter.email,
+                                        &submitter.name,
+                                        &template.name,
+                                        &token,
+                                    ).await {
+                                        eprintln!("Failed to send email to {}: {}", submitter.email, e);
+                                    } else {
+                                        emails_sent_count += 1;
+                                    }
+                                }
                             }
                         }
                     }

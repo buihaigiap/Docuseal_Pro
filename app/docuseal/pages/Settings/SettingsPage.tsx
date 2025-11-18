@@ -5,6 +5,7 @@ import ProfileSettings from './Profile/ProfileSettings';
 import UsersSettings from './Activate/UsersSettings';
 import ReminderSettingsPage from './ReminderSettings/ReminderSettingsPage';
 import GeneralSettings from './GeneralSettings';
+import EmailTemplatesPage from './EmailTemplates/EmailTemplatesPage';
 
 const SettingsPage = () => {
   const { t } = useTranslation();
@@ -15,6 +16,7 @@ const SettingsPage = () => {
     { text: t('navigation.profile'), path: '/settings/profile' },
     { text: t('navigation.users'), path: '/settings/users' },
     { text: t('navigation.reminders'), path: '/settings/reminders' },
+    { text: 'Email Templates', path: '/settings/email-templates' },
   ];
 
   return (
@@ -41,6 +43,7 @@ const SettingsPage = () => {
             <Route path="profile" element={<ProfileSettings />} />
             <Route path="users" element={<UsersSettings />} />
             <Route path="reminders" element={<ReminderSettingsPage />} />
+            <Route path="email-templates" element={<EmailTemplatesPage />} />
             <Route index element={<Navigate to="general" replace />} />
           </Routes>
         </Paper>

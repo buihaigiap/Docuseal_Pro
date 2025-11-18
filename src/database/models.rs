@@ -345,3 +345,37 @@ pub struct UpdateGlobalSettings {
     pub expirable_file_download_links: Option<bool>,
 }
 
+// Email template database model
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DbEmailTemplate {
+    pub id: i64,
+    pub user_id: i64,
+    pub template_type: String, // 'invitation', 'reminder', 'completion'
+    pub subject: String,
+    pub body: String,
+    pub body_format: String, // 'text' or 'html'
+    pub is_default: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// Create email template request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateEmailTemplate {
+    pub template_type: String, // 'invitation', 'reminder', 'completion'
+    pub subject: String,
+    pub body: String,
+    pub body_format: String, // 'text' or 'html'
+    pub is_default: bool,
+}
+
+// Update email template request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateEmailTemplate {
+    pub template_type: Option<String>, // 'invitation', 'reminder', 'completion'
+    pub subject: Option<String>,
+    pub body: Option<String>,
+    pub body_format: Option<String>, // 'text' or 'html'
+    pub is_default: Option<bool>,
+}
+

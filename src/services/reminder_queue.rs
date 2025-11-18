@@ -4,8 +4,16 @@ use tokio::time::{sleep, Duration};
 use chrono::Utc;
 
 use crate::database::connection::DbPool;
-use crate::database::queries::SubmitterQueries;
+use crate::database::queries::{SubmitterQueries, EmailTemplateQueries};
 use crate::services::email::EmailService;
+
+fn replace_template_variables(content: &str, variables: &std::collections::HashMap<&str, &str>) -> String {
+    let mut result = content.to_string();
+    for (key, value) in variables {
+        result = result.replace(&format!("{{{}}}", key), value);
+    }
+    result
+}
 
 #[derive(Clone)]
 pub struct ReminderQueue {
@@ -139,29 +147,78 @@ impl ReminderQueue {
                     reminder_number, submitter.email, template_name, signature_link);
 
                 println!("🚀 About to call email_service.send_signature_reminder");
-                match self.email_service.send_signature_reminder(
-                    &submitter.email,
-                    &submitter.name,
-                    &template_name,
-                    &signature_link,
-                    reminder_number,
-                ).await {
-                    Ok(_) => {
-                        println!("✅ Email service returned OK");
-                        println!("✅ Reminder #{} sent successfully to submitter {}", reminder_number, submitter.id);
+                
+                // Try to get user's default reminder template
+                let pool = self.db_pool.lock().await;
+                let email_template_result = EmailTemplateQueries::get_default_template_by_type(
+                    &pool, submitter.user_id, "reminder"
+                ).await;
+                
+                match email_template_result {
+                    Ok(Some(email_template)) => {
+                        // Use custom email template
+                        let reminder_number_str = reminder_number.to_string();
+                        
+                        let mut variables = std::collections::HashMap::new();
+                        variables.insert("submitter.name", submitter.name.as_str());
+                        variables.insert("template.name", &template_name);
+                        variables.insert("submitter.link", &signature_link);
+                        variables.insert("account.name", "DocuSeal Pro");
+                        variables.insert("reminder.number", &reminder_number_str);
 
-                        // Update reminder count in database
-                        let pool = self.db_pool.lock().await;
-                        if let Err(e) = SubmitterQueries::update_reminder_sent(&pool, submitter.id).await {
-                            eprintln!("❌ Failed to update reminder count for submitter {}: {:?}", submitter.id, e);
-                        } else {
-                            println!("✅ Updated reminder count to {} for submitter {}", reminder_number, submitter.id);
+                        let subject = replace_template_variables(&email_template.subject, &variables);
+                        let body = replace_template_variables(&email_template.body, &variables);
+
+                        match self.email_service.send_template_email(
+                            &submitter.email,
+                            &submitter.name,
+                            &subject,
+                            &body,
+                            &email_template.body_format,
+                        ).await {
+                            Ok(_) => {
+                                println!("✅ Template reminder #{} sent successfully to submitter {}", reminder_number, submitter.id);
+                                
+                                // Update reminder count in database
+                                if let Err(e) = SubmitterQueries::update_reminder_sent(&pool, submitter.id).await {
+                                    eprintln!("❌ Failed to update reminder count for submitter {}: {:?}", submitter.id, e);
+                                } else {
+                                    println!("✅ Updated reminder count to {} for submitter {}", reminder_number, submitter.id);
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("❌ Failed to send template reminder email to {}: {}", submitter.email, e);
+                            }
+                        }
+                    },
+                    _ => {
+                        // Fall back to default hardcoded reminder email
+                        match self.email_service.send_signature_reminder(
+                            &submitter.email,
+                            &submitter.name,
+                            &template_name,
+                            &signature_link,
+                            reminder_number,
+                        ).await {
+                            Ok(_) => {
+                                println!("✅ Email service returned OK");
+                                println!("✅ Reminder #{} sent successfully to submitter {}", reminder_number, submitter.id);
+
+                                // Update reminder count in database
+                                if let Err(e) = SubmitterQueries::update_reminder_sent(&pool, submitter.id).await {
+                                    eprintln!("❌ Failed to update reminder count for submitter {}: {:?}", submitter.id, e);
+                                } else {
+                                    println!("✅ Updated reminder count to {} for submitter {}", reminder_number, submitter.id);
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("❌ Failed to send reminder email to {}: {}", submitter.email, e);
+                            }
                         }
                     }
-                    Err(e) => {
-                        eprintln!("❌ Failed to send reminder #{} to submitter {}: {:?}", reminder_number, submitter.id, e);
-                    }
-                }                // Small delay between emails to avoid overwhelming SMTP server
+                }
+                
+                // Small delay between emails to avoid overwhelming SMTP server
                 sleep(Duration::from_millis(500)).await;
             }
         }

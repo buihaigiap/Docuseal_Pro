@@ -222,6 +222,28 @@ const upstashService = {
     verify2FA: async (data: any): Promise<any> => {
         const url = '/api/auth/2fa/verify';
         return await axiosClient.post(url, data)
+    },
+
+    // Email Templates APIs
+    getEmailTemplates: async (): Promise<any> => {
+        const url = '/api/email-templates';
+        return await axiosClient.get(url)
+    },
+    createEmailTemplate: async (data: any): Promise<any> => {
+        const url = '/api/email-templates';
+        return await axiosClient.post(url, data)
+    },
+    getEmailTemplate: async (id: number): Promise<any> => {
+        const url = `/api/email-templates/${id}`;
+        return await axiosClient.get(url)
+    },
+    updateEmailTemplate: async (id: number, data: any): Promise<any> => {
+        const url = `/api/email-templates/${id}`;
+        return await axiosClient.put(url, data)
+    },
+    deleteEmailTemplate: async (id: number): Promise<any> => {
+        const url = `/api/email-templates/${id}`;
+        return await axiosClient.delete(url)
     }
 
 }

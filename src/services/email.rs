@@ -60,16 +60,16 @@ impl EmailService {
             return Ok(());
         }
 
-        let subject = format!("Yêu cầu ký tài liệu: {}", submission_name);
+        let subject = format!("Document Signature Request: {}", submission_name);
 
         let html_body = format!(
             r#"
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Yêu cầu ký tài liệu</title>
+    <title>Document Signature Request</title>
     <style>
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -129,32 +129,32 @@ impl EmailService {
 <body>
     <div class="container">
         <div class="header">
-            <h1>📝 Yêu cầu ký tài liệu</h1>
-            <p>Xin chào <strong>{}</strong>,</p>
+            <h1>📝 Document Signature Request</h1>
+            <p>Hello <strong>{}</strong>,</p>
         </div>
 
         <div class="content">
-            <p>Bạn nhận được yêu cầu ký tài liệu từ hệ thống <strong>DocuSeal Pro</strong>.</p>
+            <p>You have received a document signature request from the <strong>DocuSeal Pro</strong> system.</p>
 
             <div class="warning">
-                <strong>Quan trọng:</strong> Link ký tài liệu này chỉ có hiệu lực trong thời gian giới hạn.
-                Vui lòng hoàn thành việc ký trong thời gian sớm nhất có thể.
+                <strong>Important:</strong> This signature link is only valid for a limited time.
+                Please complete the signing as soon as possible.
             </div>
 
-            <p><strong>Tên tài liệu:</strong> {}</p>
+            <p><strong>Document Name:</strong> {}</p>
 
-            <p>Vui lòng nhấp vào nút bên dưới để truy cập và ký tài liệu:</p>
+            <p>Please click the button below to access and sign the document:</p>
 
-            <a href="{}" class="button">📝 Truy cập và ký tài liệu</a>
+            <a href="{}" class="button">📝 Access and Sign Document</a>
 
-            <p>Nếu nút trên không hoạt động, bạn có thể sao chép và dán link sau vào trình duyệt:</p>
+            <p>If the button above doesn't work, you can copy and paste the following link into your browser:</p>
             <p style="word-break: break-all; background: #f8f9fa; padding: 10px; border-radius: 5px; font-family: monospace;">{}</p>
         </div>
 
         <div class="footer">
-            <p>Email này được gửi tự động từ hệ thống DocuSeal Pro.</p>
-            <p>Nếu bạn không mong muốn nhận email này, vui lòng bỏ qua.</p>
-            <p>&copy; 2025 DocuSeal Pro. Tất cả quyền được bảo lưu.</p>
+            <p>This email was sent automatically from the DocuSeal Pro system.</p>
+            <p>If you do not wish to receive this email, please ignore it.</p>
+            <p>&copy; 2025 DocuSeal Pro. All rights reserved.</p>
         </div>
     </div>
 </body>
@@ -164,12 +164,12 @@ impl EmailService {
         );
 
         let text_body = format!(
-            "Xin chào {},\n\n\
-            Bạn nhận được yêu cầu ký tài liệu '{}' từ hệ thống DocuSeal Pro.\n\n\
-            Vui lòng truy cập link sau để ký tài liệu:\n\
+            "Hello {},\n\n\
+            You have received a document signature request '{}' from the DocuSeal Pro system.\n\n\
+            Please access the following link to sign the document:\n\
             {}\n\n\
-            Link này chỉ có hiệu lực trong thời gian giới hạn.\n\n\
-            Trân trọng,\n\
+            This link is only valid for a limited time.\n\n\
+            Best regards,\n\
             DocuSeal Pro",
             to_name, submission_name, signature_link
         );
@@ -218,7 +218,7 @@ impl EmailService {
         signature_link: &str,
         reminder_number: i32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let subject = format!("Nhắc nhở ký tài liệu (Lần {}): {}", reminder_number, submission_name);
+        let subject = format!("Document Signature Reminder (Attempt {}): {}", reminder_number, submission_name);
         println!("🎯 EMAIL SUBJECT: {}", subject);
         println!("send_signature_reminder called with test_mode: {}, reminder_number: {}", self.test_mode, reminder_number);
         println!("📧 Email details: to={}, name={}, submission={}, link={}", to_email, to_name, submission_name, signature_link);
@@ -231,11 +231,11 @@ impl EmailService {
         let html_body = format!(
             r#"
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nhắc nhở ký tài liệu</title>
+    <title>Document Signature Reminder</title>
     <style>
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -313,30 +313,30 @@ impl EmailService {
 <body>
     <div class="container">
         <div class="header">
-            <span class="reminder-badge">📧 Nhắc nhở lần {}</span>
-            <h1>⏰ Nhắc nhở ký tài liệu</h1>
-            <p>Xin chào <strong>{}</strong>,</p>
+            <span class="reminder-badge">📧 Reminder #{}</span>
+            <h1>⏰ Document Signature Reminder</h1>
+            <p>Hello <strong>{}</strong>,</p>
         </div>
 
         <div class="content">
-            <p>Chúng tôi nhận thấy rằng bạn chưa hoàn thành việc ký tài liệu <strong>"{}"</strong>.</p>
+            <p>We noticed that you haven't completed signing the document <strong>"{}"</strong>.</p>
 
             <div class="{}">
                 <strong>{}:</strong> {}
             </div>
 
-            <p>Vui lòng nhấp vào nút bên dưới để truy cập và hoàn thành việc ký tài liệu:</p>
+            <p>Please click the button below to access and complete the document signing:</p>
 
-            <a href="{}" class="button">📝 Ký tài liệu ngay</a>
+            <a href="{}" class="button">📝 Sign Document Now</a>
 
-            <p>Nếu nút trên không hoạt động, bạn có thể sao chép và dán link sau vào trình duyệt:</p>
+            <p>If the button above doesn't work, you can copy and paste the following link into your browser:</p>
             <p style="word-break: break-all; background: #f8f9fa; padding: 10px; border-radius: 5px; font-family: monospace;">{}</p>
         </div>
 
         <div class="footer">
-            <p>Đây là email nhắc nhở tự động từ hệ thống DocuSeal Pro.</p>
-            <p>Nếu bạn đã hoàn thành việc ký, vui lòng bỏ qua email này.</p>
-            <p>&copy; 2025 DocuSeal Pro. Tất cả quyền được bảo lưu.</p>
+            <p>This is an automated reminder from the DocuSeal Pro system.</p>
+            <p>If you have already completed the signing, please ignore this email.</p>
+            <p>&copy; 2025 DocuSeal Pro. All rights reserved.</p>
         </div>
     </div>
 </body>
@@ -346,31 +346,31 @@ impl EmailService {
             to_name,
             submission_name,
             if reminder_number >= 3 { "urgent" } else { "warning" },
-            if reminder_number >= 3 { "Nhắc nhở cuối cùng" } else { "Lưu ý" },
+            if reminder_number >= 3 { "Final Reminder" } else { "Notice" },
             if reminder_number >= 3 {
-                "Đây là lần nhắc nhở cuối cùng. Vui lòng hoàn thành việc ký trong thời gian sớm nhất để tránh việc yêu cầu bị hủy."
+                "This is your final reminder. Please complete the signing as soon as possible to avoid cancellation of the request."
             } else {
-                "Link ký tài liệu này chỉ có hiệu lực trong thời gian giới hạn. Vui lòng hoàn thành việc ký sớm nhất có thể."
+                "This signature link is only valid for a limited time. Please complete the signing as soon as possible."
             },
             signature_link,
             signature_link
         );
 
         let text_body = format!(
-            "Nhắc nhở lần {} - Xin chào {},\n\n\
-            Bạn chưa hoàn thành việc ký tài liệu '{}'.\n\n\
+            "Reminder #{} - Hello {},\n\n\
+            You haven't completed signing the document '{}'.\n\n\
             {}.\n\n\
-            Vui lòng truy cập link sau để ký tài liệu:\n\
+            Please access the following link to sign the document:\n\
             {}\n\n\
-            Trân trọng,\n\
+            Best regards,\n\
             DocuSeal Pro",
             reminder_number,
             to_name,
             submission_name,
             if reminder_number >= 3 {
-                "Đây là lần nhắc nhở cuối cùng"
+                "This is your final reminder"
             } else {
-                "Link này chỉ có hiệu lực trong thời gian giới hạn"
+                "This link is only valid for a limited time"
             },
             signature_link
         );
@@ -422,16 +422,16 @@ impl EmailService {
             return Ok(());
         }
 
-        let subject = "Kích hoạt tài khoản DocuSeal Pro".to_string();
+        let subject = "Activate Your DocuSeal Pro Account".to_string();
 
         let html_body = format!(
             r#"
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kích hoạt tài khoản</title>
+    <title>Account Activation</title>
     <style>
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -481,21 +481,21 @@ impl EmailService {
 <body>
     <div class="container">
         <div class="header">
-            <h1>Chào mừng đến với DocuSeal Pro!</h1>
+            <h1>Welcome to DocuSeal Pro!</h1>
         </div>
         <div class="content">
-            <p>Xin chào <strong>{}</strong>,</p>
-            <p>Tài khoản của bạn đã được tạo thành công. Để kích hoạt tài khoản và bắt đầu sử dụng DocuSeal Pro, vui lòng nhấp vào nút bên dưới:</p>
+            <p>Hello <strong>{}</strong>,</p>
+            <p>Your account has been successfully created. To activate your account and start using DocuSeal Pro, please click the button below:</p>
             <p style="text-align: center;">
-                <a href="{}" class="button">Kích hoạt tài khoản</a>
+                <a href="{}" class="button">Activate Account</a>
             </p>
-            <p>Nếu nút không hoạt động, bạn có thể sao chép và dán liên kết sau vào trình duyệt:</p>
+            <p>If the button doesn't work, you can copy and paste the following link into your browser:</p>
             <p><a href="{}">{}</a></p>
-            <p>Liên kết này sẽ hết hạn sau 24 giờ.</p>
+            <p>This link will expire after 24 hours.</p>
         </div>
         <div class="footer">
-            <p>Email này được gửi tự động từ hệ thống DocuSeal Pro.</p>
-            <p>Nếu bạn không mong muốn nhận email này, vui lòng bỏ qua.</p>
+            <p>This email was sent automatically from the DocuSeal Pro system.</p>
+            <p>If you do not wish to receive this email, please ignore it.</p>
         </div>
     </div>
 </body>
@@ -505,7 +505,7 @@ impl EmailService {
         );
 
         let text_body = format!(
-            "Xin chào {},\n\nTài khoản của bạn đã được tạo. Để kích hoạt, truy cập: {}\n\nLiên kết hết hạn sau 24 giờ.\n\nDocuSeal Pro",
+            "Hello {},\n\nYour account has been created. To activate, visit: {}\n\nThe link expires after 24 hours.\n\nDocuSeal Pro",
             to_name, activation_link
         );
 
@@ -557,16 +557,16 @@ impl EmailService {
             return Ok(());
         }
 
-        let subject = format!("Hoàn thành ký tài liệu: {}", submission_name);
+        let subject = format!("Document Signing Completed: {}", submission_name);
 
         let html_body = format!(
             r#"
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hoàn thành ký tài liệu</title>
+    <title>Document Signing Completed</title>
     <style>
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -613,21 +613,21 @@ impl EmailService {
     <div class="container">
         <div class="header">
             <div class="success-icon">✅</div>
-            <h1>Hoàn thành ký tài liệu</h1>
-            <p>Xin chào <strong>{}</strong>,</p>
+            <h1>Document Signing Completed</h1>
+            <p>Hello <strong>{}</strong>,</p>
         </div>
 
         <div class="content">
-            <p>Chúng tôi xin thông báo rằng tài liệu <strong>"{}"</strong> đã được ký thành công bởi <strong>{}</strong>.</p>
+            <p>We are pleased to inform you that the document <strong>"{}"</strong> has been successfully signed by <strong>{}</strong>.</p>
 
-            <p>Tài liệu đã được xử lý và lưu trữ an toàn trong hệ thống DocuSeal Pro.</p>
+            <p>The document has been processed and stored securely in the DocuSeal Pro system.</p>
 
-            <p>Cảm ơn bạn đã sử dụng dịch vụ của chúng tôi!</p>
+            <p>Thank you for using our service!</p>
         </div>
 
         <div class="footer">
-            <p>Email này được gửi tự động từ hệ thống DocuSeal Pro.</p>
-            <p>&copy; 2025 DocuSeal Pro. Tất cả quyền được bảo lưu.</p>
+            <p>This email was sent automatically from the DocuSeal Pro system.</p>
+            <p>&copy; 2025 DocuSeal Pro. All rights reserved.</p>
         </div>
     </div>
 </body>
@@ -637,11 +637,11 @@ impl EmailService {
         );
 
         let text_body = format!(
-            "Xin chào {},\n\n\
-            Tài liệu '{}' đã được ký thành công bởi {}.\n\n\
-            Tài liệu đã được lưu trữ an toàn trong hệ thống.\n\n\
-            Cảm ơn bạn đã sử dụng dịch vụ DocuSeal Pro!\n\n\
-            Trân trọng,\n\
+            "Hello {},\n\n\
+            The document '{}' has been successfully signed by {}.\n\n\
+            The document has been stored securely in the system.\n\n\
+            Thank you for using DocuSeal Pro!\n\n\
+            Best regards,\n\
             DocuSeal Pro",
             to_name, submission_name, submitter_name
         );
@@ -891,5 +891,49 @@ impl EmailService {
                 Err(Box::new(e))
             }
         }
+    }
+
+    pub async fn send_template_email(
+        &self,
+        to_email: &str,
+        to_name: &str,
+        subject: &str,
+        body: &str,
+        body_format: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        if self.test_mode {
+            println!("TEST MODE: Would send template email to {} ({}) with subject: {}", to_email, to_name, subject);
+            return Ok(());
+        }
+
+        let email_builder = Message::builder()
+            .from(format!("{} <{}>", self.from_name, self.from_email).parse()?)
+            .to(format!("{} <{}>", to_name, to_email).parse()?)
+            .subject(subject.to_string());
+
+        let email = if body_format == "html" {
+            email_builder.header(lettre::message::header::ContentType::TEXT_HTML)
+                .body(body.to_string())?
+        } else {
+            email_builder.header(lettre::message::header::ContentType::TEXT_PLAIN)
+                .body(body.to_string())?
+        };
+
+        let creds = Credentials::new(self.smtp_username.clone(), self.smtp_password.clone());
+
+        let mailer = if self.use_tls {
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&self.smtp_host)?
+                .credentials(creds)
+                .build()
+        } else {
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&self.smtp_host)?
+                .credentials(creds)
+                .build()
+        };
+
+        mailer.send(email).await?;
+        println!("Template email sent successfully to: {}", to_email);
+
+        Ok(())
     }
 }

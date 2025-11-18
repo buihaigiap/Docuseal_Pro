@@ -4,3 +4,4 @@ pub mod submission;
 pub mod submitter;
 pub mod signature;
 pub mod role;
+pub mod email_template;

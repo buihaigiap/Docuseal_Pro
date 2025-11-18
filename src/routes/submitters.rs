@@ -9,7 +9,7 @@ use axum::{
 };
 use std::net::SocketAddr;
 use crate::common::responses::ApiResponse;
-use crate::database::queries::{SubmitterQueries, UserQueries, SubmissionFieldQueries, GlobalSettingsQueries, TemplateQueries};
+use crate::database::queries::{SubmitterQueries, UserQueries, SubmissionFieldQueries, GlobalSettingsQueries, TemplateQueries, EmailTemplateQueries};
 use crate::common::jwt::{auth_middleware, verify_jwt};
 use crate::common::authorization::require_admin_or_team_member;
 use crate::services::storage::StorageService;
@@ -19,6 +19,14 @@ use md5;
 use crate::models::signature::SignatureInfo;
 
 use crate::routes::web::AppState;
+
+fn replace_template_variables(content: &str, variables: &std::collections::HashMap<&str, &str>) -> String {
+    let mut result = content.to_string();
+    for (key, value) in variables {
+        result = result.replace(&format!("{{{}}}", key), value);
+    }
+    result
+}
 
 #[utoipa::path(
     get,
@@ -678,21 +686,64 @@ pub async fn submit_bulk_signatures(
                                                     let completed_count = all_submitters.iter().filter(|s| s.status == "signed" || s.status == "completed").count();
                                                     let total_count = all_submitters.len();
 
-                                                    // Send completion notification email
+                                                    // Send completion notification email using templates
                                                     match crate::services::email::EmailService::new() {
                                                         Ok(email_service) => {
-                                                            match email_service.send_completion_notification(
-                                                                completion_email,
-                                                                &template.name,
-                                                                &format!("signers have completed"),
-                                                                &all_submitters.iter()
-                                                                    .filter(|s| s.status == "signed" || s.status == "completed")
-                                                                    .map(|s| s.email.clone())
-                                                                    .collect::<Vec<_>>()
-                                                                    .join(", ")
-                                                            ).await {
-                                                                Ok(_) => println!("Completion notification email sent to: {} ({} of {} completed)", completion_email, completed_count, total_count),
-                                                                Err(e) => eprintln!("Failed to send completion notification email: {}", e),
+                                                            // Try to get user's default completion template
+                                                            let email_template_result = EmailTemplateQueries::get_default_template_by_type(
+                                                                pool, db_submitter.user_id, "completion"
+                                                            ).await;
+                                                            
+                                                            match email_template_result {
+                                                                Ok(Some(email_template)) => {
+                                                                    // Use custom email template
+                                                                    let completed_signers = all_submitters.iter()
+                                                                        .filter(|s| s.status == "signed" || s.status == "completed")
+                                                                        .map(|s| s.name.clone())
+                                                                        .collect::<Vec<_>>()
+                                                                        .join(", ");
+                                                                    
+                                                                    let submitter_link = format!("{}/s/{}", "http://localhost:8081", db_submitter.token);
+                                                                    let progress = format!("{} of {} completed", completed_count, total_count);
+                                                                    
+                                                                    let mut variables = std::collections::HashMap::new();
+                                                                    variables.insert("submitter.name", db_submitter.name.as_str());
+                                                                    variables.insert("template.name", template.name.as_str());
+                                                                    variables.insert("submitter.link", &submitter_link);
+                                                                    variables.insert("account.name", "DocuSeal Pro");
+                                                                    variables.insert("completed.signers", &completed_signers);
+                                                                    variables.insert("progress", &progress);
+
+                                                                    let subject = replace_template_variables(&email_template.subject, &variables);
+                                                                    let body = replace_template_variables(&email_template.body, &variables);
+
+                                                                    match email_service.send_template_email(
+                                                                        completion_email,
+                                                                        &db_submitter.name,
+                                                                        &subject,
+                                                                        &body,
+                                                                        &email_template.body_format,
+                                                                    ).await {
+                                                                        Ok(_) => println!("Template completion notification email sent to: {} ({} of {} completed)", completion_email, completed_count, total_count),
+                                                                        Err(e) => eprintln!("Failed to send template completion notification email: {}", e),
+                                                                    }
+                                                                },
+                                                                _ => {
+                                                                    // Fall back to default completion notification
+                                                                    match email_service.send_completion_notification(
+                                                                        completion_email,
+                                                                        &template.name,
+                                                                        &format!("{} of {} signers have completed", completed_count, total_count),
+                                                                        &all_submitters.iter()
+                                                                            .filter(|s| s.status == "signed" || s.status == "completed")
+                                                                            .map(|s| s.email.clone())
+                                                                            .collect::<Vec<_>>()
+                                                                            .join(", ")
+                                                                    ).await {
+                                                                        Ok(_) => println!("Completion notification email sent to: {} ({} of {} completed)", completion_email, completed_count, total_count),
+                                                                        Err(e) => eprintln!("Failed to send completion notification email: {}", e),
+                                                                    }
+                                                                }
                                                             }
                                                         }
                                                         Err(e) => {

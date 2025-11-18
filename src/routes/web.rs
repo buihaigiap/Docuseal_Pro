@@ -46,6 +46,7 @@ use crate::routes::submitters;
 use crate::routes::stripe_webhook;
 use crate::routes::reminder_settings;
 use crate::routes::global_settings;
+use crate::routes::email_templates;
 use crate::common::jwt::{generate_jwt, auth_middleware};
 
 pub fn create_router() -> Router<AppState> {
@@ -71,6 +72,7 @@ pub fn create_router() -> Router<AppState> {
         .merge(submissions::create_submission_router())
         .merge(reminder_settings::create_router())
         .merge(global_settings::create_router())
+        .merge(email_templates::create_router())
         .layer(middleware::from_fn(auth_middleware));
 
     let public_routes = Router::new()

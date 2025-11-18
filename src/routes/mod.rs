@@ -7,3 +7,4 @@ pub mod stripe_webhook;
 pub mod subscription;
 pub mod reminder_settings;
 pub mod global_settings;
+pub mod email_templates;
