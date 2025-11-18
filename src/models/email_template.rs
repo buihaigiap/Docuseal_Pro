@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 pub struct EmailTemplate {
     pub id: i64,
     pub user_id: i64,
-    pub template_type: String, // 'invitation', 'reminder', 'completion'
+    pub template_type: String, // 'invitation', 'reminder', 'completion', 'copy'
     pub subject: String,
     pub body: String,
     pub body_format: String, // 'text' or 'html'

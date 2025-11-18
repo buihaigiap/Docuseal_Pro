@@ -1,7 +1,7 @@
 use sqlx::{PgPool, Row};
 use chrono::{Utc, DateTime};
 
-use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan, DbTemplateFolder, CreateTemplateFolder, DbSubmissionField, CreateSubmissionField, DbGlobalSettings, UpdateGlobalSettings, DbEmailTemplate, CreateEmailTemplate, UpdateEmailTemplate};
+use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan, DbTemplateFolder, CreateTemplateFolder, DbSubmissionField, CreateSubmissionField, DbGlobalSettings, UpdateGlobalSettings, DbEmailTemplate, UpdateEmailTemplate};
 use crate::models::signature::SignatureInfo;
 
 // Structured query implementations for better organization
@@ -2434,39 +2434,6 @@ impl EmailTemplateQueries {
         }
     }
 
-    pub async fn create_template(pool: &PgPool, template_data: CreateEmailTemplate, user_id: i64) -> Result<DbEmailTemplate, sqlx::Error> {
-        let now = Utc::now();
-        let row = sqlx::query(
-            "INSERT INTO email_templates (user_id, template_type, subject, body, body_format, is_default, attach_documents, attach_audit_log, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, user_id, template_type, subject, body, body_format, is_default, attach_documents, attach_audit_log, created_at, updated_at"
-        )
-        .bind(user_id)
-        .bind(&template_data.template_type)
-        .bind(&template_data.subject)
-        .bind(&template_data.body)
-        .bind(&template_data.body_format)
-        .bind(template_data.is_default)
-        .bind(template_data.attach_documents)
-        .bind(template_data.attach_audit_log)
-        .bind(now)
-        .bind(now)
-        .fetch_one(pool)
-        .await?;
-
-        Ok(DbEmailTemplate {
-            id: row.try_get("id")?,
-            user_id: row.try_get("user_id")?,
-            template_type: row.try_get("template_type")?,
-            subject: row.try_get("subject")?,
-            body: row.try_get("body")?,
-            body_format: row.try_get("body_format")?,
-            is_default: row.try_get("is_default")?,
-            attach_documents: row.try_get("attach_documents")?,
-            attach_audit_log: row.try_get("attach_audit_log")?,
-            created_at: row.try_get("created_at")?,
-            updated_at: row.try_get("updated_at")?,
-        })
-    }
-
     pub async fn update_template(pool: &PgPool, id: i64, user_id: i64, update_data: UpdateEmailTemplate) -> Result<Option<DbEmailTemplate>, sqlx::Error> {
         let now = Utc::now();
         let mut query = "UPDATE email_templates SET updated_at = $1".to_string();
@@ -2554,15 +2521,5 @@ impl EmailTemplateQueries {
             })),
             None => Ok(None),
         }
-    }
-
-    pub async fn delete_template(pool: &PgPool, id: i64, user_id: i64) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM email_templates WHERE id = $1 AND user_id = $2")
-            .bind(id)
-            .bind(user_id)
-            .execute(pool)
-            .await?;
-
-        Ok(result.rows_affected() > 0)
     }
 }

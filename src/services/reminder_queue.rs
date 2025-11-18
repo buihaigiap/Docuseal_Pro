@@ -169,6 +169,29 @@ impl ReminderQueue {
                         let subject = replace_template_variables(&email_template.subject, &variables);
                         let body = replace_template_variables(&email_template.body, &variables);
 
+                        // Generate attachments if needed
+                        let mut document_path = None;
+
+                        if email_template.attach_documents {
+                            // Get template to access documents
+                            if let Ok(Some(db_template)) = crate::database::queries::TemplateQueries::get_template_by_id(&pool, submitter.template_id).await {
+                                if let Ok(storage_service) = crate::services::storage::StorageService::new().await {
+                                    if let Some(documents) = &db_template.documents {
+                                        if let Ok(docs) = serde_json::from_value::<Vec<crate::models::template::Document>>(documents.clone()) {
+                                            if let Some(first_doc) = docs.first() {
+                                                if let Ok(pdf_bytes) = storage_service.download_file(&first_doc.url).await {
+                                                    let temp_file = std::env::temp_dir().join(format!("original_document_{}.pdf", submitter.template_id));
+                                                    if let Ok(_) = tokio::fs::write(&temp_file, pdf_bytes).await {
+                                                        document_path = Some(temp_file.to_string_lossy().to_string());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         match self.email_service.send_template_email(
                             &submitter.email,
                             &submitter.name,
@@ -177,8 +200,8 @@ impl ReminderQueue {
                             &email_template.body_format,
                             email_template.attach_documents,
                             email_template.attach_audit_log,
-                            None,
-                            None,
+                            document_path.as_deref(),
+                            None, // No audit log for reminder
                         ).await {
                             Ok(_) => {
                                 println!("✅ Template reminder #{} sent successfully to submitter {}", reminder_number, submitter.id);
@@ -193,6 +216,11 @@ impl ReminderQueue {
                             Err(e) => {
                                 eprintln!("❌ Failed to send template reminder email to {}: {}", submitter.email, e);
                             }
+                        }
+
+                        // Clean up temporary file
+                        if let Some(path) = document_path {
+                            let _ = tokio::fs::remove_file(path).await;
                         }
                     },
                     _ => {

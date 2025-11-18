@@ -17,7 +17,7 @@ use utoipa_swagger_ui::SwaggerUi;
 use utoipa::openapi::security::{HttpAuthScheme, Http, SecurityScheme};
 
 use routes::web::{create_router, AppState, AppStateData};
-use database::connection::establish_connection;
+use database::connection::{establish_connection, run_migrations};
 use services::queue::PaymentQueue;
 use services::reminder_queue::ReminderQueue;
 use models::user::User;
@@ -257,10 +257,5 @@ async fn main() {
         listener, 
         app.into_make_service_with_connect_info::<SocketAddr>()
     ).await.unwrap();
-}
-
-async fn run_migrations(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::migrate!().run(pool).await?;
-    Ok(())
 }
 

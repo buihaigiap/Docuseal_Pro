@@ -211,6 +211,27 @@ pub async fn create_submission(
                                     let subject = replace_template_variables(&email_template.subject, &variables);
                                     let body = replace_template_variables(&email_template.body, &variables);
 
+                                    // Generate attachments if needed
+                                    let mut document_path = None;
+
+                                    if email_template.attach_documents {
+                                        // Generate original PDF for invitation
+                                        if let Ok(storage_service) = crate::services::storage::StorageService::new().await {
+                                            if let Some(documents) = &db_template.documents {
+                                                if let Ok(docs) = serde_json::from_value::<Vec<crate::models::template::Document>>(documents.clone()) {
+                                                    if let Some(first_doc) = docs.first() {
+                                                        if let Ok(pdf_bytes) = storage_service.download_file(&first_doc.url).await {
+                                                            let temp_file = std::env::temp_dir().join(format!("original_document_{}.pdf", db_template.id));
+                                                            if let Ok(_) = tokio::fs::write(&temp_file, pdf_bytes).await {
+                                                                document_path = Some(temp_file.to_string_lossy().to_string());
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     if let Err(e) = email_service.send_template_email(
                                         &submitter.email,
                                         &submitter.name,
@@ -219,12 +240,17 @@ pub async fn create_submission(
                                         &email_template.body_format,
                                         email_template.attach_documents,
                                         email_template.attach_audit_log,
-                                        None,
-                                        None,
+                                        document_path.as_deref(),
+                                        None, // No audit log for invitation
                                     ).await {
                                         eprintln!("Failed to send template email to {}: {}", submitter.email, e);
                                     } else {
                                         emails_sent_count += 1;
+                                    }
+
+                                    // Clean up temporary file
+                                    if let Some(path) = document_path {
+                                        let _ = tokio::fs::remove_file(path).await;
                                     }
                                 },
                                 _ => {
