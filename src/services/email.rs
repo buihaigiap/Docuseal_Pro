@@ -427,80 +427,80 @@ impl EmailService {
 
         let html_body = format!(
             r#"
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Account Activation</title>
-    <style>
-        body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
-            background-color: #f8f9fa;
-            padding: 20px;
-        }}
-        .container {{
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }}
-        .header {{
-            text-align: center;
-            margin-bottom: 30px;
-        }}
-        .header h1 {{
-            color: #007bff;
-            margin-bottom: 10px;
-        }}
-        .content {{
-            margin-bottom: 30px;
-        }}
-        .button {{
-            display: inline-block;
-            padding: 12px 24px;
-            background-color: #007bff;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            font-weight: bold;
-        }}
-        .footer {{
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #eee;
-            font-size: 12px;
-            color: #666;
-            text-align: center;
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Welcome to DocuSeal Pro!</h1>
-        </div>
-        <div class="content">
-            <p>Hello <strong>{}</strong>,</p>
-            <p>Your account has been successfully created. To activate your account and start using DocuSeal Pro, please click the button below:</p>
-            <p style="text-align: center;">
-                <a href="{}" class="button">Activate Account</a>
-            </p>
-            <p>If the button doesn't work, you can copy and paste the following link into your browser:</p>
-            <p><a href="{}">{}</a></p>
-            <p>This link will expire after 24 hours.</p>
-        </div>
-        <div class="footer">
-            <p>This email was sent automatically from the DocuSeal Pro system.</p>
-            <p>If you do not wish to receive this email, please ignore it.</p>
-        </div>
-    </div>
-</body>
-</html>
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Account Activation</title>
+            <style>
+                body {{
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    line-height: 1.6;
+                    color: #333;
+                    max-width: 600px;
+                    margin: 0 auto;
+                    background-color: #f8f9fa;
+                    padding: 20px;
+                }}
+                .container {{
+                    background: white;
+                    padding: 30px;
+                    border-radius: 10px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                }}
+                .header {{
+                    text-align: center;
+                    margin-bottom: 30px;
+                }}
+                .header h1 {{
+                    color: #007bff;
+                    margin-bottom: 10px;
+                }}
+                .content {{
+                    margin-bottom: 30px;
+                }}
+                .button {{
+                    display: inline-block;
+                    padding: 12px 24px;
+                    background-color: #007bff;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 5px;
+                    font-weight: bold;
+                }}
+                .footer {{
+                    margin-top: 30px;
+                    padding-top: 20px;
+                    border-top: 1px solid #eee;
+                    font-size: 12px;
+                    color: #666;
+                    text-align: center;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>Welcome to DocuSeal Pro!</h1>
+                </div>
+                <div class="content">
+                    <p>Hello <strong>{}</strong>,</p>
+                    <p>Your account has been successfully created. To activate your account and start using DocuSeal Pro, please click the button below:</p>
+                    <p style="text-align: center;">
+                        <a href="{}" class="button">Activate Account</a>
+                    </p>
+                    <p>If the button doesn't work, you can copy and paste the following link into your browser:</p>
+                    <p><a href="{}">{}</a></p>
+                    <p>This link will expire after 24 hours.</p>
+                </div>
+                <div class="footer">
+                    <p>This email was sent automatically from the DocuSeal Pro system.</p>
+                    <p>If you do not wish to receive this email, please ignore it.</p>
+                </div>
+            </div>
+        </body>
+        </html>
             "#,
             to_name, activation_link, activation_link, activation_link
         );
@@ -562,77 +562,77 @@ impl EmailService {
 
         let html_body = format!(
             r#"
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document Signing Completed</title>
-    <style>
-        body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
-            background-color: #f8f9fa;
-            padding: 20px;
-        }}
-        .container {{
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }}
-        .header {{
-            text-align: center;
-            margin-bottom: 30px;
-        }}
-        .header h1 {{
-            color: #28a745;
-            margin-bottom: 10px;
-        }}
-        .success-icon {{
-            font-size: 48px;
-            color: #28a745;
-            margin-bottom: 20px;
-        }}
-        .content {{
-            margin-bottom: 30px;
-        }}
-        .footer {{
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #e9ecef;
-            font-size: 14px;
-            color: #6c757d;
-            text-align: center;
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="success-icon">✅</div>
-            <h1>Document Signing Completed</h1>
-            <p>Hello <strong>{}</strong>,</p>
-        </div>
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Document Signing Completed</title>
+                    <style>
+                        body {{
+                            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                            line-height: 1.6;
+                            color: #333;
+                            max-width: 600px;
+                            margin: 0 auto;
+                            background-color: #f8f9fa;
+                            padding: 20px;
+                        }}
+                        .container {{
+                            background: white;
+                            padding: 30px;
+                            border-radius: 10px;
+                            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                        }}
+                        .header {{
+                            text-align: center;
+                            margin-bottom: 30px;
+                        }}
+                        .header h1 {{
+                            color: #28a745;
+                            margin-bottom: 10px;
+                        }}
+                        .success-icon {{
+                            font-size: 48px;
+                            color: #28a745;
+                            margin-bottom: 20px;
+                        }}
+                        .content {{
+                            margin-bottom: 30px;
+                        }}
+                        .footer {{
+                            margin-top: 30px;
+                            padding-top: 20px;
+                            border-top: 1px solid #e9ecef;
+                            font-size: 14px;
+                            color: #6c757d;
+                            text-align: center;
+                        }}
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <div class="success-icon">✅</div>
+                            <h1>Document Signing Completed</h1>
+                            <p>Hello <strong>{}</strong>,</p>
+                        </div>
 
-        <div class="content">
-            <p>We are pleased to inform you that the document <strong>"{}"</strong> has been successfully signed by <strong>{}</strong>.</p>
+                        <div class="content">
+                            <p>We are pleased to inform you that the document <strong>"{}"</strong> has been successfully signed by <strong>{}</strong>.</p>
 
-            <p>The document has been processed and stored securely in the DocuSeal Pro system.</p>
+                            <p>The document has been processed and stored securely in the DocuSeal Pro system.</p>
 
-            <p>Thank you for using our service!</p>
-        </div>
+                            <p>Thank you for using our service!</p>
+                        </div>
 
-        <div class="footer">
-            <p>This email was sent automatically from the DocuSeal Pro system.</p>
-            <p>&copy; 2025 DocuSeal Pro. All rights reserved.</p>
-        </div>
-    </div>
-</body>
-</html>
+                        <div class="footer">
+                            <p>This email was sent automatically from the DocuSeal Pro system.</p>
+                            <p>&copy; 2025 DocuSeal Pro. All rights reserved.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
             "#,
             to_name, submission_name, submitter_name
         );

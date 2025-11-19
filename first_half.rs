@@ -1090,7 +1090,7 @@ fn calculate_signature_text_height(
     
     // Match SignatureRenderer.tsx: (lineCount - 1) * 10 + 8 + 3
     if line_count > 0 {
-        ((line_count - 1) as f64 * 10.0) + 8.0 + 3.0
+        ((line_count - 1) as f64 * 14.0) + 10.0 + 2.0 + 10.0
     } else {
         0.0
     }
@@ -1215,8 +1215,8 @@ fn render_signature_id_info(
     // Position the signature info at the BOTTOM of the field
     // Matching SignatureRenderer.tsx: text starts from bottom and goes up
     let info_x = x_pos + 5.0; // Match frontend padding of 5px
-    let font_size = 8.0; // Match frontend font size
-    let line_height = 10.0; // Match frontend line height
+    let font_size = 10.0; // Match frontend font size
+    let line_height = 14.0; // Match frontend line height
     
     // Text area is at the bottom: from pdf_y to (pdf_y + text_height)
     // Calculate actual text height needed
@@ -1357,7 +1357,7 @@ fn calculate_signature_text_height(
     
     // Match SignatureRenderer.tsx: (lineCount - 1) * 10 + 8 + 3
     if line_count > 0 {
-        ((line_count - 1) as f64 * 10.0) + 8.0 + 3.0
+        ((line_count - 1) as f64 * 14.0) + 10.0 + 2.0 + 10.0
     } else {
         0.0
     }
@@ -1482,8 +1482,8 @@ fn render_signature_id_info(
     // Position the signature info at the BOTTOM of the field
     // Matching SignatureRenderer.tsx: text starts from bottom and goes up
     let info_x = x_pos + 5.0; // Match frontend padding of 5px
-    let font_size = 8.0; // Match frontend font size
-    let line_height = 10.0; // Match frontend line height
+    let font_size = 10.0; // Match frontend font size
+    let line_height = 14.0; // Match frontend line height
     
     // Text area is at the bottom: from pdf_y to (pdf_y + text_height)
     // Calculate actual text height needed
@@ -1624,7 +1624,7 @@ fn calculate_signature_text_height(
     
     // Match SignatureRenderer.tsx: (lineCount - 1) * 10 + 8 + 3
     if line_count > 0 {
-        ((line_count - 1) as f64 * 10.0) + 8.0 + 3.0
+        ((line_count - 1) as f64 * 14.0) + 10.0 + 2.0 + 10.0
     } else {
         0.0
     }
@@ -1749,8 +1749,8 @@ fn render_signature_id_info(
     // Position the signature info at the BOTTOM of the field
     // Matching SignatureRenderer.tsx: text starts from bottom and goes up
     let info_x = x_pos + 5.0; // Match frontend padding of 5px
-    let font_size = 8.0; // Match frontend font size
-    let line_height = 10.0; // Match frontend line height
+    let font_size = 10.0; // Match frontend font size
+    let line_height = 14.0; // Match frontend line height
     
     // Text area is at the bottom: from pdf_y to (pdf_y + text_height)
     // Calculate actual text height needed
@@ -1891,7 +1891,7 @@ fn calculate_signature_text_height(
     
     // Match SignatureRenderer.tsx: (lineCount - 1) * 10 + 8 + 3
     if line_count > 0 {
-        ((line_count - 1) as f64 * 10.0) + 8.0 + 3.0
+        ((line_count - 1) as f64 * 14.0) + 10.0 + 2.0 + 10.0
     } else {
         0.0
     }
@@ -2016,8 +2016,8 @@ fn render_signature_id_info(
     // Position the signature info at the BOTTOM of the field
     // Matching SignatureRenderer.tsx: text starts from bottom and goes up
     let info_x = x_pos + 5.0; // Match frontend padding of 5px
-    let font_size = 8.0; // Match frontend font size
-    let line_height = 10.0; // Match frontend line height
+    let font_size = 10.0; // Match frontend font size
+    let line_height = 14.0; // Match frontend line height
     
     // Text area is at the bottom: from pdf_y to (pdf_y + text_height)
     // Calculate actual text height needed
@@ -2158,7 +2158,7 @@ fn calculate_signature_text_height(
     
     // Match SignatureRenderer.tsx: (lineCount - 1) * 10 + 8 + 3
     if line_count > 0 {
-        ((line_count - 1) as f64 * 10.0) + 8.0 + 3.0
+        ((line_count - 1) as f64 * 14.0) + 10.0 + 2.0 + 10.0
     } else {
         0.0
     }
@@ -2283,8 +2283,8 @@ fn render_signature_id_info(
     // Position the signature info at the BOTTOM of the field
     // Matching SignatureRenderer.tsx: text starts from bottom and goes up
     let info_x = x_pos + 5.0; // Match frontend padding of 5px
-    let font_size = 8.0; // Match frontend font size
-    let line_height = 10.0; // Match frontend line height
+    let font_size = 10.0; // Match frontend font size
+    let line_height = 14.0; // Match frontend line height
     
     // Text area is at the bottom: from pdf_y to (pdf_y + text_height)
     // Calculate actual text height needed
@@ -2425,7 +2425,7 @@ fn calculate_signature_text_height(
     
     // Match SignatureRenderer.tsx: (lineCount - 1) * 10 + 8 + 3
     if line_count > 0 {
-        ((line_count - 1) as f64 * 10.0) + 8.0 + 3.0
+        ((line_count - 1) as f64 * 14.0) + 10.0 + 2.0 + 10.0
     } else {
         0.0
     }

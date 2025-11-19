@@ -654,14 +654,6 @@ pub async fn submit_bulk_signatures(
 
             let bulk_signatures = serde_json::Value::Array(signatures_array);
 
-            eprintln!("=== SUBMITTER UPDATE DEBUG ===");
-            eprintln!("Submitter ID: {}", db_submitter.id);
-            eprintln!("Real IP: {}", real_ip);
-            eprintln!("User Agent: {:?}", payload.user_agent);
-            eprintln!("Session ID: {:?}", payload.session_id);
-            eprintln!("Timezone: {:?}", payload.timezone);
-            eprintln!("==============================");
-
             match SubmitterQueries::update_submitter_with_signatures(
                 pool,
                 db_submitter.id,
@@ -686,6 +678,9 @@ pub async fn submit_bulk_signatures(
                                                 Ok(all_submitters) => {
                                                     let completed_count = all_submitters.iter().filter(|s| s.status == "signed" || s.status == "completed").count();
                                                     let total_count = all_submitters.len();
+                                                    use std::collections::HashSet;
+                                                    let mut notified_emails: HashSet<String> = HashSet::new();
+                                                    let mut combined_document_path: Option<String> = None;
 
                                                     // Only send completion notification when ALL submitters have completed
                                                     if completed_count == total_count {
@@ -720,9 +715,21 @@ pub async fn submit_bulk_signatures(
                                                                     let subject = replace_template_variables(&email_template.subject, &variables);
                                                                     let body = replace_template_variables(&email_template.body, &variables);
 
-                                                                    // Generate attachments if needed
+                                                                    // Generate attachments if needed (combined signed PDF for all submitters)
                                                                     let mut document_path = None;
                                                                     let mut audit_log_path = None;
+
+                                                                    if email_template.attach_documents {
+                                                                        if let Ok(storage_service) = StorageService::new().await {
+                                                                            // Generate combined signed PDF with all submitters' signatures (no filter)
+                                                                            if let Ok(signed_pdf_bytes_all) = generate_signed_pdf_for_template_with_filter(pool, db_submitter.template_id, &storage_service, None).await {
+                                                                                let temp_file_all = std::env::temp_dir().join(format!("signed_document_all_{}.pdf", db_submitter.template_id));
+                                                                                if let Ok(_) = tokio::fs::write(&temp_file_all, signed_pdf_bytes_all).await {
+                                                                                    combined_document_path = Some(temp_file_all.to_string_lossy().to_string());
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
 
                                                                     if email_template.attach_documents {
                                                                         // Generate signed PDF (only include signatures from this submitter for their email)
@@ -746,6 +753,7 @@ pub async fn submit_bulk_signatures(
                                                                         }
                                                                     }
 
+                                                                    let attach_path = combined_document_path.as_deref().or(document_path.as_deref());
                                                                     match email_service.send_template_email(
                                                                         completion_email,
                                                                         &db_submitter.name,
@@ -754,13 +762,15 @@ pub async fn submit_bulk_signatures(
                                                                         &email_template.body_format,
                                                                         email_template.attach_documents,
                                                                         email_template.attach_audit_log,
-                                                                        document_path.as_deref(),
+                                                                        attach_path,
                                                                         audit_log_path.as_deref(),
                                                                     ).await {
                                                                         Ok(_) => println!("Template completion notification email sent to: {} ({} of {} completed)", completion_email, completed_count, total_count),
                                                                         Err(e) => eprintln!("Failed to send template completion notification email: {}", e),
                                                                     }
 
+                                                                    // Mark completion_email as notified to prevent duplicates later
+                                                                    notified_emails.insert(completion_email.clone());
                                                                     // Clean up temporary files
                                                                     if let Some(path) = document_path {
                                                                         let _ = tokio::fs::remove_file(path).await;
@@ -781,7 +791,10 @@ pub async fn submit_bulk_signatures(
                                                                             .collect::<Vec<_>>()
                                                                             .join(", ")
                                                                     ).await {
-                                                                        Ok(_) => println!("Completion notification email sent to: {} ({} of {} completed)", completion_email, completed_count, total_count),
+                                                                        Ok(_) => {
+                                                                            println!("Completion notification email sent to: {} ({} of {} completed)", completion_email, completed_count, total_count);
+                                                                            notified_emails.insert(completion_email.clone());
+                                                                        }
                                                                         Err(e) => eprintln!("Failed to send completion notification email: {}", e),
                                                                     }
                                                                 }
@@ -799,7 +812,7 @@ pub async fn submit_bulk_signatures(
                                                         
                                                         // Create email service for sending to submitters
                                                         if let Ok(email_service) = crate::services::email::EmailService::new() {
-                                                            // Send completion email to each submitter
+                                                            // Send completion email to each submitter, skip duplicates
                                                             for submitter_info in &all_submitters {
                                                                 if submitter_info.status == "signed" || submitter_info.status == "completed" {
                                                                     // Get user's default completion template
@@ -830,13 +843,15 @@ pub async fn submit_bulk_signatures(
                                                                             let subject = replace_template_variables(&email_template.subject, &variables);
                                                                             let body = replace_template_variables(&email_template.body, &variables);
 
-                                                                            // Generate attachments if needed
+                                                                            // Generate audit log or attach combined documents if requested
                                                                             let mut document_path = None;
                                                                             let mut audit_log_path = None;
 
                                                                             if email_template.attach_documents {
-                                                                                // Generate signed PDF (only include signatures from this submitter for their email)
-                                                                                if let Ok(storage_service) = StorageService::new().await {
+                                                                                // Use combined document if available (display all signatures in 1 file), fallback to per-submitter
+                                                                                if let Some(combined_path) = combined_document_path.as_deref() {
+                                                                                    document_path = Some(combined_path.to_string());
+                                                                                } else if let Ok(storage_service) = StorageService::new().await {
                                                                                     if let Ok(signed_pdf_bytes) = generate_signed_pdf_for_template_with_filter(pool, db_submitter.template_id, &storage_service, Some(submitter_info.id)).await {
                                                                                         let temp_file = std::env::temp_dir().join(format!("signed_document_{}.pdf", submitter_info.id));
                                                                                         if let Ok(_) = tokio::fs::write(&temp_file, signed_pdf_bytes).await {
@@ -856,19 +871,25 @@ pub async fn submit_bulk_signatures(
                                                                                 }
                                                                             }
 
-                                                                            match email_service.send_template_email(
-                                                                                &submitter_info.email,
-                                                                                &submitter_info.name,
-                                                                                &subject,
-                                                                                &body,
-                                                                                &email_template.body_format,
-                                                                                email_template.attach_documents,
-                                                                                email_template.attach_audit_log,
-                                                                                document_path.as_deref(),
-                                                                                audit_log_path.as_deref(),
-                                                                            ).await {
-                                                                                Ok(_) => println!("Completion email sent to submitter: {} ({})", submitter_info.email, submitter_info.name),
-                                                                                Err(e) => eprintln!("Failed to send completion email to {}: {}", submitter_info.email, e),
+                                                                            // Skip if already notified
+                                                                            if notified_emails.contains(&submitter_info.email) {
+                                                                                println!("Skipping duplicate completion email for {}", submitter_info.email);
+                                                                            } else {
+                                                                                match email_service.send_template_email(
+                                                                                    &submitter_info.email,
+                                                                                    &submitter_info.name,
+                                                                                    &subject,
+                                                                                    &body,
+                                                                                    &email_template.body_format,
+                                                                                    email_template.attach_documents,
+                                                                                    email_template.attach_audit_log,
+                                                                                    document_path.as_deref(),
+                                                                                    audit_log_path.as_deref(),
+                                                                                ).await {
+                                                                                    Ok(_) => println!("Completion email sent to submitter: {} ({})", submitter_info.email, submitter_info.name),
+                                                                                    Err(e) => eprintln!("Failed to send completion email to {}: {}", submitter_info.email, e),
+                                                                                }
+                                                                                notified_emails.insert(submitter_info.email.clone());
                                                                             }
 
                                                                             // Clean up temporary files
@@ -887,13 +908,20 @@ pub async fn submit_bulk_signatures(
                                                                                 &template.name,
                                                                                 &submitter_info.name,
                                                                             ).await {
-                                                                                Ok(_) => println!("Default completion email sent to submitter: {} ({})", submitter_info.email, submitter_info.name),
+                                                                                    Ok(_) => {
+                                                                                        println!("Default completion email sent to submitter: {} ({})", submitter_info.email, submitter_info.name);
+                                                                                        notified_emails.insert(submitter_info.email.clone());
+                                                                                    }
                                                                                 Err(e) => eprintln!("Failed to send default completion email to {}: {}", submitter_info.email, e),
                                                                             }
                                                                         }
                                                                     }
                                                                 }
                                                             }
+                                                        // Clean up combined temporary signed document if any
+                                                        if let Some(path) = combined_document_path {
+                                                            let _ = tokio::fs::remove_file(path).await;
+                                                        }
                                                         } else {
                                                             eprintln!("Failed to initialize email service for sending completion emails to submitters");
                                                         }
@@ -1250,35 +1278,49 @@ fn render_signatures_on_pdf(
             }
         };
         
-        // Convert position from relative (0-1) to absolute pixels if needed
-        // If values are between 0 and 1, they are relative and need to be converted
-        let (x_pos, y_pos, field_width, field_height) = if *area_x <= 1.0 && *area_y <= 1.0 && *area_w <= 1.0 && *area_h <= 1.0 {
-            // Relative coordinates - convert to absolute
+        // Convert position from relative (0-1) or pixel values (0..600/800 per default viewer) to absolute PDF points
+        // If values are between 0 and 1, they are relative and need to be converted by page size
+        // If values are >1 but look like pixel values from the web viewer, normalize by the viewer's default dimensions (600x800)
+        let default_viewer_pdf_width: f64 = 600.0;
+        let default_viewer_pdf_height: f64 = 800.0;
+
+        let coord_mode = if *area_x <= 1.0 && *area_y <= 1.0 && *area_w <= 1.0 && *area_h <= 1.0 {
+            "relative"
+        } else if *area_x <= default_viewer_pdf_width && *area_y <= default_viewer_pdf_height && *area_w <= default_viewer_pdf_width && *area_h <= default_viewer_pdf_height {
+            "viewer_pixels"
+        } else {
+            "absolute_pdf_units"
+        };
+
+        let (x_pos, y_pos, field_width, field_height) = if coord_mode == "relative" {
+            // Relative coordinates - convert to absolute by page dimensions
             (
                 *area_x * page_width,
                 *area_y * page_height,
                 *area_w * page_width,
                 *area_h * page_height
             )
+        } else if coord_mode == "viewer_pixels" {
+            // Values appear to be pixel coordinates from the frontend viewer that uses default 600x800.
+            // Normalize them into relative (0-1) and then convert to page points
+            (
+                (*area_x / default_viewer_pdf_width) * page_width,
+                (*area_y / default_viewer_pdf_height) * page_height,
+                (*area_w / default_viewer_pdf_width) * page_width,
+                (*area_h / default_viewer_pdf_height) * page_height,
+            )
         } else {
-            // Already absolute coordinates
+            // Already absolute coordinates in PDF units
             (*area_x, *area_y, *area_w, *area_h)
         };
         
         // Convert from top-left (web) to bottom-left (PDF) coordinate system
         let pdf_y = page_height - y_pos - field_height;
         
-        eprintln!("=== FIELD POSITION DEBUG ===");
-        eprintln!("Field: {}", field_name);
-        eprintln!("Field Type: {}", field_type);
-        eprintln!("Page: {} (size: {}x{})", page_num, page_width, page_height);
-        eprintln!("Relative position: x={}, y={}, w={}, h={}", area_x, area_y, area_w, area_h);
-        eprintln!("Absolute position: x={}, y={}", x_pos, y_pos);
-        eprintln!("PDF Y (converted): {}", pdf_y);
-        eprintln!("Field size: {}x{}", field_width, field_height);
-        eprintln!("========================");
-        
-        // Calculate font size based on field height
+        // Calculate font size based on field height using default frontend font size (16px -> 12pt)
+        let default_text_css_px: f64 = 16.0;
+        let default_font_size_pt: f64 = default_text_css_px * 72.0 / 96.0; // 12pt
+        let mut font_size = default_font_size_pt.max(8.0).min(16.0);
         let font_size = (field_height * 0.65).max(8.0).min(16.0);
         
         // Calculate baseline for vertical centering
@@ -1329,11 +1371,7 @@ fn render_signatures_on_pdf(
                 // Signature area: full field height MINUS text height (matching SignatureRenderer.tsx)
                 // Important: Signature is rendered in the TOP portion, text in BOTTOM portion
                 let sig_height = field_height - text_height;
-                let sig_y = pdf_y + text_height + 5.0; // Signature Y position in PDF coordinates (bottom-left origin) - moved up by 5 points
-                
-                eprintln!("=== INITIALS FIELD DEBUG ===");
-                eprintln!("Field height: {}, Text height: {}, Sig height: {}", field_height, text_height, sig_height);
-                eprintln!("PDF Y (bottom of field): {}, Sig Y (bottom of sig area): {}", pdf_y, sig_y);
+                let sig_y = pdf_y + text_height; // Signature Y position in PDF coordinates (bottom-left origin)
                 
                 // Render chữ ký từ vector data hoặc text
                 if signature_value.starts_with('[') {
@@ -1372,6 +1410,15 @@ fn render_signatures_on_pdf(
                 let display_value = format!("[DOWNLOAD: {}]", filename);
                 render_text_field(&mut doc, page_id, &display_value, x_pos, pdf_y, field_width, field_height)?;
             },
+            "text" => {
+                // Pure text field - use full field dimensions without subtracting text height
+                let display_value = if signature_value.is_empty() {
+                    field_name.clone()
+                } else {
+                    signature_value.to_string()
+                };
+                render_text_field(&mut doc, page_id, &display_value, x_pos, pdf_y, field_width, field_height)?;
+            },
             _ => {
                 // Calculate text height dynamically (matching SignatureRenderer.tsx)
                 let reason = signature_json.get("reason").and_then(|r| r.as_str()).unwrap_or("");
@@ -1385,11 +1432,7 @@ fn render_signatures_on_pdf(
                 // Signature area: full field height MINUS text height (matching SignatureRenderer.tsx)
                 // Important: Signature is rendered in the TOP portion, text in BOTTOM portion
                 let sig_height = field_height - text_height;
-                let sig_y = pdf_y + text_height + 5.0; // Signature Y position in PDF coordinates (bottom-left origin) - moved up by 5 points
-                
-                eprintln!("=== DEFAULT SIGNATURE FIELD DEBUG ===");
-                eprintln!("Field height: {}, Text height: {}, Sig height: {}", field_height, text_height, sig_height);
-                eprintln!("PDF Y (bottom of field): {}, Sig Y (bottom of sig area): {}", pdf_y, sig_y);
+                let sig_y = pdf_y + text_height; // Signature Y position in PDF coordinates (bottom-left origin)
                 
                 // Mặc định (trường văn bản hoặc chữ ký): Kiểm tra xem có phải vector signature không
                 if signature_value.starts_with('[') {
@@ -1497,9 +1540,9 @@ fn calculate_signature_text_height(
         line_count += 1;
     }
     
-    // Match SignatureRenderer.tsx: (lineCount - 1) * 10 + 8 + 3
+    // Match SignatureRenderer.tsx: (lineCount - 1) * 12 + 8 + 2 + 10 (increased line height for more spacing)
     if line_count > 0 {
-        ((line_count - 1) as f64 * 10.0) + 8.0 + 3.0
+        ((line_count - 1) as f64 * 7.0) + 8.0 + 2.0 + 10.0
     } else {
         0.0
     }
@@ -1624,16 +1667,16 @@ fn render_signature_id_info(
     // Position the signature info at the BOTTOM of the field
     // Matching SignatureRenderer.tsx: text starts from bottom and goes up
     let info_x = x_pos + 5.0; // Match frontend padding of 5px
-    let font_size = 8.0; // Match frontend font size
-    let line_height = 10.0; // Match frontend line height
+    let font_size = 10.0; // Match frontend font size
+    let line_height = 10.0; // Match calculate_signature_text_height line height
     
     // Text area is at the bottom: from pdf_y to (pdf_y + text_height)
-    // Calculate actual text height needed
-    let actual_text_height = (signature_info_parts.len() as f64 - 1.0) * line_height + font_size + 3.0;
+    // Calculate actual text height needed (matching frontend calculation)
+    let actual_text_height = (signature_info_parts.len() as f64 - 1.0) * line_height + font_size + 2.0 + 10.0;
     
     // Start rendering from the bottom of text area
     // First line should be at pdf_y + 3 (bottom padding), last line at the top
-    let text_start_y = pdf_y + 3.0; // Bottom padding: 3px from the bottom
+    let text_start_y = pdf_y + 2.0; // Bottom padding: 2px from the bottom (matching frontend)
     
     // Create text content stream for signature info with multiple lines
     let mut text_operations = vec![
@@ -1722,11 +1765,11 @@ fn render_text_field(
     use lopdf::{Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
 
-    // Calculate font size based on field height
-    let font_size = (field_height * 0.65).max(8.0).min(16.0);
+    // Use CSS-like font size to match frontend (16px -> 12pt)
+    let font_size = 12.0; // Fixed size to match frontend
 
-    // Calculate baseline for vertical centering (matching frontend middle alignment)
-    let baseline_y = pdf_y + field_height / 2.0;
+    // Truncate text if too long (matching frontend behavior)
+    let display_text = if text.len() > 10 { format!("{}...", &text[..10]) } else { text.to_string() };
 
     // Create Arial font if not exists
     let font_name = b"F1".to_vec();
@@ -1771,8 +1814,15 @@ fn render_text_field(
         }
     }
 
-    // Create text content stream with proper positioning
-    let text_operations = vec![
+    // Center text vertically and left-align horizontally (matching frontend behavior)
+    // For Arial font, adjust baseline position for proper visual centering
+    let text_y = pdf_y + field_height / 2.0 - font_size * 0.25;
+
+    // For left alignment, start text at the left edge of the field
+    let text_x = x_pos;
+
+    // Create text content stream
+    let operations = vec![
         // Begin text object
         Operation::new("BT", vec![]),
 
@@ -1789,22 +1839,22 @@ fn render_text_field(
             Object::Real(0.0),
         ]),
 
-        // Position text at baseline
+        // Position text at center
         Operation::new("Td", vec![
-            Object::Real(x_pos as f32),
-            Object::Real(baseline_y as f32),
+            Object::Real(text_x as f32),
+            Object::Real(text_y as f32),
         ]),
 
         // Show text
         Operation::new("Tj", vec![
-            Object::string_literal(text.to_string()),
+            Object::string_literal(display_text),
         ]),
 
         // End text object
         Operation::new("ET", vec![]),
     ];
 
-    let content = Content { operations: text_operations };
+    let content = Content { operations };
     let content_data = content.encode()?;
 
     // Create a new content stream
@@ -1856,21 +1906,8 @@ fn render_checkbox_with_check(
     use lopdf::{Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
 
-    // Draw square border
+    // Draw square border only
     let border_operations = vec![
-        // Set line width
-        Operation::new("w", vec![Object::Real(1.0)]),
-        // Set color to black
-        Operation::new("RG", vec![Object::Real(0.0), Object::Real(0.0), Object::Real(0.0)]),
-        // Move to start
-        Operation::new("m", vec![Object::Real(x_pos as f32), Object::Real(pdf_y as f32)]),
-        // Draw rectangle border
-        Operation::new("l", vec![Object::Real((x_pos + field_width) as f32), Object::Real(pdf_y as f32)]),
-        Operation::new("l", vec![Object::Real((x_pos + field_width) as f32), Object::Real((pdf_y + field_height) as f32)]),
-        Operation::new("l", vec![Object::Real(x_pos as f32), Object::Real((pdf_y + field_height) as f32)]),
-        Operation::new("h", vec![]), // Close path
-        Operation::new("S", vec![]), // Stroke
-
         // Draw checkmark
         Operation::new("m", vec![Object::Real((x_pos + field_width * 0.2) as f32), Object::Real((pdf_y + field_height * 0.5) as f32)]),
         Operation::new("l", vec![Object::Real((x_pos + field_width * 0.4) as f32), Object::Real((pdf_y + field_height * 0.3) as f32)]),
@@ -1932,18 +1969,7 @@ fn render_empty_checkbox(
 
     // Draw square border only
     let border_operations = vec![
-        // Set line width
-        Operation::new("w", vec![Object::Real(1.0)]),
-        // Set color to black
-        Operation::new("RG", vec![Object::Real(0.0), Object::Real(0.0), Object::Real(0.0)]),
-        // Move to start
-        Operation::new("m", vec![Object::Real(x_pos as f32), Object::Real(pdf_y as f32)]),
-        // Draw rectangle border
-        Operation::new("l", vec![Object::Real((x_pos + field_width) as f32), Object::Real(pdf_y as f32)]),
-        Operation::new("l", vec![Object::Real((x_pos + field_width) as f32), Object::Real((pdf_y + field_height) as f32)]),
-        Operation::new("l", vec![Object::Real(x_pos as f32), Object::Real((pdf_y + field_height) as f32)]),
-        Operation::new("h", vec![]), // Close path
-        Operation::new("S", vec![]), // Stroke
+        // Draw checkmark - no border
     ];
 
     let content = Content { operations: border_operations };
@@ -2146,6 +2172,25 @@ fn render_initials_field(
     // Special font size for initials (smaller, more condensed)
     let font_size = (field_height * 0.6).max(10.0).min(18.0);
 
+    // Helper: approximate text width (average width per character groups)
+    let approx_text_width = |text: &str, font_size_pt: f64| -> f64 {
+        // Rough per-character width factors for Latin alphabet (approximation)
+        // narrow: i, l; mid: a-z; wide: m, w, W, M; space smaller
+        let mut width = 0.0_f64;
+        for ch in text.chars() {
+            let factor = match ch {
+                'i' | 'I' | 'l' | 'j' | 't' | '\'' | '|' => 0.28,
+                ' ' => 0.28,
+                'f' | 'r' | 's' | ',' | ':' | ';' | '.' => 0.35,
+                'a'..='z' | 'A'..='Z' | '0'..='9' => 0.55,
+                'm' | 'w' | 'M' | 'W' => 0.85,
+                _ => 0.6,
+            };
+            width += factor * font_size_pt;
+        }
+        width
+    };
+
     // Create Arial font if not exists
     let font_name = b"F1".to_vec();
     let font_dict_id = {
@@ -2191,11 +2236,12 @@ fn render_initials_field(
 
     // Calculate positioning for initials (matching frontend centering logic)
     // Center in available space, similar to frontend
+    // Note: field_height here is already sig_height (field_height - text_height) from caller
     let available_height = field_height;
-    let baseline_y = pdf_y + available_height * 0.5 + 5.0; // Center vertically + 5px offset
+    let baseline_y = pdf_y + available_height * 0.5 + 5.0; // Center vertically + 5px offset (matching frontend)
 
     // Create text content stream with special positioning for initials
-    let text_operations = vec![
+    let mut text_operations = vec![
         // Begin text object
         Operation::new("BT", vec![]),
 
@@ -2212,9 +2258,9 @@ fn render_initials_field(
             Object::Real(0.0),
         ]),
 
-        // Position text at baseline (absolute positioning)
+        // Position text at baseline (centered horizontally)
         Operation::new("Td", vec![
-            Object::Real(x_pos as f32),
+            Object::Real((x_pos + _field_width / 2.0 - approx_text_width(text, font_size) / 2.0) as f32),
             Object::Real(baseline_y as f32),
         ]),
 
@@ -2312,7 +2358,7 @@ fn render_vector_signature(
     let sig_width = max_x - min_x;
     let sig_height = max_y - min_y;
     
-    let padding = 5.0; // Match frontend padding
+    let padding = 0.0; // Increased padding to make signature smaller
     let available_width = field_width - padding * 2.0;
     let available_height = field_height - padding * 2.0;
     
@@ -2321,8 +2367,11 @@ fn render_vector_signature(
     let scale = scale_x.min(scale_y);
 
     // Center the signature in available space (matching frontend)
-    let offset_x = x_pos + padding + (available_width - sig_width * scale) / 2.0 - min_x * scale;
-    let offset_y = pdf_y + padding + (available_height - sig_height * scale) / 2.0 - min_y * scale;
+    // Frontend: offsetX = (width - signatureWidth * scale) / 2 - minX * scale
+    //           offsetY = ((height - textHeight) - signatureHeight * scale) / 2 - minY * scale + 5
+    // Note: field_height here is already sig_height (field_height - text_height) from caller
+    let offset_x = x_pos + (field_width - sig_width * scale) / 2.0 - min_x * scale;
+    let offset_y = pdf_y + (field_height - sig_height * scale) / 2.0 - min_y * scale + 5.0; // Center vertically matching frontend
     
     let center_offset_x = (field_width - sig_width * scale) / 2.0;
     let center_offset_y = (field_height - sig_height * scale) / 2.0;
@@ -2357,10 +2406,14 @@ fn render_vector_signature(
                 point.get("y").and_then(|v| v.as_f64())
             ) {
                 // Scale and position the signature coordinates
-                // Important: PDF coordinate system has origin at bottom-left, Y increases upward
-                // Canvas coordinate system has origin at top-left, Y increases downward
-                // So we need to flip Y: (max_y - y) to convert canvas Y to PDF Y
-                let scaled_x = (x - min_x) * scale + offset_x;
+                // Frontend: x_canvas = point.x * scale + offsetX; y_canvas = point.y * scale + offsetY
+                // In canvas: offsetY is from top, increasing downward
+                // In PDF: offset_y is from bottom, increasing upward
+                // Convert: PDF Y = offset_y + (max_y - min_y) * scale - (y - min_y) * scale
+                //        = offset_y + (max_y - y) * scale - min_y * scale + min_y * scale
+                //        = offset_y + (max_y - y) * scale
+                // But offset_y already includes the base position, so:
+                let scaled_x = x * scale + offset_x;
                 let scaled_y = (max_y - y) * scale + offset_y;
 
                 if first_point {

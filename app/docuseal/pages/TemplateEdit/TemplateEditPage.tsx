@@ -79,7 +79,6 @@ const TemplateEditPage = () => {
   const [declineReason, setDeclineReason] = useState<string>('');
   const [clearedFields, setClearedFields] = useState<Set<number>>(new Set());
   const { user } = useAuth();
-  console.log('globalSettings' , globalSettings)
   const uploadFile = async (file: File): Promise<string | null> => {
     try {
       setFileUploading(true);
@@ -119,7 +118,6 @@ const TemplateEditPage = () => {
         if (data.data.information) {
           // Fetch full submitter info to get status
           const submitterData = await upstashService.getSubmitterInfo(token);
-          console.log('submitterDatassss' , submitterData);
           if (submitterData.success) {
             setSubmitterInfo({
               id: data.data.information.id,

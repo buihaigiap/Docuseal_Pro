@@ -135,6 +135,8 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         
         ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
 
+ 
+
         // Render additional text below the image if enabled
         let textToShow: string[] = [];
         if (globalSettings?.add_signature_id_to_the_documents) {
@@ -171,6 +173,8 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
             ctx.fillText(textToShow[i], 5, y);
             y -= lineHeight;
           }
+
+      
         }
       };
       img.onerror = (error) => {
@@ -243,14 +247,14 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
       }
       
       // Calculate scale to fit signature in canvas with minimal padding, leaving space for text if needed
-      const padding = 5;
+      const padding = 2;
       const scaleX = (width - padding * 2) / signatureWidth;
       const scaleY = ((height - textHeight) - padding * 2) / signatureHeight;
       const scale = Math.min(scaleX, scaleY); // Use minimum scale to preserve aspect ratio
 
-      // Calculate offset to center signature in available space
+      // Calculate offset to center signature in available space, but move to top
       const offsetX = (width - signatureWidth * scale) / 2 - minX * scale;
-      const offsetY = ((height - textHeight) - signatureHeight * scale) / 2 - minY * scale + 5; // Moved up by 5 pixels
+      const offsetY = padding - minY * scale; // Move to top with minimal padding
 
       // Draw signature with natural line width similar to original drawing
       ctx.strokeStyle = color;
@@ -276,6 +280,8 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         });
         ctx.stroke();
       });
+
+
 
       // Re-enable image smoothing for text and images
       ctx.imageSmoothingEnabled = true;
@@ -316,6 +322,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
           ctx.fillText(textToShow[i], 5, y);
           y -= lineHeight;
         }
+
       }
     } catch (e) {
       if (fieldType === 'initials') {
@@ -349,27 +356,13 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         const fontWeight = 'normal';
         
         // Start with a large font size
-        let fontSize = (height - textHeight) * 1.5;
+        let fontSize = Math.max((height - textHeight) * 0.6, 10);
+        fontSize = Math.min(fontSize, 18); // Match PDF font size calculation
         ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
         
         // Measure actual text bounds
         let metrics = ctx.measureText(data);
         let actualHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
-        
-        // Scale font to fill height
-        fontSize = ((height - textHeight) / actualHeight) * fontSize;
-        ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
-        metrics = ctx.measureText(data);
-        actualHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
-        
-        // Check width and reduce if needed
-        let textWidth = metrics.width;
-        if (textWidth > width) {
-          fontSize = (width / textWidth) * fontSize;
-          ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
-          metrics = ctx.measureText(data);
-          actualHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
-        }
         
         ctx.fillStyle = color;
         ctx.textAlign = 'center';
@@ -423,6 +416,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
             ctx.fillText(textToShow[i], 5, y);
             y -= lineHeight;
           }
+
         }
       } else {
         // Calculate text height dynamically
@@ -443,7 +437,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         
         // Default text rendering for signatures
         ctx.fillStyle = color;
-        let fontSize = Math.min(Math.max(width / 5, 12), height - textHeight);
+        let fontSize = 12; // Match PDF font size
         ctx.font = `${fontSize}px sans-serif`;
         
         // Check if text fits in width and scale down if needed
@@ -497,6 +491,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
             ctx.fillText(textToShow[i], 5, y);
             y -= lineHeight;
           }
+
         }
       }
     }
@@ -512,7 +507,9 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         height: '100%', 
         maxWidth: '100%', 
         maxHeight: '100%',
-        imageRendering: 'auto'
+        imageRendering: 'auto',
+        // border: 'none',
+        // outline: 'none'
       }}
     />
   );
