@@ -745,8 +745,8 @@ pub async fn submit_bulk_signatures(
 
                                                                     if email_template.attach_audit_log {
                                                                         // Generate audit log PDF
-                                                                        if let Ok(audit_pdf_bytes) = generate_audit_log_pdf(pool, db_submitter.id).await {
-                                                                            let temp_file = std::env::temp_dir().join(format!("audit_log_{}.pdf", db_submitter.id));
+                                                                        if let Ok(audit_pdf_bytes) = generate_template_audit_log_pdf(pool, db_submitter.template_id).await {
+                                                                            let temp_file = std::env::temp_dir().join(format!("audit_log_template_{}.pdf", db_submitter.template_id));
                                                                             if let Ok(_) = tokio::fs::write(&temp_file, audit_pdf_bytes).await {
                                                                                 audit_log_path = Some(temp_file.to_string_lossy().to_string());
                                                                             }
@@ -863,8 +863,8 @@ pub async fn submit_bulk_signatures(
 
                                                                             if email_template.attach_audit_log {
                                                                                 // Generate audit log PDF
-                                                                                if let Ok(audit_pdf_bytes) = generate_audit_log_pdf(pool, submitter_info.id).await {
-                                                                                    let temp_file = std::env::temp_dir().join(format!("audit_log_{}.pdf", submitter_info.id));
+                                                                                if let Ok(audit_pdf_bytes) = generate_template_audit_log_pdf(pool, submitter_info.template_id).await {
+                                                                                    let temp_file = std::env::temp_dir().join(format!("audit_log_template_{}.pdf", submitter_info.template_id));
                                                                                     if let Ok(_) = tokio::fs::write(&temp_file, audit_pdf_bytes).await {
                                                                                         audit_log_path = Some(temp_file.to_string_lossy().to_string());
                                                                                     }
@@ -2682,8 +2682,8 @@ pub async fn send_copy_email(
 
                             if email_template.attach_audit_log {
                                 // Generate audit log PDF
-                                if let Ok(audit_pdf_bytes) = generate_audit_log_pdf(pool, db_submitter.id).await {
-                                    let temp_file = std::env::temp_dir().join(format!("audit_log_{}.pdf", db_submitter.id));
+                                if let Ok(audit_pdf_bytes) = generate_template_audit_log_pdf(pool, db_submitter.template_id).await {
+                                    let temp_file = std::env::temp_dir().join(format!("audit_log_template_{}.pdf", db_submitter.template_id));
                                     if let Ok(_) = tokio::fs::write(&temp_file, audit_pdf_bytes).await {
                                         audit_log_path = Some(temp_file.to_string_lossy().to_string());
                                     }
@@ -2986,6 +2986,438 @@ async fn generate_signed_pdf_for_template_with_filter(
     Ok(signed_pdf)
 }
 
+async fn generate_template_audit_log_pdf(
+    pool: &PgPool,
+    template_id: i64,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    // Get all submitters for this template
+    let submitters = SubmitterQueries::get_submitters_by_template_id(pool, template_id).await?;
+
+    // Get template for document info
+    let template = TemplateQueries::get_template_by_id(pool, template_id).await?
+        .ok_or("Template not found")?;
+
+    // Collect all signature values from all signed submitters
+    let mut all_signature_values = Vec::new();
+    for submitter in &submitters {
+        if submitter.status == "signed" || submitter.status == "completed" {
+            if let Some(bulk_signatures) = &submitter.bulk_signatures {
+                if let Ok(signatures) = serde_json::from_value::<Vec<serde_json::Value>>(bulk_signatures.clone()) {
+                    for signature in signatures {
+                        if let Some(sig_value) = signature.get("signature_value").and_then(|v| v.as_str()) {
+                            if sig_value != "N/A" {
+                                all_signature_values.push(sig_value.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Build comprehensive audit log entries from all submitters
+    let mut audit_entries = Vec::new();
+
+    // Add header information
+    let envelope_info = serde_json::json!({
+        "type": "envelope_info",
+        "document_id": template.id,
+        "template_name": template.name,
+        "total_submitters": submitters.len(),
+        "total_signatures": all_signature_values.len(),
+        "created_at": template.created_at.format("%d/%m/%Y %H:%M:%S").to_string()
+    });
+    audit_entries.push(envelope_info);
+
+    // 1. Document Created event
+    audit_entries.push(serde_json::json!({
+        "timestamp": template.created_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+        "action": "Document Created",
+        "user": "System",
+        "details": format!("Template '{}' was uploaded and configured", template.name),
+        "ip": "System",
+        "user_agent": "System",
+        "session_id": "N/A",
+        "timezone": "UTC"
+    }));
+
+    // 2. Document Sent events for all submitters
+    for submitter in &submitters {
+        audit_entries.push(serde_json::json!({
+            "timestamp": submitter.created_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+            "action": "Document Sent",
+            "user": "System",
+            "details": format!("Document sent to {} for signature", submitter.email),
+            "ip": "System",
+            "user_agent": "System",
+            "session_id": "N/A",
+            "timezone": "UTC",
+            "submitter_email": submitter.email.clone(),
+            "submitter_role": "Signer".to_string()
+        }));
+    }
+
+    // 3. Form Viewed events for all submitters
+    for submitter in &submitters {
+        if let Some(viewed_at) = submitter.viewed_at {
+            audit_entries.push(serde_json::json!({
+                "timestamp": viewed_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+                "action": "Form Viewed",
+                "user": submitter.email.clone(),
+                "details": format!("Form opened and viewed by {}", submitter.email),
+                "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+                "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+                "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+                "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string()),
+                "submitter_role": "Signer".to_string()
+            }));
+        } else if submitter.ip_address.is_some() {
+            audit_entries.push(serde_json::json!({
+                "timestamp": submitter.updated_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+                "action": "Form Viewed",
+                "user": submitter.email.clone(),
+                "details": format!("Form accessed by {}", submitter.email),
+                "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+                "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+                "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+                "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string()),
+                "submitter_role": "Signer".to_string()
+            }));
+        }
+    }
+
+    // 4. Document Signed events for all submitters
+    for submitter in &submitters {
+        if submitter.status == "signed" || submitter.status == "completed" {
+            if let Some(signed_at) = submitter.signed_at {
+                // Collect signature values for this specific submitter
+                let mut submitter_signature_values = Vec::new();
+                if let Some(bulk_signatures) = &submitter.bulk_signatures {
+                    if let Ok(signatures) = serde_json::from_value::<Vec<serde_json::Value>>(bulk_signatures.clone()) {
+                        for signature in signatures {
+                            if let Some(sig_value) = signature.get("signature_value").and_then(|v| v.as_str()) {
+                                if sig_value != "N/A" {
+                                    submitter_signature_values.push(sig_value.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                audit_entries.push(serde_json::json!({
+                    "timestamp": signed_at.format("%d/%m/%Y %H:%M:%S").to_string(),
+                    "action": "Document Signed",
+                    "user": submitter.email.clone(),
+                    "details": format!("Document signed and submitted by {}", submitter.email),
+                    "ip": submitter.ip_address.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "user_agent": submitter.user_agent.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "session_id": submitter.session_id.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "timezone": submitter.timezone.clone().unwrap_or_else(|| "N/A".to_string()),
+                    "submitter_role": "Signer".to_string(),
+                    "signature_values": submitter_signature_values
+                }));
+            }
+        }
+    }
+
+    // 5. Template Completion event (when all submitters have completed)
+    let all_completed = submitters.iter().all(|s| s.status == "completed");
+    if all_completed && !submitters.is_empty() {
+        // Find the latest completion time
+        let latest_completion = submitters.iter()
+            .filter_map(|s| Some(s.updated_at))
+            .max()
+            .unwrap_or_else(|| template.created_at);
+
+        audit_entries.push(serde_json::json!({
+            "timestamp": latest_completion.format("%d/%m/%Y %H:%M:%S").to_string(),
+            "action": "Template Completed",
+            "user": "System",
+            "details": format!("All {} submitters have completed signing the document", submitters.len()),
+            "ip": "System",
+            "user_agent": "System",
+            "session_id": "N/A",
+            "timezone": "UTC"
+        }));
+    }
+
+    // Sort audit entries by timestamp
+    audit_entries.sort_by(|a, b| {
+        let a_timestamp = a.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+        let b_timestamp = b.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+        a_timestamp.cmp(b_timestamp)
+    });
+
+    // Generate PDF from audit entries
+    use lopdf::{Document, Object, Stream, Dictionary};
+    use lopdf::content::{Content, Operation};
+
+    let mut doc = Document::new();
+    let pages_id = doc.new_object_id();
+
+    // Create Arial font
+    let font_dict_id = {
+        let mut arial_dict = Dictionary::new();
+        arial_dict.set("Type", Object::Name(b"Font".to_vec()));
+        arial_dict.set("Subtype", Object::Name(b"Type1".to_vec()));
+        arial_dict.set("BaseFont", Object::Name(b"Arial".to_vec()));
+        arial_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+        doc.add_object(Object::Dictionary(arial_dict))
+    };
+
+    let resources_id = doc.add_object(Object::Dictionary(Dictionary::from_iter(vec![
+        ("Font", Object::Dictionary(Dictionary::from_iter(vec![
+            ("F1", Object::Reference(font_dict_id)),
+        ]))),
+    ])));
+
+    // Create content with audit log text
+    let mut content = Content { operations: vec![] };
+
+    // Begin text object
+    content.operations.push(Operation::new("BT", vec![]));
+
+    // Set font and size
+    content.operations.push(Operation::new("Tf", vec![
+        Object::Name(b"F1".to_vec()),
+        Object::Real(10.0),
+    ]));
+
+    // Set text color to black
+    content.operations.push(Operation::new("rg", vec![
+        Object::Real(0.0),
+        Object::Real(0.0),
+        Object::Real(0.0),
+    ]));
+
+    // Position text at top
+    content.operations.push(Operation::new("Td", vec![
+        Object::Real(50.0),
+        Object::Real(750.0),
+    ]));
+
+    // Add title
+    content.operations.push(Operation::new("Tj", vec![
+        Object::string_literal("AUDIT LOG - TEMPLATE AUDIT TRAIL".to_string()),
+    ]));
+
+    // Add separator
+    content.operations.push(Operation::new("Tj", vec![
+        Object::string_literal("========================================".to_string()),
+    ]));
+
+    // Move to next line
+    content.operations.push(Operation::new("Td", vec![
+        Object::Real(0.0),
+        Object::Real(-20.0),
+    ]));
+
+    // Add template info
+    content.operations.push(Operation::new("Tj", vec![
+        Object::string_literal(format!("Template: {}", template.name)),
+    ]));
+    content.operations.push(Operation::new("Td", vec![
+        Object::Real(0.0),
+        Object::Real(-12.0),
+    ]));
+
+    content.operations.push(Operation::new("Tj", vec![
+        Object::string_literal(format!("Total Submitters: {}", submitters.len())),
+    ]));
+    content.operations.push(Operation::new("Td", vec![
+        Object::Real(0.0),
+        Object::Real(-12.0),
+    ]));
+
+    content.operations.push(Operation::new("Tj", vec![
+        Object::string_literal(format!("Created: {}", template.created_at.format("%d/%m/%Y %H:%M:%S"))),
+    ]));
+    content.operations.push(Operation::new("Td", vec![
+        Object::Real(0.0),
+        Object::Real(-12.0),
+    ]));
+
+    content.operations.push(Operation::new("Tj", vec![
+        Object::string_literal(format!("Total Signatures: {}", all_signature_values.len())),
+    ]));
+    content.operations.push(Operation::new("Td", vec![
+        Object::Real(0.0),
+        Object::Real(-20.0),
+    ]));
+
+    // Add separator
+    content.operations.push(Operation::new("Tj", vec![
+        Object::string_literal("----------------------------------------".to_string()),
+    ]));
+
+    // Move to next line
+    content.operations.push(Operation::new("Td", vec![
+        Object::Real(0.0),
+        Object::Real(-20.0),
+    ]));
+
+    // Add audit entries
+    let mut y_pos = 650.0;
+    for entry in audit_entries {
+        if y_pos < 50.0 {
+            // Would need new page, but for now we'll truncate
+            break;
+        }
+
+        if let Some(action) = entry.get("action").and_then(|v| v.as_str()) {
+            content.operations.push(Operation::new("Tj", vec![
+                Object::string_literal(format!("Action: {}", action)),
+            ]));
+            content.operations.push(Operation::new("Td", vec![
+                Object::Real(0.0),
+                Object::Real(-12.0),
+            ]));
+            y_pos -= 15.0;
+        }
+
+        if let Some(timestamp) = entry.get("timestamp").and_then(|v| v.as_str()) {
+            content.operations.push(Operation::new("Tj", vec![
+                Object::string_literal(format!("Time: {}", timestamp)),
+            ]));
+            content.operations.push(Operation::new("Td", vec![
+                Object::Real(0.0),
+                Object::Real(-12.0),
+            ]));
+            y_pos -= 15.0;
+        }
+
+        if let Some(user) = entry.get("user").and_then(|v| v.as_str()) {
+            content.operations.push(Operation::new("Tj", vec![
+                Object::string_literal(format!("User: {}", user)),
+            ]));
+            content.operations.push(Operation::new("Td", vec![
+                Object::Real(0.0),
+                Object::Real(-12.0),
+            ]));
+            y_pos -= 15.0;
+        }
+
+        if let Some(submitter_email) = entry.get("submitter_email").and_then(|v| v.as_str()) {
+            content.operations.push(Operation::new("Tj", vec![
+                Object::string_literal(format!("Signer: {}", submitter_email)),
+            ]));
+            content.operations.push(Operation::new("Td", vec![
+                Object::Real(0.0),
+                Object::Real(-12.0),
+            ]));
+            y_pos -= 15.0;
+        }
+
+        if let Some(submitter_role) = entry.get("submitter_role").and_then(|v| v.as_str()) {
+            content.operations.push(Operation::new("Tj", vec![
+                Object::string_literal(format!("Role: {}", submitter_role)),
+            ]));
+            content.operations.push(Operation::new("Td", vec![
+                Object::Real(0.0),
+                Object::Real(-12.0),
+            ]));
+            y_pos -= 15.0;
+        }
+
+        if let Some(details) = entry.get("details").and_then(|v| v.as_str()) {
+            content.operations.push(Operation::new("Tj", vec![
+                Object::string_literal(format!("Details: {}", details)),
+            ]));
+            content.operations.push(Operation::new("Td", vec![
+                Object::Real(0.0),
+                Object::Real(-12.0),
+            ]));
+            y_pos -= 15.0;
+        }
+
+        if let Some(signature_values) = entry.get("signature_values").and_then(|v| v.as_array()) {
+            for (i, sig_value) in signature_values.iter().enumerate() {
+                if let Some(sig_str) = sig_value.as_str() {
+                    if sig_str != "N/A" {
+                        let truncated_value = if sig_str.len() > 100 {
+                            format!("{}... [TRUNCATED]", &sig_str[..100])
+                        } else {
+                            sig_str.to_string()
+                        };
+                        let label = if signature_values.len() > 1 {
+                            format!("Signature Values {}: {}", i + 1, truncated_value)
+                        } else {
+                            format!("Signature Values: {}", truncated_value)
+                        };
+                        content.operations.push(Operation::new("Tj", vec![
+                            Object::string_literal(label),
+                        ]));
+                        content.operations.push(Operation::new("Td", vec![
+                            Object::Real(0.0),
+                            Object::Real(-12.0),
+                        ]));
+                        y_pos -= 15.0;
+                    }
+                }
+            }
+        }
+
+        if let Some(ip) = entry.get("ip").and_then(|v| v.as_str()) {
+            if ip != "System" {
+                content.operations.push(Operation::new("Tj", vec![
+                    Object::string_literal(format!("IP: {}", ip)),
+                ]));
+                content.operations.push(Operation::new("Td", vec![
+                    Object::Real(0.0),
+                    Object::Real(-12.0),
+                ]));
+                y_pos -= 15.0;
+            }
+        }
+
+        // Add spacing between entries
+        content.operations.push(Operation::new("Td", vec![
+            Object::Real(0.0),
+            Object::Real(-10.0),
+        ]));
+        y_pos -= 10.0;
+    }
+
+    // End text object
+    content.operations.push(Operation::new("ET", vec![]));
+
+    let content_id = doc.add_object(Object::Stream(Stream::new(Dictionary::new(), content.encode()?)));
+
+    let page_id = doc.add_object(Object::Dictionary(Dictionary::from_iter(vec![
+        ("Type", Object::Name("Page".into())),
+        ("Parent", pages_id.into()),
+        ("Contents", content_id.into()),
+        ("Resources", resources_id.into()),
+        ("MediaBox", Object::Array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(612),
+            Object::Integer(792),
+        ])),
+    ])));
+
+    let pages = Object::Dictionary(Dictionary::from_iter(vec![
+        ("Type", Object::Name("Pages".into())),
+        ("Kids", Object::Array(vec![page_id.into()])),
+        ("Count", Object::Integer(1)),
+    ]));
+
+    doc.objects.insert(pages_id, pages);
+
+    let catalog_id = doc.add_object(Object::Dictionary(Dictionary::from_iter(vec![
+        ("Type", Object::Name("Catalog".into())),
+        ("Pages", pages_id.into()),
+    ])));
+
+    doc.trailer.set("Root", catalog_id);
+
+    // Save PDF to bytes
+    let mut buffer = Vec::new();
+    doc.save_to(&mut buffer)?;
+
+    Ok(buffer)
+}
+
 async fn generate_audit_log_pdf(
     pool: &PgPool,
     submitter_id: i64,
@@ -3124,7 +3556,7 @@ async fn generate_audit_log_pdf(
     // Set font and size
     content.operations.push(Operation::new("Tf", vec![
         Object::Name(b"F1".to_vec()),
-        Object::Real(12.0),
+        Object::Real(10.0),
     ]));
 
     // Set text color to black
@@ -3176,7 +3608,7 @@ async fn generate_audit_log_pdf(
             ]));
             content.operations.push(Operation::new("Td", vec![
                 Object::Real(0.0),
-                Object::Real(-15.0),
+                Object::Real(-12.0),
             ]));
             y_pos -= 15.0;
         }
@@ -3187,7 +3619,7 @@ async fn generate_audit_log_pdf(
             ]));
             content.operations.push(Operation::new("Td", vec![
                 Object::Real(0.0),
-                Object::Real(-15.0),
+                Object::Real(-12.0),
             ]));
             y_pos -= 15.0;
         }
@@ -3198,7 +3630,7 @@ async fn generate_audit_log_pdf(
             ]));
             content.operations.push(Operation::new("Td", vec![
                 Object::Real(0.0),
-                Object::Real(-15.0),
+                Object::Real(-12.0),
             ]));
             y_pos -= 15.0;
         }
@@ -3209,7 +3641,7 @@ async fn generate_audit_log_pdf(
             ]));
             content.operations.push(Operation::new("Td", vec![
                 Object::Real(0.0),
-                Object::Real(-15.0),
+                Object::Real(-12.0),
             ]));
             y_pos -= 15.0;
         }
@@ -3220,7 +3652,7 @@ async fn generate_audit_log_pdf(
             ]));
             content.operations.push(Operation::new("Td", vec![
                 Object::Real(0.0),
-                Object::Real(-15.0),
+                Object::Real(-12.0),
             ]));
             y_pos -= 15.0;
         }
