@@ -236,7 +236,18 @@ const upstashService = {
     updateEmailTemplate: async (id: number, data: any): Promise<any> => {
         const url = `/api/email-templates/${id}`;
         return await axiosClient.put(url, data)
-    }
+    },
+
+    uploadLogo: async (file: File): Promise<any> => {
+        const formData = new FormData();
+        formData.append('logo', file);
+        const url = '/api/settings/upload-logo';
+        return await axiosClient.post(url, formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
+    },
 
 }
 export default upstashService

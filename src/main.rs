@@ -240,6 +240,7 @@ async fn main() {
         .merge(api_routes)
         .merge(swagger_routes)
         .nest_service("/assets", ServeDir::new("app/docuseal/dist/assets"))
+        .nest_service("/uploads", ServeDir::new("uploads"))
         .fallback_service(serve_dir.fallback(spa_fallback))
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100MB limit for file uploads
         .layer(CorsLayer::permissive())

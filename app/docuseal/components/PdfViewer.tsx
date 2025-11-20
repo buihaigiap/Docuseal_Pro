@@ -15,6 +15,7 @@ interface DocumentViewerProps {
   showDebug?: boolean;
   submitterId?: number;
   submitterEmail?: string;
+  globalSettings?: any;
 }
 
 const DocumentViewer: React.FC<DocumentViewerProps> = ({
@@ -29,6 +30,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
   scale: initialScale = 1.5,
   submitterId,
   submitterEmail,
+  globalSettings
 }) => {
   const [currentPage, setCurrentPage] = useState(page || 1);
   const [scale, setScale] = useState(initialScale);
@@ -91,6 +93,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
         onPageChange={handlePageChange}
         onLoad={updateScale}
         ref={pdfRef}
+        globalSettings={globalSettings}
       >
         {fields.filter(f => f?.position?.page === currentPage)?.map((f, index) => {
           // Normalize position to decimal (0-1)

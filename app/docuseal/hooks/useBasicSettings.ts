@@ -11,7 +11,7 @@ export const useBasicSettings = () => {
       try {
         setLoading(true);
         setError('');
-        const response = await upstashService.getBasicSettings();
+        const response = await upstashService.getUserSettings();
         if (response.success) {
           setGlobalSettings(response.data);
         } else {

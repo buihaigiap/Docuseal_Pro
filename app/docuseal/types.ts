@@ -3,11 +3,17 @@ export interface User {
   name: string;
   email: string;
   role: string;
+  is_active: boolean;
+  activation_token?: string;
+  subscription_status: string;
+  subscription_expires_at?: string;
   free_usage_count?: number;
   signature?: string;
   initials?: string;
   two_factor_enabled: boolean;
   two_factor_secret?: string;
+  created_at: string;
+  oauth_tokens?: any[];
 }
 
 export interface ApiResponse<T> {

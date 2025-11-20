@@ -313,6 +313,7 @@ pub struct DbGlobalSettings {
     pub company_name: Option<String>,
     pub timezone: Option<String>,
     pub locale: Option<String>,
+    pub logo_url: Option<String>,
     pub force_2fa_with_authenticator_app: bool,
     pub add_signature_id_to_the_documents: bool,
     pub require_signing_reason: bool,
@@ -328,11 +329,12 @@ pub struct DbGlobalSettings {
 }
 
 // Update global settings request
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateGlobalSettings {
     pub company_name: Option<String>,
     pub timezone: Option<String>,
     pub locale: Option<String>,
+    pub logo_url: Option<String>,
     pub force_2fa_with_authenticator_app: Option<bool>,
     pub add_signature_id_to_the_documents: Option<bool>,
     pub require_signing_reason: Option<bool>,

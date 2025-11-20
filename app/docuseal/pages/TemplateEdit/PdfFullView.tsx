@@ -77,6 +77,7 @@ const PdfFullView: React.FC<PdfFullViewProps> = ({
           token={token}
           page={page}
           onPageChange={onPageChange}
+          globalSettings={globalSettings}
           // scale={1.5}
         >
           {fields.filter(f => f?.position?.page === page)?.map(field => {

@@ -2958,6 +2958,7 @@ async fn generate_signed_pdf_for_template_with_filter(
             company_name: None,
             timezone: Some("UTC".to_string()),
             locale: Some("en-US".to_string()),
+            logo_url: None,
             force_2fa_with_authenticator_app: false,
             add_signature_id_to_the_documents: false,
             require_signing_reason: false,

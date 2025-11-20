@@ -2067,7 +2067,7 @@ impl OAuthTokenQueries {
 impl GlobalSettingsQueries {
     pub async fn get_global_settings(pool: &PgPool) -> Result<Option<DbGlobalSettings>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, user_id, company_name, timezone, locale, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at FROM global_settings WHERE user_id IS NULL"
+            "SELECT id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at FROM global_settings WHERE user_id IS NULL"
         )
         .fetch_optional(pool)
         .await?;
@@ -2079,6 +2079,7 @@ impl GlobalSettingsQueries {
                 company_name: row.try_get("company_name")?,
                 timezone: row.try_get("timezone")?,
                 locale: row.try_get("locale")?,
+                logo_url: row.try_get("logo_url")?,
                 force_2fa_with_authenticator_app: row.try_get("force_2fa_with_authenticator_app")?,
                 add_signature_id_to_the_documents: row.try_get("add_signature_id_to_the_documents")?,
                 require_signing_reason: row.try_get("require_signing_reason")?,
@@ -2098,7 +2099,7 @@ impl GlobalSettingsQueries {
 
     pub async fn get_user_settings(pool: &PgPool, user_id: i32) -> Result<Option<DbGlobalSettings>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, user_id, company_name, timezone, locale, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at FROM global_settings WHERE user_id = $1"
+            "SELECT id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at FROM global_settings WHERE user_id = $1"
         )
         .bind(user_id)
         .fetch_optional(pool)
@@ -2111,6 +2112,7 @@ impl GlobalSettingsQueries {
                 company_name: row.try_get("company_name")?,
                 timezone: row.try_get("timezone")?,
                 locale: row.try_get("locale")?,
+                logo_url: row.try_get("logo_url")?,
                 force_2fa_with_authenticator_app: row.try_get("force_2fa_with_authenticator_app")?,
                 add_signature_id_to_the_documents: row.try_get("add_signature_id_to_the_documents")?,
                 require_signing_reason: row.try_get("require_signing_reason")?,
@@ -2134,7 +2136,7 @@ impl GlobalSettingsQueries {
             r#"
             INSERT INTO global_settings (user_id, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at)
             VALUES ($1, false, false, false, true, false, false, false, false, false, false, $2, $2)
-            RETURNING id, user_id, company_name, timezone, locale, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at
+            RETURNING id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at
             "#
         )
         .bind(user_id)
@@ -2148,6 +2150,7 @@ impl GlobalSettingsQueries {
             company_name: row.try_get("company_name")?,
             timezone: row.try_get("timezone")?,
             locale: row.try_get("locale")?,
+            logo_url: row.try_get("logo_url")?,
             force_2fa_with_authenticator_app: row.try_get("force_2fa_with_authenticator_app")?,
             add_signature_id_to_the_documents: row.try_get("add_signature_id_to_the_documents")?,
             require_signing_reason: row.try_get("require_signing_reason")?,
@@ -2169,19 +2172,20 @@ impl GlobalSettingsQueries {
         sqlx::query(
             r#"
             UPDATE global_settings
-            SET company_name = $1, timezone = $2, locale = $3, 
-                force_2fa_with_authenticator_app = $4, add_signature_id_to_the_documents = $5, 
-                require_signing_reason = $6, allow_typed_text_signatures = $7, 
-                allow_to_resubmit_completed_forms = $8, allow_to_decline_documents = $9, 
-                remember_and_pre_fill_signatures = $10, require_authentication_for_file_download_links = $11, 
-                combine_completed_documents_and_audit_log = $12, expirable_file_download_links = $13, 
-                updated_at = $14
+            SET company_name = $1, timezone = $2, locale = $3, logo_url = $4,
+                force_2fa_with_authenticator_app = $5, add_signature_id_to_the_documents = $6, 
+                require_signing_reason = $7, allow_typed_text_signatures = $8, 
+                allow_to_resubmit_completed_forms = $9, allow_to_decline_documents = $10, 
+                remember_and_pre_fill_signatures = $11, require_authentication_for_file_download_links = $12, 
+                combine_completed_documents_and_audit_log = $13, expirable_file_download_links = $14, 
+                updated_at = $15
             WHERE user_id IS NULL
             "#
         )
         .bind(settings.company_name)
         .bind(settings.timezone)
         .bind(settings.locale)
+        .bind(settings.logo_url)
         .bind(settings.force_2fa_with_authenticator_app)
         .bind(settings.add_signature_id_to_the_documents)
         .bind(settings.require_signing_reason)
@@ -2210,15 +2214,16 @@ impl GlobalSettingsQueries {
             // Create user settings with the provided values if they don't exist
             let row = sqlx::query(
                 r#"
-                INSERT INTO global_settings (user_id, company_name, timezone, locale, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
-                RETURNING id, user_id, company_name, timezone, locale, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at
+                INSERT INTO global_settings (user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
+                RETURNING id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at
                 "#
             )
             .bind(user_id)
             .bind(settings.company_name.as_deref())
             .bind(settings.timezone.as_deref())
             .bind(settings.locale.as_deref())
+            .bind(settings.logo_url.as_deref())
             .bind(settings.force_2fa_with_authenticator_app.unwrap_or(false))
             .bind(settings.add_signature_id_to_the_documents.unwrap_or(false))
             .bind(settings.require_signing_reason.unwrap_or(false))
@@ -2239,6 +2244,7 @@ impl GlobalSettingsQueries {
                 company_name: row.try_get("company_name")?,
                 timezone: row.try_get("timezone")?,
                 locale: row.try_get("locale")?,
+                logo_url: row.try_get("logo_url")?,
                 force_2fa_with_authenticator_app: row.try_get("force_2fa_with_authenticator_app")?,
                 add_signature_id_to_the_documents: row.try_get("add_signature_id_to_the_documents")?,
                 require_signing_reason: row.try_get("require_signing_reason")?,
@@ -2261,18 +2267,19 @@ impl GlobalSettingsQueries {
             SET company_name = COALESCE($1, company_name),
                 timezone = COALESCE($2, timezone),
                 locale = COALESCE($3, locale),
-                force_2fa_with_authenticator_app = COALESCE($4, force_2fa_with_authenticator_app),
-                add_signature_id_to_the_documents = COALESCE($5, add_signature_id_to_the_documents),
-                require_signing_reason = COALESCE($6, require_signing_reason),
-                allow_typed_text_signatures = COALESCE($7, allow_typed_text_signatures),
-                allow_to_resubmit_completed_forms = COALESCE($8, allow_to_resubmit_completed_forms),
-                allow_to_decline_documents = COALESCE($9, allow_to_decline_documents),
-                remember_and_pre_fill_signatures = COALESCE($10, remember_and_pre_fill_signatures),
-                require_authentication_for_file_download_links = COALESCE($11, require_authentication_for_file_download_links),
-                combine_completed_documents_and_audit_log = COALESCE($12, combine_completed_documents_and_audit_log),
-                expirable_file_download_links = COALESCE($13, expirable_file_download_links),
-                updated_at = $14
-            WHERE user_id = $15
+                logo_url = COALESCE($4, logo_url),
+                force_2fa_with_authenticator_app = COALESCE($5, force_2fa_with_authenticator_app),
+                add_signature_id_to_the_documents = COALESCE($6, add_signature_id_to_the_documents),
+                require_signing_reason = COALESCE($7, require_signing_reason),
+                allow_typed_text_signatures = COALESCE($8, allow_typed_text_signatures),
+                allow_to_resubmit_completed_forms = COALESCE($9, allow_to_resubmit_completed_forms),
+                allow_to_decline_documents = COALESCE($10, allow_to_decline_documents),
+                remember_and_pre_fill_signatures = COALESCE($11, remember_and_pre_fill_signatures),
+                require_authentication_for_file_download_links = COALESCE($12, require_authentication_for_file_download_links),
+                combine_completed_documents_and_audit_log = COALESCE($13, combine_completed_documents_and_audit_log),
+                expirable_file_download_links = COALESCE($14, expirable_file_download_links),
+                updated_at = $15
+            WHERE user_id = $16
             "#
         );
         
@@ -2280,6 +2287,7 @@ impl GlobalSettingsQueries {
         query = query.bind(settings.company_name.as_deref());
         query = query.bind(settings.timezone.as_deref());
         query = query.bind(settings.locale.as_deref());
+        query = query.bind(settings.logo_url.as_deref());
         query = query.bind(settings.force_2fa_with_authenticator_app);
         query = query.bind(settings.add_signature_id_to_the_documents);
         query = query.bind(settings.require_signing_reason);

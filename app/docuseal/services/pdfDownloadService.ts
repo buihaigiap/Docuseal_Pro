@@ -524,7 +524,7 @@ export const downloadSignedPDF = async (
   // Add audit log pages if provided
   if (auditLog && auditLog.length > 0) {
     console.log('Adding audit log pages:', auditLog.length, 'entries');
-    await generateAuditLogPages(pdfDoc, auditLog);
+    await generateAuditLogPages(pdfDoc, auditLog, globalSettings);
   }
 
   // Save và download PDF
@@ -544,7 +544,8 @@ export const downloadSignedPDF = async (
 // Generate audit log pages to append to PDF
 export const generateAuditLogPages = async (
   pdfDoc: PDFDocument,
-  auditLog: AuditLogEntry[]
+  auditLog: AuditLogEntry[],
+  globalSettings?: any
 ): Promise<void> => {
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -561,7 +562,7 @@ export const generateAuditLogPages = async (
   // Try to embed logo (optional)
   let logo = null;
   try {
-    const logoUrl = '/logo.png'; // Adjust path to your logo
+    const logoUrl = globalSettings?.logo_url || '/logo.png'; // Use user logo or default
     const logoResponse = await fetch(logoUrl);
     if (logoResponse.ok) {
       const logoBytes = await logoResponse.arrayBuffer();
@@ -584,13 +585,28 @@ export const generateAuditLogPages = async (
       height: logoHeight,
     });
     
+    // Draw company name if available
+    let titleY = yPosition - logoHeight / 2 - 9;
+    if (globalSettings?.company_name) {
+      const companyText = globalSettings.company_name;
+      const companyWidth = boldFont.widthOfTextAtSize(companyText, 16);
+      page.drawText(companyText, {
+        x: margin + logoWidth + 20, // Position next to logo
+        y: titleY,
+        size: 16,
+        font: boldFont,
+        color: rgb(0, 0, 0),
+      });
+      titleY -= 25; // Move audit log title down
+    }
+    
     // Draw title aligned to the right edge
     const titleText = 'Audit Log';
     const titleWidth = boldFont.widthOfTextAtSize(titleText, 18);
     const titleX = pageWidth - margin - titleWidth; // Right-aligned
     page.drawText(titleText, {
       x: titleX,
-      y: yPosition - logoHeight / 2 - 9, // Center vertically with logo
+      y: titleY, // Center vertically with logo or below company name
       size: 18,
       font: boldFont,
       color: rgb(0, 0, 0),
@@ -598,12 +614,26 @@ export const generateAuditLogPages = async (
     
     yPosition -= logoHeight + 20;
   } else {
-    // No logo, just draw title right-aligned
+    // No logo, draw company name and title
+    let currentY = yPosition;
+    if (globalSettings?.company_name) {
+      const companyText = globalSettings.company_name;
+      page.drawText(companyText, {
+        x: margin,
+        y: currentY,
+        size: 16,
+        font: boldFont,
+        color: rgb(0, 0, 0),
+      });
+      currentY -= 25;
+    }
+    
+    // Draw title right-aligned
     const titleText = 'Audit Log';
     const titleWidth = boldFont.widthOfTextAtSize(titleText, 18);
     page.drawText(titleText, {
       x: pageWidth - margin - titleWidth,
-      y: yPosition,
+      y: currentY,
       size: 18,
       font: boldFont,
       color: rgb(0, 0, 0),
@@ -951,7 +981,7 @@ export const downloadSignedPDFWithAuditLog = async (
   // Add audit log pages if provided
   if (auditLog && auditLog.length > 0) {
     console.log('Adding audit log pages:', auditLog.length, 'entries');
-    await generateAuditLogPages(pdfDoc, auditLog);
+    await generateAuditLogPages(pdfDoc, auditLog, globalSettings);
   }
 
   // Save và download PDF

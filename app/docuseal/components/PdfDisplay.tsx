@@ -11,6 +11,7 @@ interface PdfDisplayProps {
   onLoad?: () => void;
   onError?: (error: string) => void;
   children?: React.ReactNode; // For overlays
+  globalSettings?: any; // Add globalSettings prop
 }
 export interface PdfDisplayRef {
   getDocState: () => DocumentState | null;
@@ -34,7 +35,8 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
   onPageChange,
   onLoad,
   onError,
-  children
+  children,
+  globalSettings
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -269,6 +271,27 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
                 }}
               />
               <div ref={overlayRef} className="absolute top-0 left-0 w-full h-full z-10">
+                {/* Company Logo and Name Overlay */}
+                {globalSettings && (globalSettings.logo_url || globalSettings.company_name) && (
+                  <div className="absolute top-4 left-4 right-4 z-20 flex items-center gap-4 bg-white bg-opacity-90 p-3 rounded-lg shadow-md">
+                    {globalSettings.logo_url && (
+                      <img
+                        src={globalSettings.logo_url.startsWith('http') ? globalSettings.logo_url : `${API_BASE_URL}${globalSettings.logo_url}`}
+                        alt="Company Logo"
+                        className="h-12 w-auto object-contain"
+                        onError={(e) => {
+                          // Hide logo if it fails to load
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    )}
+                    {globalSettings.company_name && (
+                      <div className="text-lg font-bold text-gray-800">
+                        {globalSettings.company_name}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {children}
               </div>
             </div>
@@ -291,6 +314,27 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
                 }}
               />
               <div ref={overlayRef} className="absolute top-0 left-0 w-full h-full z-10">
+                {/* Company Logo and Name Overlay */}
+                {globalSettings && (globalSettings.logo_url || globalSettings.company_name) && (
+                  <div className="absolute top-4 left-4 right-4 z-20 flex items-center gap-4 bg-white bg-opacity-90 p-3 rounded-lg shadow-md">
+                    {globalSettings.logo_url && (
+                      <img
+                        src={globalSettings.logo_url.startsWith('http') ? globalSettings.logo_url : `${API_BASE_URL}${globalSettings.logo_url}`}
+                        alt="Company Logo"
+                        className="h-12 w-auto object-contain"
+                        onError={(e) => {
+                          // Hide logo if it fails to load
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    )}
+                    {globalSettings.company_name && (
+                      <div className="text-lg font-bold text-gray-800">
+                        {globalSettings.company_name}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {children}
               </div>
             </div>

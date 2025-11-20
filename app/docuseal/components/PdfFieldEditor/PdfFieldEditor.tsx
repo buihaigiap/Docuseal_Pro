@@ -47,6 +47,7 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
   const [showToolDropdown, setShowToolDropdown] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isPdfLoaded, setIsPdfLoaded] = useState(false);
+  const [globalSettings, setGlobalSettings] = useState<any>(null);
   const prevPartnersRef = useRef(partners);
   const checkRole = canTemplate(template)
   const hasAccess = useRoleAccess(['agent']);
@@ -88,6 +89,22 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
   useImperativeHandle(ref, () => ({
     saveFields: handleSaveClick
   }));
+
+  // Fetch global settings for logo display
+  useEffect(() => {
+    const fetchGlobalSettings = async () => {
+      try {
+        const response = await upstashService.getUserSettings();
+        setGlobalSettings(response.data);
+      } catch (error) {
+        console.warn('Failed to fetch global settings:', error);
+      }
+    };
+    
+    if (user) {
+      fetchGlobalSettings();
+    }
+  }, [user]);
 
   const updateInputWidth = (tempId: string, text: string) => {
     const width = measureTextWidth(text, '12px') + 16; // Add some padding
@@ -331,7 +348,7 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
               setCanvasClientHeight(canvasH);
               setIsPdfLoaded(true);
             }}
-            onError={(err) => setError(err)} 
+            globalSettings={globalSettings}
           >
             <div ref={overlayRef} className="absolute top-0 left-0 w-full h-full z-10" onMouseDown={handleOverlayMouseDown} onMouseMove={handleOverlayMouseMove} onMouseUp={handleOverlayMouseUp} style={{ cursor: activeTool !== 'cursor' ? 'crosshair' : 'default' }}>
               {fields.filter(f => f.position?.page === currentPage).map(f => {
