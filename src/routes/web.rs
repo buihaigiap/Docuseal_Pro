@@ -1319,6 +1319,10 @@ pub struct UpdateBasicSettingsRequest {
     pub require_authentication_for_file_download_links: Option<bool>,
     pub combine_completed_documents_and_audit_log: Option<bool>,
     pub expirable_file_download_links: Option<bool>,
+    pub completion_title: Option<String>,
+    pub completion_body: Option<String>,
+    pub redirect_title: Option<String>,
+    pub redirect_url: Option<String>,
 }
 
 // Get basic settings handler
@@ -1407,6 +1411,10 @@ pub async fn update_basic_settings_handler(
         require_authentication_for_file_download_links: payload.require_authentication_for_file_download_links.or(Some(current_settings.require_authentication_for_file_download_links)),
         combine_completed_documents_and_audit_log: payload.combine_completed_documents_and_audit_log.or(Some(current_settings.combine_completed_documents_and_audit_log)),
         expirable_file_download_links: payload.expirable_file_download_links.or(Some(current_settings.expirable_file_download_links)),
+        completion_title: payload.completion_title.or_else(|| current_settings.completion_title.clone()),
+        completion_body: payload.completion_body.or_else(|| current_settings.completion_body.clone()),
+        redirect_title: payload.redirect_title.or_else(|| current_settings.redirect_title.clone()),
+        redirect_url: payload.redirect_url.or_else(|| current_settings.redirect_url.clone()),
     };
 
     match GlobalSettingsQueries::update_global_settings(pool, update_data).await {

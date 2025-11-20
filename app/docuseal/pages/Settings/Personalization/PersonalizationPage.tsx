@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../../contexts/AuthContext';
 import LogoSection from './LogoSection';
 import EmailTemplatesSection from './EmailTemplatesSection';
+import CompletedFormSettingsSection from './CompletedFormSettingsSection';
 
 interface EmailTemplate {
   id: number;
@@ -30,6 +31,10 @@ export default function PersonalizationPage() {
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [completionTitle, setCompletionTitle] = useState<string>('');
+  const [completionBody, setCompletionBody] = useState<string>('');
+  const [redirectTitle, setRedirectTitle] = useState<string>('');
+  const [redirectUrl, setRedirectUrl] = useState<string>('');
 
   useEffect(() => {
     fetchSettings();
@@ -43,6 +48,10 @@ export default function PersonalizationPage() {
       const settingsRes = await upstashService.getUserSettings();
       if (settingsRes.success) {
         setLogoUrl(settingsRes.data.logo_url || null);
+        setCompletionTitle(settingsRes.data.completion_title || '');
+        setCompletionBody(settingsRes.data.completion_body || '');
+        setRedirectTitle(settingsRes.data.redirect_title || '');
+        setRedirectUrl(settingsRes.data.redirect_url || '');
       }
     } catch (error) {
       console.error('Failed to fetch settings:', error);
@@ -87,7 +96,8 @@ export default function PersonalizationPage() {
   const isPaidUser = user?.subscription_status === 'premium';
 
   return (
-    <Box>
+    <Box
+    >
       <Typography variant="h4" component="h1" gutterBottom>
         Personalization
       </Typography>
@@ -96,6 +106,17 @@ export default function PersonalizationPage() {
         logoUrl={logoUrl}
         setLogoUrl={setLogoUrl}
         isPaidUser={isPaidUser}
+      />
+
+      <CompletedFormSettingsSection
+        completionTitle={completionTitle}
+        setCompletionTitle={setCompletionTitle}
+        completionBody={completionBody}
+        setCompletionBody={setCompletionBody}
+        redirectTitle={redirectTitle}
+        setRedirectTitle={setRedirectTitle}
+        redirectUrl={redirectUrl}
+        setRedirectUrl={setRedirectUrl}
       />
 
       <EmailTemplatesSection

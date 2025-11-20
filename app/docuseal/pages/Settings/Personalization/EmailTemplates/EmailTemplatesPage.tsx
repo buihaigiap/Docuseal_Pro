@@ -4,7 +4,7 @@ import {
     IconButton,
 } from '@mui/material';
 import {Edit} from 'lucide-react';
-import upstashService from '../../../ConfigApi/upstashService';
+import upstashService from '../../../../ConfigApi/upstashService';
 import EmailTemplateDialog from './EmailTemplateDialog';
 
 interface EmailTemplate {

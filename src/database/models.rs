@@ -324,6 +324,10 @@ pub struct DbGlobalSettings {
     pub require_authentication_for_file_download_links: bool,
     pub combine_completed_documents_and_audit_log: bool,
     pub expirable_file_download_links: bool,
+    pub completion_title: Option<String>,
+    pub completion_body: Option<String>,
+    pub redirect_title: Option<String>,
+    pub redirect_url: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -345,6 +349,10 @@ pub struct UpdateGlobalSettings {
     pub require_authentication_for_file_download_links: Option<bool>,
     pub combine_completed_documents_and_audit_log: Option<bool>,
     pub expirable_file_download_links: Option<bool>,
+    pub completion_title: Option<String>,
+    pub completion_body: Option<String>,
+    pub redirect_title: Option<String>,
+    pub redirect_url: Option<String>,
 }
 
 // Email template database model

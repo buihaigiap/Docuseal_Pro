@@ -140,8 +140,6 @@ const SignPage = () => {
         setSignatures({});
         setFieldValues({});
         fetchSubmitterInfo();
-      } else {
-        alert(`Error: ${data.message}`);
       }
     } catch (err) {
       alert('An unexpected error occurred during resubmission.');
@@ -156,12 +154,8 @@ const SignPage = () => {
     <Box sx={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', height: 'calc(100vh - 64px)' }}>
       <Box sx={{ flex: 1, overflowY: 'auto', p: isMobile ? 1 : 2 }}>
         <DocumentViewer
-          fileUrl={submitterInfo.template.documents?.[0]?.url || ''}
           fields={submitterInfo.template.fields || []}
-          signatures={signatures}
-          fieldValues={fieldValues}
           onFieldClick={openFieldModal}
-          isSignMode={true}
         />
       </Box>
       <Paper sx={{ 

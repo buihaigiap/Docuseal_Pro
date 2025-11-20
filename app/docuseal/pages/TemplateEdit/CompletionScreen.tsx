@@ -131,6 +131,12 @@ const CompletionScreen: React.FC<CompletionScreenProps> = ({
             <div className="h-[200px]">
                 <img src='/logo.png' alt="Logo"/>      
             </div>
+          <Typography variant="h4" sx={{ mb: 2, textAlign: 'center' }}>
+            {globalSettings?.completion_title || 'Form Completed Successfully'}
+          </Typography>
+          <Typography variant="body1" sx={{ mb: 2, textAlign: 'center' }}>
+            {globalSettings?.completion_body || 'Thank you for completing the form. Your submission has been received.'}
+          </Typography>
           <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
             Template Name: {templateName}
           </Typography>
@@ -140,6 +146,21 @@ const CompletionScreen: React.FC<CompletionScreenProps> = ({
         </div>
 
         <div className="space-y-3">
+          {globalSettings?.redirect_title && globalSettings?.redirect_url && (
+            <Button
+              variant="contained"
+              fullWidth
+              sx={{
+                textTransform: 'none',
+                backgroundColor: '#10b981',
+                '&:hover': { backgroundColor: '#059669' }
+              }}
+              onClick={() => window.open(globalSettings.redirect_url, '_blank')}
+            >
+              {globalSettings.redirect_title}
+            </Button>
+          )}
+
           <Button
             variant="contained"
             fullWidth

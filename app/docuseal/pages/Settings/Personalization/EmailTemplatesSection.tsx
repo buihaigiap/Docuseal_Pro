@@ -57,7 +57,7 @@ export default function EmailTemplatesSection({
 
   return (
     <>
-      <Card sx={{ mt: 3 }}>
+      <Card >
         <CardContent>
           <Typography variant="h6" gutterBottom>
             Email Templates

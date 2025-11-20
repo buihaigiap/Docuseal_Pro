@@ -1,4 +1,4 @@
-import  { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import upstashService from '../../ConfigApi/upstashService';
 import SignaturePad from './SignaturePad';
@@ -12,9 +12,9 @@ import { Dialog, DialogContent, DialogActions, Button, IconButton,
    CardMedia, Link } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import toast from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
 import { useBasicSettings } from '../../hooks/useBasicSettings';
 import { useAuth } from '../../contexts/AuthContext';
+import CompletionDrawer from './CompletionDrawer';
 interface TemplateField {
   id: number;
   template_id: number;
@@ -55,8 +55,6 @@ const TemplateEditPage = () => {
   const { token } = useParams<{ token: string }>();
   const [templateInfo, setTemplateInfo] = useState<TemplateInfo | null>(null);
   const [fields, setFields] = useState<TemplateField[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [texts, setTexts] = useState<Record<number, string>>({});
   const [currentFieldIndex, setCurrentFieldIndex] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -69,7 +67,6 @@ const TemplateEditPage = () => {
     signed_at?: string 
   } | null>(null);
   const [pendingUploads, setPendingUploads] = useState<Record<number, File>>({});
-  const navigate = useNavigate();
   const [fileUploading, setFileUploading] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string>('');
   const [customReason, setCustomReason] = useState<string>('');
@@ -79,6 +76,18 @@ const TemplateEditPage = () => {
   const [declineReason, setDeclineReason] = useState<string>('');
   const [clearedFields, setClearedFields] = useState<Set<number>>(new Set());
   const { user } = useAuth();
+  const [completionDrawerOpen, setCompletionDrawerOpen] = useState(false);
+  const [completing, setCompleting] = useState(false);
+
+  const handleSendCopyViaEmail = () => {
+    // TODO: Implement send copy via email functionality
+    toast.info('Send copy via email functionality will be implemented');
+  };
+
+  const handleTestAction = () => {
+    // TODO: Implement test action
+    toast.info('Test action will be implemented');
+  };
   const uploadFile = async (file: File): Promise<string | null> => {
     try {
       setFileUploading(true);
@@ -91,16 +100,11 @@ const TemplateEditPage = () => {
       const data = response.data;
       if (data && data.success && data.data && data.data.url) {
         return data.data.url;
-      } else {
-        console.error('File upload failed - invalid response:', data);
-        return null;
-      }
+      } 
     } catch (error) {
-      console.error('File upload error:', error);
       // Log more details about the error
       if (error.response) {
         console.error('Response status:', error.response.status);
-        console.error('Response data:', error.response.data);
       }
       return null;
     } finally {
@@ -163,15 +167,10 @@ const TemplateEditPage = () => {
         });
         
         setFields(processedFields);
-      } else {
-        setError(data.message || 'Failed to fetch template fields.');
       }
     } catch (err) {
       console.error('Fetch error:', err);
-      setError(`Failed to load template. Please check your connection and try again. Details: ${err}`);
-    } finally {
-      setLoading(false);
-    }
+    } 
   }, [token]);
 
   useEffect(() => {
@@ -274,6 +273,7 @@ const TemplateEditPage = () => {
   };
 
   const handleComplete = async () => {
+    setCompleting(true);
     // Upload any pending files first
     const finalTexts = { ...texts };
     for (const [fieldId, file] of Object.entries(pendingUploads)) {
@@ -289,11 +289,13 @@ const TemplateEditPage = () => {
         } else {
           console.error(`Upload failed for field ${fieldId}`);
           toast.error(`Failed to upload file for field ${fieldId}`);
+          setCompleting(false);
           return;
         }
       } catch (error) {
         console.error(`Upload error for field ${fieldId}:`, error);
         toast.error(`Upload error for field ${fieldId}`);
+        setCompleting(false);
         return;
       }
     }
@@ -324,6 +326,7 @@ const TemplateEditPage = () => {
     });
     if (missingFields.length > 0) {
       toast.error(`Please fill in the required fields: ${missingFields.map(f => f.name).join(', ')}`);
+      setCompleting(false);
       return;
     }
 
@@ -352,20 +355,22 @@ const TemplateEditPage = () => {
         session_id: sessionId,
         timezone: timezone
       });
-      console.log(data)
       if (data.success) {
         toast.success(data?.message);
-        // Navigate to template view page
-        navigate(`/templates/${templateInfo?.id}`);
-        // Clear pending uploads after successful submission
         setPendingUploads({});
-        // Redirect or show success message
+        // Open completion drawer
+        setDeclineModalOpen(false);
+        setCompletionDrawerOpen(true);
+        // Close decline modal if open
+        setIsModalOpen(false);
       } else {
         toast.error(`Error: ${data.message}`);
       }
     } catch (err) {
       console.error('Submit error:', err);
       toast.error('Unable to submit signature. Please try again.');
+    } finally {
+      setCompleting(false);
     }
   };
 
@@ -432,7 +437,9 @@ const TemplateEditPage = () => {
 
       if (data.success) {
         toast.success('Document declined successfully');
-        navigate(`/templates/${templateInfo?.id}`);
+        // navigate(`/templates/${templateInfo?.id}`);
+        setCompletionDrawerOpen(true);
+        setIsModalOpen(false);
         // Clear pending uploads after successful submission
         setPendingUploads({});
       } else {
@@ -805,6 +812,7 @@ const TemplateEditPage = () => {
         </DialogContent>
         <DialogActions>
             <Button
+              disabled={completing}
               onClick={handlePrevious}
               variant="outlined"
               color="inherit"
@@ -824,7 +832,9 @@ const TemplateEditPage = () => {
               text="Next"
             />
           ) : (
-            <CreateTemplateButton onClick={() => handleComplete()} text="Complete" />
+            <CreateTemplateButton
+              loading={completing}
+              onClick={() => handleComplete()} text="Complete" />
           )}
         </DialogActions>
       </Dialog>
@@ -873,7 +883,26 @@ const TemplateEditPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
+        
 
+      {/* Completion Drawer */}
+      <CompletionDrawer
+        open={completionDrawerOpen}
+        onClose={() => setCompletionDrawerOpen(false)}
+        title="Document Signed Successfully!"
+        body="Your document has been signed and completed. You can now download the signed document or send a copy via email."
+        pdfUrl={templateInfo?.document.url || ''}
+        signatures={fields.map(field => ({
+          field_id: field.id,
+          signature_value: texts[field.id] || '',
+          field_info: field
+        }))}
+        templateName={templateInfo?.name || 'document'}
+        submitterInfo={submitterInfo}
+        globalSettings={globalSettings}
+        onSendCopy={handleSendCopyViaEmail}
+        onTest={handleTestAction}
+      />
 
     </div>
   );
