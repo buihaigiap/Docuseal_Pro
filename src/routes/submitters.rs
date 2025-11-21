@@ -498,478 +498,402 @@ pub async fn submit_bulk_signatures(
     Path(token): Path<String>,
     Json(payload): Json<crate::models::signature::BulkSignatureRequest>,
 ) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
-    let pool = &state.lock().await.db_pool;
+    // Clone pool to release lock early
+    let pool = state.lock().await.db_pool.clone();
 
     // Extract real IP address from socket
     let real_ip = addr.ip().to_string();
     eprintln!("Client IP: {}", real_ip);
 
-    match SubmitterQueries::get_submitter_by_token(pool, &token).await {
-        Ok(Some(db_submitter)) => {
-            // Check if this is a decline request
-            if let Some(action) = &payload.action {
-                if action == "decline" {
-                    // Check global settings to see if declining is allowed
-                    let user_settings = match GlobalSettingsQueries::get_user_settings(pool, db_submitter.user_id as i32).await {
-                        Ok(Some(settings)) => settings,
-                        Ok(None) => return ApiResponse::internal_error("Global settings not found".to_string()),
-                        Err(e) => return ApiResponse::internal_error(format!("Failed to get global settings: {}", e)),
-                    };
-                    
-                    if !user_settings.allow_to_decline_documents {
-                        return ApiResponse::bad_request("Declining documents is not allowed".to_string());
-                    }
-                    
-                    // Validate decline reason is provided
-                    let decline_reason = match payload.decline_reason.as_ref() {
-                        Some(reason) if !reason.trim().is_empty() => reason,
-                        _ => return ApiResponse::bad_request("Decline reason is required and cannot be empty".to_string()),
-                    };
+    // Get submitter
+    let db_submitter = match SubmitterQueries::get_submitter_by_token(&pool, &token).await {
+        Ok(Some(submitter)) => submitter,
+        Ok(None) => return ApiResponse::not_found("Invalid token".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Database error: {}", e)),
+    };
 
-                    // Get submission fields for this submitter to validate against
-                    let submission_fields = match SubmissionFieldQueries::get_submission_fields_by_submitter_id(pool, db_submitter.id).await {
-                        Ok(fields) => fields,
-                        Err(e) => return ApiResponse::internal_error(format!("Failed to get submission fields: {}", e)),
-                    };
+    // Handle decline action
+    if let Some(action) = &payload.action {
+        if action == "decline" {
+            return handle_decline_action(&pool, db_submitter, payload, real_ip).await;
+        } else if action != "sign" {
+            return ApiResponse::bad_request("Invalid action. Must be 'sign' or 'decline'".to_string());
+        }
+    }
+    
+    // Get submission fields for validation
+    let submission_fields = match SubmissionFieldQueries::get_submission_fields_by_submitter_id(&pool, db_submitter.id).await {
+        Ok(fields) => fields,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to get submission fields: {}", e)),
+    };
 
-                    // Validate that all field_ids belong to this submitter's submission fields
-                    for signature_item in &payload.signatures {
-                        // Find the field in submission fields
-                        if let Some(field) = submission_fields.iter().find(|f| f.id == signature_item.field_id) {
-                            // Check if submitter is allowed to sign this field based on partner
-                            if let Some(ref partner) = field.partner {
-                                let allowed = partner == &db_submitter.name || 
-                                             partner == &db_submitter.email || 
-                                             db_submitter.name.contains(&format!("({})", partner));
-                                if !allowed {
-                                    return ApiResponse::bad_request(format!("Field {} is not assigned to this submitter", signature_item.field_id));
-                                }
-                            }
-                        } else {
-                            return ApiResponse::bad_request(format!("Field {} not found in submission", signature_item.field_id));
-                        }
-                    }
+    // Validate and create signatures array (extracted to helper)
+    let bulk_signatures = match validate_and_create_signatures(&db_submitter, &payload.signatures, &submission_fields) {
+        Ok(sigs) => sigs,
+        Err(err_response) => return err_response,
+    };
 
-                    // Create signatures array with field details
-                    let mut signatures_array = Vec::new();
-                    for signature_item in &payload.signatures {
-                        let field_id = signature_item.field_id;
-                        let field_name = submission_fields.iter()
-                            .find(|f| f.id == field_id)
-                            .map(|f| f.name.clone())
-                            .unwrap_or_else(|| format!("field_{}", field_id));
-                        signatures_array.push(serde_json::json!({
-                            "field_id": field_id,
-                            "field_name": field_name,
-                            "signature_value": signature_item.signature_value,
-                            "reason": signature_item.reason
-                        }));
-                    }
+    // Update submitter with signatures
+    let updated_submitter = match SubmitterQueries::update_submitter_with_signatures(
+        &pool,
+        db_submitter.id,
+        &bulk_signatures,
+        Some(&real_ip),
+        payload.user_agent.as_deref(),
+        payload.session_id.as_deref(),
+        payload.timezone.as_deref(),
+    ).await {
+        Ok(Some(submitter)) => submitter,
+        Ok(None) => return ApiResponse::not_found("Submitter not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to save bulk signatures: {}", e)),
+    };
+    
+    // Spawn background task for email notifications (non-blocking)
+    let pool_clone = pool.clone();
+    let submitter_id = db_submitter.id;
+    let template_id = db_submitter.template_id;
+    let user_id = db_submitter.user_id;
+    tokio::spawn(async move {
+        if let Err(e) = send_completion_notifications(&pool_clone, submitter_id, template_id, user_id).await {
+            eprintln!("Background email notification error: {}", e);
+        }
+    });
+    
+    // Build and return response immediately
+    let reminder_config = updated_submitter.reminder_config.as_ref()
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+        
+    let submitter = crate::models::submitter::Submitter {
+        id: Some(updated_submitter.id),
+        template_id: Some(updated_submitter.template_id),
+        user_id: Some(updated_submitter.user_id),
+        name: updated_submitter.name,
+        email: updated_submitter.email,
+        status: updated_submitter.status,
+        signed_at: updated_submitter.signed_at,
+        token: updated_submitter.token,
+        bulk_signatures: updated_submitter.bulk_signatures,
+        reminder_config,
+        last_reminder_sent_at: updated_submitter.last_reminder_sent_at,
+        reminder_count: updated_submitter.reminder_count,
+        created_at: updated_submitter.created_at,
+        updated_at: updated_submitter.updated_at,
+        template_name: None,
+        decline_reason: updated_submitter.decline_reason,
+        can_download: None,
+    };
+    ApiResponse::success(submitter, "Bulk signatures submitted successfully".to_string())
+}
 
-                    let bulk_signatures = serde_json::Value::Array(signatures_array);
-                    
-                    // Update submitter with decline and signatures
-                    match SubmitterQueries::update_submitter_with_decline_and_signatures(
-                        pool,
-                        db_submitter.id,
-                        decline_reason,
-                        &bulk_signatures,
-                        Some(&real_ip),
-                        payload.user_agent.as_deref(),
-                        payload.session_id.as_deref(),
-                        payload.timezone.as_deref(),
-                    ).await {
-                        Ok(Some(updated_submitter)) => {
-                            let reminder_config = updated_submitter.reminder_config.as_ref()
-                                .and_then(|v| serde_json::from_value(v.clone()).ok());
-                                
-                            let submitter = crate::models::submitter::Submitter {
-                                id: Some(updated_submitter.id),
-                                template_id: Some(updated_submitter.template_id),
-                                user_id: Some(updated_submitter.user_id),
-                                name: updated_submitter.name,
-                                email: updated_submitter.email,
-                                status: updated_submitter.status,
-                                signed_at: updated_submitter.signed_at,
-                                token: updated_submitter.token,
-                                bulk_signatures: updated_submitter.bulk_signatures,
-                                reminder_config,
-                                last_reminder_sent_at: updated_submitter.last_reminder_sent_at,
-                                reminder_count: updated_submitter.reminder_count,
-                                created_at: updated_submitter.created_at,
-                                updated_at: updated_submitter.updated_at,
-                                template_name: None,
-                                decline_reason: updated_submitter.decline_reason,
-                                can_download: None,
-                            };
-                            return ApiResponse::success(submitter, "Document declined successfully".to_string())
-                        }
-                        Ok(None) => return ApiResponse::not_found("Submitter not found".to_string()),
-                        Err(e) => return ApiResponse::internal_error(format!("Failed to decline document: {}", e)),
-                    }
-                } else if action != "sign" {
-                    return ApiResponse::bad_request("Invalid action. Must be 'sign' or 'decline'".to_string());
+// Helper function to validate signatures and create array
+fn validate_and_create_signatures(
+    db_submitter: &crate::database::models::DbSubmitter,
+    signatures: &[crate::models::signature::BulkSignatureItem],
+    submission_fields: &[crate::database::models::DbSubmissionField],
+) -> Result<serde_json::Value, (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>)> {
+    // Validate that all field_ids belong to this submitter's submission fields
+    for signature_item in signatures {
+        if let Some(field) = submission_fields.iter().find(|f| f.id == signature_item.field_id) {
+            // Check if submitter is allowed to sign this field based on partner
+            if let Some(ref partner) = field.partner {
+                let allowed = partner == &db_submitter.name || 
+                             partner == &db_submitter.email || 
+                             db_submitter.name.contains(&format!("({})", partner));
+                if !allowed {
+                    return Err(ApiResponse::bad_request(format!("Field {} is not assigned to this submitter", signature_item.field_id)));
                 }
             }
-            
-            // Get submission fields for this submitter to validate against
-            let submission_fields = match SubmissionFieldQueries::get_submission_fields_by_submitter_id(pool, db_submitter.id).await {
-                Ok(fields) => fields,
-                Err(e) => return ApiResponse::internal_error(format!("Failed to get submission fields: {}", e)),
+        } else {
+            return Err(ApiResponse::bad_request(format!("Field {} not found in submission", signature_item.field_id)));
+        }
+    }
+
+    // Create signatures array with field details
+    let signatures_array: Vec<serde_json::Value> = signatures.iter().map(|signature_item| {
+        let field_id = signature_item.field_id;
+        let field_name = submission_fields.iter()
+            .find(|f| f.id == field_id)
+            .map(|f| f.name.clone())
+            .unwrap_or_else(|| format!("field_{}", field_id));
+        serde_json::json!({
+            "field_id": field_id,
+            "field_name": field_name,
+            "signature_value": signature_item.signature_value,
+            "reason": signature_item.reason
+        })
+    }).collect();
+
+    Ok(serde_json::Value::Array(signatures_array))
+}
+
+// Helper function to handle decline action
+async fn handle_decline_action(
+    pool: &PgPool,
+    db_submitter: crate::database::models::DbSubmitter,
+    payload: crate::models::signature::BulkSignatureRequest,
+    real_ip: String,
+) -> (StatusCode, Json<ApiResponse<crate::models::submitter::Submitter>>) {
+    // Check global settings
+    let user_settings = match GlobalSettingsQueries::get_user_settings(pool, db_submitter.user_id as i32).await {
+        Ok(Some(settings)) => settings,
+        Ok(None) => return ApiResponse::internal_error("Global settings not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to get global settings: {}", e)),
+    };
+    
+    if !user_settings.allow_to_decline_documents {
+        return ApiResponse::bad_request("Declining documents is not allowed".to_string());
+    }
+    
+    // Validate decline reason
+    let decline_reason = match payload.decline_reason.as_ref() {
+        Some(reason) if !reason.trim().is_empty() => reason,
+        _ => return ApiResponse::bad_request("Decline reason is required and cannot be empty".to_string()),
+    };
+
+    // Get submission fields
+    let submission_fields = match SubmissionFieldQueries::get_submission_fields_by_submitter_id(pool, db_submitter.id).await {
+        Ok(fields) => fields,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to get submission fields: {}", e)),
+    };
+
+    // Validate and create signatures
+    let bulk_signatures = match validate_and_create_signatures(&db_submitter, &payload.signatures, &submission_fields) {
+        Ok(sigs) => sigs,
+        Err(err_response) => return err_response,
+    };
+    
+    // Update submitter with decline
+    match SubmitterQueries::update_submitter_with_decline_and_signatures(
+        pool,
+        db_submitter.id,
+        decline_reason,
+        &bulk_signatures,
+        Some(&real_ip),
+        payload.user_agent.as_deref(),
+        payload.session_id.as_deref(),
+        payload.timezone.as_deref(),
+    ).await {
+        Ok(Some(updated_submitter)) => {
+            let reminder_config = updated_submitter.reminder_config.as_ref()
+                .and_then(|v| serde_json::from_value(v.clone()).ok());
+                
+            let submitter = crate::models::submitter::Submitter {
+                id: Some(updated_submitter.id),
+                template_id: Some(updated_submitter.template_id),
+                user_id: Some(updated_submitter.user_id),
+                name: updated_submitter.name,
+                email: updated_submitter.email,
+                status: updated_submitter.status,
+                signed_at: updated_submitter.signed_at,
+                token: updated_submitter.token,
+                bulk_signatures: updated_submitter.bulk_signatures,
+                reminder_config,
+                last_reminder_sent_at: updated_submitter.last_reminder_sent_at,
+                reminder_count: updated_submitter.reminder_count,
+                created_at: updated_submitter.created_at,
+                updated_at: updated_submitter.updated_at,
+                template_name: None,
+                decline_reason: updated_submitter.decline_reason,
+                can_download: None,
             };
+            ApiResponse::success(submitter, "Document declined successfully".to_string())
+        }
+        Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
+        Err(e) => ApiResponse::internal_error(format!("Failed to decline document: {}", e)),
+    }
+}
 
-            // Validate that all field_ids belong to this submitter's submission fields
-            for signature_item in &payload.signatures {
-                // Find the field in submission fields
-                if let Some(field) = submission_fields.iter().find(|f| f.id == signature_item.field_id) {
-                    // Check if submitter is allowed to sign this field based on partner
-                    if let Some(ref partner) = field.partner {
-                        let allowed = partner == &db_submitter.name || 
-                                     partner == &db_submitter.email || 
-                                     db_submitter.name.contains(&format!("({})", partner));
-                        if !allowed {
-                            return ApiResponse::bad_request(format!("Field {} is not assigned to this submitter", signature_item.field_id));
-                        }
-                    }
-                } else {
-                    return ApiResponse::bad_request(format!("Field {} not found in submission", signature_item.field_id));
+// Background task for sending completion notifications
+async fn send_completion_notifications(
+    pool: &PgPool,
+    submitter_id: i64,
+    template_id: i64,
+    user_id: i64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Get reminder settings
+    let reminder_settings = match crate::database::queries::UserReminderSettingsQueries::get_by_user_id(pool, user_id).await? {
+        Some(settings) if settings.receive_notification_on_completion.unwrap_or(false) => settings,
+        _ => return Ok(()), // No notification needed
+    };
+
+    let completion_email = match reminder_settings.completion_notification_email {
+        Some(email) => email,
+        None => return Ok(()),
+    };
+
+    // Get template and submitters
+    let template = TemplateQueries::get_template_by_id(pool, template_id).await?
+        .ok_or("Template not found")?;
+    
+    let all_submitters = SubmitterQueries::get_submitters_by_template_id(pool, template_id).await?;
+    let completed_count = all_submitters.iter().filter(|s| s.status == "signed" || s.status == "completed").count();
+    let total_count = all_submitters.len();
+
+    // Only send when ALL completed
+    if completed_count != total_count {
+        return Ok(());
+    }
+
+    println!("All submitters completed for template {}. Sending notifications...", template_id);
+
+    let email_service = crate::services::email::EmailService::new()?;
+    let email_template = EmailTemplateQueries::get_default_template_by_type(pool, user_id, "completion").await.ok().flatten();
+    
+    use std::collections::HashSet;
+    let mut notified_emails: HashSet<String> = HashSet::new();
+    
+    // Generate combined PDF once if needed
+    let combined_document_path = if email_template.as_ref().map(|t| t.attach_documents).unwrap_or(false) {
+        if let Ok(storage_service) = StorageService::new().await {
+            if let Ok(signed_pdf_bytes) = generate_signed_pdf_for_template_with_filter(pool, template_id, &storage_service, None).await {
+                let temp_file = std::env::temp_dir().join(format!("signed_document_all_{}.pdf", template_id));
+                tokio::fs::write(&temp_file, signed_pdf_bytes).await.ok();
+                Some(temp_file.to_string_lossy().to_string())
+            } else { None }
+        } else { None }
+    } else { None };
+
+    // Send to completion_email first
+    if let Some(ref email_tmpl) = email_template {
+        let db_submitter = SubmitterQueries::get_submitter_by_id(pool, submitter_id).await?.ok_or("Submitter not found")?;
+        send_single_completion_email(
+            &email_service,
+            pool,
+            &completion_email,
+            &db_submitter.name,
+            &db_submitter.token,
+            &template,
+            email_tmpl,
+            &all_submitters,
+            completed_count,
+            total_count,
+            combined_document_path.as_deref(),
+            template_id,
+            Some(submitter_id),
+        ).await?;
+        notified_emails.insert(completion_email.clone());
+    }
+
+    // Send to all submitters if multiple
+    if total_count > 1 {
+        for submitter_info in &all_submitters {
+            if (submitter_info.status == "signed" || submitter_info.status == "completed") 
+                && !notified_emails.contains(&submitter_info.email) {
+                if let Some(ref email_tmpl) = email_template {
+                    let _ = send_single_completion_email(
+                        &email_service,
+                        pool,
+                        &submitter_info.email,
+                        &submitter_info.name,
+                        &submitter_info.token,
+                        &template,
+                        email_tmpl,
+                        &all_submitters,
+                        completed_count,
+                        total_count,
+                        combined_document_path.as_deref(),
+                        template_id,
+                        Some(submitter_info.id),
+                    ).await;
+                    notified_emails.insert(submitter_info.email.clone());
                 }
-            }
-
-            // Create signatures array with field details
-            let mut signatures_array = Vec::new();
-            for signature_item in &payload.signatures {
-                let field_id = signature_item.field_id;
-                let field_name = submission_fields.iter()
-                    .find(|f| f.id == field_id)
-                    .map(|f| f.name.clone())
-                    .unwrap_or_else(|| format!("field_{}", field_id));
-                signatures_array.push(serde_json::json!({
-                    "field_id": field_id,
-                    "field_name": field_name,
-                    "signature_value": signature_item.signature_value,
-                    "reason": signature_item.reason
-                }));
-            }
-
-            let bulk_signatures = serde_json::Value::Array(signatures_array);
-
-            match SubmitterQueries::update_submitter_with_signatures(
-                pool,
-                db_submitter.id,
-                &bulk_signatures,
-                Some(&real_ip),
-                payload.user_agent.as_deref(),
-                payload.session_id.as_deref(),
-                payload.timezone.as_deref(),
-            ).await {
-                Ok(Some(updated_submitter)) => {
-                    // Send completion notification email for each successful signature
-                    // Get user reminder settings to check for completion notification email
-                    match crate::database::queries::UserReminderSettingsQueries::get_by_user_id(pool, db_submitter.user_id).await {
-                        Ok(Some(reminder_settings)) => {
-                            if reminder_settings.receive_notification_on_completion.unwrap_or(false) {
-                                if let Some(ref completion_email) = reminder_settings.completion_notification_email {
-                                    // Get template name for the email
-                                    match crate::database::queries::TemplateQueries::get_template_by_id(pool, db_submitter.template_id).await {
-                                        Ok(Some(template)) => {
-                                            // Get all submitters to show progress
-                                            match SubmitterQueries::get_submitters_by_template_id(pool, db_submitter.template_id).await {
-                                                Ok(all_submitters) => {
-                                                    let completed_count = all_submitters.iter().filter(|s| s.status == "signed" || s.status == "completed").count();
-                                                    let total_count = all_submitters.len();
-                                                    use std::collections::HashSet;
-                                                    let mut notified_emails: HashSet<String> = HashSet::new();
-                                                    let mut combined_document_path: Option<String> = None;
-
-                                                    // Only send completion notification when ALL submitters have completed
-                                                    if completed_count == total_count {
-                                                        // Send completion notification email using templates
-                                                        match crate::services::email::EmailService::new() {
-                                                        Ok(email_service) => {
-                                                            // Try to get user's default completion template
-                                                            let email_template_result = EmailTemplateQueries::get_default_template_by_type(
-                                                                pool, db_submitter.user_id, "completion"
-                                                            ).await;
-                                                            
-                                                            match email_template_result {
-                                                                Ok(Some(email_template)) => {
-                                                                    // Use custom email template
-                                                                    let completed_signers = all_submitters.iter()
-                                                                        .filter(|s| s.status == "signed" || s.status == "completed")
-                                                                        .map(|s| s.name.clone())
-                                                                        .collect::<Vec<_>>()
-                                                                        .join(", ");
-                                                                    
-                                                                    let submitter_link = format!("{}/s/{}", "http://localhost:8081", db_submitter.token);
-                                                                    let progress = format!("{} of {} completed", completed_count, total_count);
-                                                                    
-                                                                    let mut variables = std::collections::HashMap::new();
-                                                                    variables.insert("submitter.name", db_submitter.name.as_str());
-                                                                    variables.insert("template.name", template.name.as_str());
-                                                                    variables.insert("submitter.link", &submitter_link);
-                                                                    variables.insert("account.name", "DocuSeal Pro");
-                                                                    variables.insert("completed.signers", &completed_signers);
-                                                                    variables.insert("progress", &progress);
-
-                                                                    let subject = replace_template_variables(&email_template.subject, &variables);
-                                                                    let body = replace_template_variables(&email_template.body, &variables);
-
-                                                                    // Generate attachments if needed (combined signed PDF for all submitters)
-                                                                    let mut document_path = None;
-                                                                    let mut audit_log_path = None;
-
-                                                                    if email_template.attach_documents {
-                                                                        if let Ok(storage_service) = StorageService::new().await {
-                                                                            // Generate combined signed PDF with all submitters' signatures (no filter)
-                                                                            if let Ok(signed_pdf_bytes_all) = generate_signed_pdf_for_template_with_filter(pool, db_submitter.template_id, &storage_service, None).await {
-                                                                                let temp_file_all = std::env::temp_dir().join(format!("signed_document_all_{}.pdf", db_submitter.template_id));
-                                                                                if let Ok(_) = tokio::fs::write(&temp_file_all, signed_pdf_bytes_all).await {
-                                                                                    combined_document_path = Some(temp_file_all.to_string_lossy().to_string());
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-
-                                                                    if email_template.attach_documents {
-                                                                        // Generate signed PDF (only include signatures from this submitter for their email)
-                                                                        if let Ok(storage_service) = StorageService::new().await {
-                                                                            if let Ok(signed_pdf_bytes) = generate_signed_pdf_for_template_with_filter(pool, db_submitter.template_id, &storage_service, Some(db_submitter.id)).await {
-                                                                                let temp_file = std::env::temp_dir().join(format!("signed_document_{}.pdf", db_submitter.id));
-                                                                                if let Ok(_) = tokio::fs::write(&temp_file, signed_pdf_bytes).await {
-                                                                                    document_path = Some(temp_file.to_string_lossy().to_string());
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-
-                                                                    if email_template.attach_audit_log {
-                                                                        // Generate audit log PDF
-                                                                        if let Ok(audit_pdf_bytes) = generate_template_audit_log_pdf(pool, db_submitter.template_id).await {
-                                                                            let temp_file = std::env::temp_dir().join(format!("audit_log_template_{}.pdf", db_submitter.template_id));
-                                                                            if let Ok(_) = tokio::fs::write(&temp_file, audit_pdf_bytes).await {
-                                                                                audit_log_path = Some(temp_file.to_string_lossy().to_string());
-                                                                            }
-                                                                        }
-                                                                    }
-
-                                                                    let attach_path = combined_document_path.as_deref().or(document_path.as_deref());
-                                                                    match email_service.send_template_email(
-                                                                        completion_email,
-                                                                        &db_submitter.name,
-                                                                        &subject,
-                                                                        &body,
-                                                                        &email_template.body_format,
-                                                                        email_template.attach_documents,
-                                                                        email_template.attach_audit_log,
-                                                                        attach_path,
-                                                                        audit_log_path.as_deref(),
-                                                                    ).await {
-                                                                        Ok(_) => println!("Template completion notification email sent to: {} ({} of {} completed)", completion_email, completed_count, total_count),
-                                                                        Err(e) => eprintln!("Failed to send template completion notification email: {}", e),
-                                                                    }
-
-                                                                    // Mark completion_email as notified to prevent duplicates later
-                                                                    notified_emails.insert(completion_email.clone());
-                                                                    // Clean up temporary files
-                                                                    if let Some(path) = document_path {
-                                                                        let _ = tokio::fs::remove_file(path).await;
-                                                                    }
-                                                                    if let Some(path) = audit_log_path {
-                                                                        let _ = tokio::fs::remove_file(path).await;
-                                                                    }
-                                                                },
-                                                                _ => {
-                                                                    // Fall back to default completion notification
-                                                                    match email_service.send_completion_notification(
-                                                                        completion_email,
-                                                                        &template.name,
-                                                                        &format!("{} of {} signers have completed", completed_count, total_count),
-                                                                        &all_submitters.iter()
-                                                                            .filter(|s| s.status == "signed" || s.status == "completed")
-                                                                            .map(|s| s.email.clone())
-                                                                            .collect::<Vec<_>>()
-                                                                            .join(", ")
-                                                                    ).await {
-                                                                        Ok(_) => {
-                                                                            println!("Completion notification email sent to: {} ({} of {} completed)", completion_email, completed_count, total_count);
-                                                                            notified_emails.insert(completion_email.clone());
-                                                                        }
-                                                                        Err(e) => eprintln!("Failed to send completion notification email: {}", e),
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                        Err(e) => {
-                                                            eprintln!("Failed to initialize email service for completion notification: {}", e);
-                                                        }
-                                                    }
-                                                    } // End of if completed_count == total_count check for completion notification
-
-                                                    // Check if all submitters have completed signing, and send completion emails to all submitters
-                                                    if completed_count == total_count && total_count > 1 {
-                                                        println!("All submitters have completed signing for template {}. Sending completion emails to all submitters.", db_submitter.template_id);
-                                                        
-                                                        // Create email service for sending to submitters
-                                                        if let Ok(email_service) = crate::services::email::EmailService::new() {
-                                                            // Send completion email to each submitter, skip duplicates
-                                                            for submitter_info in &all_submitters {
-                                                                if submitter_info.status == "signed" || submitter_info.status == "completed" {
-                                                                    // Get user's default completion template
-                                                                    let email_template_result = EmailTemplateQueries::get_default_template_by_type(
-                                                                        pool, db_submitter.user_id, "completion"
-                                                                    ).await;
-                                                                    
-                                                                    match email_template_result {
-                                                                        Ok(Some(email_template)) => {
-                                                                            // Use custom email template
-                                                                            let completed_signers = all_submitters.iter()
-                                                                                .filter(|s| s.status == "signed" || s.status == "completed")
-                                                                                .map(|s| s.name.clone())
-                                                                                .collect::<Vec<_>>()
-                                                                                .join(", ");
-                                                                            
-                                                                            let submitter_link = format!("{}/s/{}", "http://localhost:8081", submitter_info.token);
-                                                                            let progress = format!("{} of {} completed", completed_count, total_count);
-                                                                            
-                                                                            let mut variables = std::collections::HashMap::new();
-                                                                            variables.insert("submitter.name", submitter_info.name.as_str());
-                                                                            variables.insert("template.name", template.name.as_str());
-                                                                            variables.insert("submitter.link", &submitter_link);
-                                                                            variables.insert("account.name", "DocuSeal Pro");
-                                                                            variables.insert("completed.signers", &completed_signers);
-                                                                            variables.insert("progress", &progress);
-
-                                                                            let subject = replace_template_variables(&email_template.subject, &variables);
-                                                                            let body = replace_template_variables(&email_template.body, &variables);
-
-                                                                            // Generate audit log or attach combined documents if requested
-                                                                            let mut document_path = None;
-                                                                            let mut audit_log_path = None;
-
-                                                                            if email_template.attach_documents {
-                                                                                // Use combined document if available (display all signatures in 1 file), fallback to per-submitter
-                                                                                if let Some(combined_path) = combined_document_path.as_deref() {
-                                                                                    document_path = Some(combined_path.to_string());
-                                                                                } else if let Ok(storage_service) = StorageService::new().await {
-                                                                                    if let Ok(signed_pdf_bytes) = generate_signed_pdf_for_template_with_filter(pool, db_submitter.template_id, &storage_service, Some(submitter_info.id)).await {
-                                                                                        let temp_file = std::env::temp_dir().join(format!("signed_document_{}.pdf", submitter_info.id));
-                                                                                        if let Ok(_) = tokio::fs::write(&temp_file, signed_pdf_bytes).await {
-                                                                                            document_path = Some(temp_file.to_string_lossy().to_string());
-                                                                                        }
-                                                                                    }
-                                                                                }
-                                                                            }
-
-                                                                            if email_template.attach_audit_log {
-                                                                                // Generate audit log PDF
-                                                                                if let Ok(audit_pdf_bytes) = generate_template_audit_log_pdf(pool, submitter_info.template_id).await {
-                                                                                    let temp_file = std::env::temp_dir().join(format!("audit_log_template_{}.pdf", submitter_info.template_id));
-                                                                                    if let Ok(_) = tokio::fs::write(&temp_file, audit_pdf_bytes).await {
-                                                                                        audit_log_path = Some(temp_file.to_string_lossy().to_string());
-                                                                                    }
-                                                                                }
-                                                                            }
-
-                                                                            // Skip if already notified
-                                                                            if notified_emails.contains(&submitter_info.email) {
-                                                                                println!("Skipping duplicate completion email for {}", submitter_info.email);
-                                                                            } else {
-                                                                                match email_service.send_template_email(
-                                                                                    &submitter_info.email,
-                                                                                    &submitter_info.name,
-                                                                                    &subject,
-                                                                                    &body,
-                                                                                    &email_template.body_format,
-                                                                                    email_template.attach_documents,
-                                                                                    email_template.attach_audit_log,
-                                                                                    document_path.as_deref(),
-                                                                                    audit_log_path.as_deref(),
-                                                                                ).await {
-                                                                                    Ok(_) => println!("Completion email sent to submitter: {} ({})", submitter_info.email, submitter_info.name),
-                                                                                    Err(e) => eprintln!("Failed to send completion email to {}: {}", submitter_info.email, e),
-                                                                                }
-                                                                                notified_emails.insert(submitter_info.email.clone());
-                                                                            }
-
-                                                                            // Clean up temporary files
-                                                                            if let Some(path) = document_path {
-                                                                                let _ = tokio::fs::remove_file(path).await;
-                                                                            }
-                                                                            if let Some(path) = audit_log_path {
-                                                                                let _ = tokio::fs::remove_file(path).await;
-                                                                            }
-                                                                        },
-                                                                        _ => {
-                                                                            // Fall back to default completion email
-                                                                            match email_service.send_signature_completed(
-                                                                                &submitter_info.email,
-                                                                                &submitter_info.name,
-                                                                                &template.name,
-                                                                                &submitter_info.name,
-                                                                            ).await {
-                                                                                    Ok(_) => {
-                                                                                        println!("Default completion email sent to submitter: {} ({})", submitter_info.email, submitter_info.name);
-                                                                                        notified_emails.insert(submitter_info.email.clone());
-                                                                                    }
-                                                                                Err(e) => eprintln!("Failed to send default completion email to {}: {}", submitter_info.email, e),
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        // Clean up combined temporary signed document if any
-                                                        if let Some(path) = combined_document_path {
-                                                            let _ = tokio::fs::remove_file(path).await;
-                                                        }
-                                                        } else {
-                                                            eprintln!("Failed to initialize email service for sending completion emails to submitters");
-                                                        }
-                                                    }
-                                                }
-                                                Err(e) => eprintln!("Failed to get submitters for completion notification: {}", e),
-                                            }
-                                        }
-                                        Ok(None) => eprintln!("Template not found for completion notification"),
-                                        Err(e) => eprintln!("Failed to get template for completion notification: {}", e),
-                                    }
-                                }
-                            }
-                        }
-                        Ok(None) => {} // No reminder settings, skip
-                        Err(e) => eprintln!("Failed to get reminder settings for completion notification: {}", e),
-                    }
-                    
-                    let reminder_config = updated_submitter.reminder_config.as_ref()
-                        .and_then(|v| serde_json::from_value(v.clone()).ok());
-                        
-                    let submitter = crate::models::submitter::Submitter {
-                        id: Some(updated_submitter.id),
-                        template_id: Some(updated_submitter.template_id),
-                        user_id: Some(updated_submitter.user_id),
-                        name: updated_submitter.name,
-                        email: updated_submitter.email,
-                        status: updated_submitter.status,
-                        signed_at: updated_submitter.signed_at,
-                        token: updated_submitter.token,
-                        bulk_signatures: updated_submitter.bulk_signatures,
-                        reminder_config,
-                        last_reminder_sent_at: updated_submitter.last_reminder_sent_at,
-                        reminder_count: updated_submitter.reminder_count,
-                        created_at: updated_submitter.created_at,
-                        updated_at: updated_submitter.updated_at,
-                        template_name: None,
-                        decline_reason: updated_submitter.decline_reason,
-                        can_download: None,
-                    };
-                    ApiResponse::success(submitter, "Bulk signatures submitted successfully".to_string())
-                }
-                Ok(None) => ApiResponse::not_found("Submitter not found".to_string()),
-                Err(e) => ApiResponse::internal_error(format!("Failed to save bulk signatures: {}", e)),
             }
         }
-        _ => ApiResponse::not_found("Invalid token".to_string()),
     }
+
+    // Cleanup
+    if let Some(path) = combined_document_path {
+        let _ = tokio::fs::remove_file(path).await;
+    }
+
+    Ok(())
+}
+
+// Helper to send a single completion email
+async fn send_single_completion_email(
+    email_service: &crate::services::email::EmailService,
+    pool: &PgPool,
+    to_email: &str,
+    to_name: &str,
+    token: &str,
+    template: &crate::database::models::DbTemplate,
+    email_template: &crate::database::models::DbEmailTemplate,
+    all_submitters: &[crate::database::models::DbSubmitter],
+    completed_count: usize,
+    total_count: usize,
+    combined_document_path: Option<&str>,
+    template_id: i64,
+    submitter_id: Option<i64>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let completed_signers = all_submitters.iter()
+        .filter(|s| s.status == "signed" || s.status == "completed")
+        .map(|s| s.name.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    
+    let submitter_link = format!("{}/s/{}", "http://localhost:8081", token);
+    let progress = format!("{} of {} completed", completed_count, total_count);
+    
+    let mut variables = std::collections::HashMap::new();
+    variables.insert("submitter.name", to_name);
+    variables.insert("template.name", template.name.as_str());
+    variables.insert("submitter.link", submitter_link.as_str());
+    variables.insert("account.name", "DocuSeal Pro");
+    variables.insert("completed.signers", completed_signers.as_str());
+    variables.insert("progress", progress.as_str());
+
+    let subject = replace_template_variables(&email_template.subject, &variables);
+    let body = replace_template_variables(&email_template.body, &variables);
+
+    let mut document_path = combined_document_path.map(|s| s.to_string());
+    let mut audit_log_path = None;
+
+    // Generate per-submitter PDF if no combined and attach_documents is true
+    if email_template.attach_documents && document_path.is_none() {
+        if let Some(sid) = submitter_id {
+            if let Ok(storage_service) = StorageService::new().await {
+                if let Ok(signed_pdf_bytes) = generate_signed_pdf_for_template_with_filter(pool, template_id, &storage_service, Some(sid)).await {
+                    let temp_file = std::env::temp_dir().join(format!("signed_document_{}.pdf", sid));
+                    if tokio::fs::write(&temp_file, signed_pdf_bytes).await.is_ok() {
+                        document_path = Some(temp_file.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    if email_template.attach_audit_log {
+        if let Ok(audit_pdf_bytes) = generate_template_audit_log_pdf(pool, template_id).await {
+            let temp_file = std::env::temp_dir().join(format!("audit_log_template_{}.pdf", template_id));
+            if tokio::fs::write(&temp_file, audit_pdf_bytes).await.is_ok() {
+                audit_log_path = Some(temp_file.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    let result = email_service.send_template_email(
+        to_email,
+        to_name,
+        &subject,
+        &body,
+        &email_template.body_format,
+        email_template.attach_documents,
+        email_template.attach_audit_log,
+        document_path.as_deref(),
+        audit_log_path.as_deref(),
+    ).await;
+
+    // Cleanup temp files
+    if let Some(path) = document_path {
+        if !combined_document_path.map(|p| p == path).unwrap_or(false) {
+            let _ = tokio::fs::remove_file(path).await;
+        }
+    }
+    if let Some(path) = audit_log_path {
+        let _ = tokio::fs::remove_file(path).await;
+    }
+
+    result.map_err(|e| e.into())
 }
 
 #[utoipa::path(
@@ -1540,9 +1464,10 @@ fn calculate_signature_text_height(
         line_count += 1;
     }
     
-    // Match SignatureRenderer.tsx: (lineCount - 1) * 12 + 8 + 2 + 10 (increased line height for more spacing)
+    // Match SignatureRenderer.tsx formula with fine-tuned values for PDF (6.5)
+    // (lineCount - 1) * lineHeight + fontSize + padding + gap
     if line_count > 0 {
-        ((line_count - 1) as f64 * 7.0) + 8.0 + 2.0 + 10.0
+        ((line_count - 1) as f64 * 6.5) + 6.5 + 2.0 + 10.0
     } else {
         0.0
     }
@@ -1667,8 +1592,8 @@ fn render_signature_id_info(
     // Position the signature info at the BOTTOM of the field
     // Matching SignatureRenderer.tsx: text starts from bottom and goes up
     let info_x = x_pos + 5.0; // Match frontend padding of 5px
-    let font_size = 10.0; // Match frontend font size
-    let line_height = 10.0; // Match calculate_signature_text_height line height
+    let font_size = 6.5; // Fine-tuned for visual match with Web UI
+    let line_height = 6.5; // Fine-tuned spacing
     
     // Text area is at the bottom: from pdf_y to (pdf_y + text_height)
     // Calculate actual text height needed (matching frontend calculation)
@@ -1682,7 +1607,7 @@ fn render_signature_id_info(
     let mut text_operations = vec![
         Operation::new("BT", vec![]), // Begin text
         Operation::new("Tf", vec![
-            Object::Name(b"Helvetica".to_vec()),
+            Object::Name(b"F1".to_vec()), // Use Arial (F1) instead of Helvetica
             Object::Real(font_size as f32),
         ]), // Set font
         Operation::new("rg", vec![
@@ -1814,12 +1739,13 @@ fn render_text_field(
         }
     }
 
-    // Center text vertically and left-align horizontally (matching frontend behavior)
-    // For Arial font, adjust baseline position for proper visual centering
-    let text_y = pdf_y + field_height / 2.0 - font_size * 0.25;
+    // Center text vertically and horizontally (matching frontend behavior)
+    // Frontend: ctx.fillText(data || '', width / 2, (height - textHeight) / 2 + 5);
+    // Since textHeight = 0 for text fields, it's height / 2 + 5
+    let text_y = pdf_y + field_height / 2.0 + 5.0;
 
-    // For left alignment, start text at the left edge of the field
-    let text_x = x_pos;
+    // Center horizontally
+    let text_x = x_pos + field_width / 2.0;
 
     // Create text content stream
     let operations = vec![
@@ -2354,44 +2280,28 @@ fn render_vector_signature(
         }
     }
 
-    // Calculate scale to fit in available space (matching frontend SignatureRenderer.tsx)
     let sig_width = max_x - min_x;
     let sig_height = max_y - min_y;
-    
-    let padding = 0.0; // Increased padding to make signature smaller
-    let available_width = field_width - padding * 2.0;
-    let available_height = field_height - padding * 2.0;
-    
-    let scale_x = if sig_width > 0.0 { available_width / sig_width } else { 1.0 };
-    let scale_y = if sig_height > 0.0 { available_height / sig_height } else { 1.0 };
+
+    // Match frontend SignatureRenderer.tsx exactly
+    let padding = 2.0;
+    let scale_x = (field_width - padding * 2.0) / sig_width;
+    let scale_y = (field_height - padding * 2.0) / sig_height;
     let scale = scale_x.min(scale_y);
 
-    // Center the signature in available space (matching frontend)
-    // Frontend: offsetX = (width - signatureWidth * scale) / 2 - minX * scale
-    //           offsetY = ((height - textHeight) - signatureHeight * scale) / 2 - minY * scale + 5
-    // Note: field_height here is already sig_height (field_height - text_height) from caller
-    let offset_x = x_pos + (field_width - sig_width * scale) / 2.0 - min_x * scale;
-    let offset_y = pdf_y + (field_height - sig_height * scale) / 2.0 - min_y * scale + 5.0; // Center vertically matching frontend
-    
-    let center_offset_x = (field_width - sig_width * scale) / 2.0;
-    let center_offset_y = (field_height - sig_height * scale) / 2.0;
-    
-    eprintln!("=== VECTOR SIGNATURE CENTERING DEBUG ===");
-    eprintln!("Signature bounds: width={}, height={}", sig_width, sig_height);
-    eprintln!("Field: x={}, y={}, width={}, height={}", x_pos, pdf_y, field_width, field_height);
-    eprintln!("Scale: {}", scale);
-    eprintln!("Scaled signature: width={}, height={}", sig_width * scale, sig_height * scale);
-    eprintln!("Offset: x={}, y={}", offset_x, offset_y);
-    eprintln!("Centering offset: x={}, y={}", center_offset_x, center_offset_y);
+    // Calculate offset exactly as in frontend
+    let offset_x = (field_width - sig_width * scale) / 2.0 - min_x * scale;
+    let offset_y = padding - min_y * scale;
 
     // Create path operations for drawing signature
     let mut operations = Vec::new();
 
-    // Set line properties
-    operations.push(Operation::new("w", vec![Object::Real(2.0)])); // Line width
+    // Set line properties to match frontend
+    operations.push(Operation::new("w", vec![Object::Real(2.5)])); // Match frontend lineWidth = 2.5
     operations.push(Operation::new("RG", vec![Object::Real(0.0), Object::Real(0.0), Object::Real(0.0)])); // Black color
     operations.push(Operation::new("J", vec![Object::Integer(1)])); // Round line cap
     operations.push(Operation::new("j", vec![Object::Integer(1)])); // Round line join
+    operations.push(Operation::new("M", vec![Object::Real(10.0)])); // Miter limit to match frontend
 
     // Draw each stroke
     for stroke in &strokes {
@@ -2405,29 +2315,26 @@ fn render_vector_signature(
                 point.get("x").and_then(|v| v.as_f64()),
                 point.get("y").and_then(|v| v.as_f64())
             ) {
-                // Scale and position the signature coordinates
-                // Frontend: x_canvas = point.x * scale + offsetX; y_canvas = point.y * scale + offsetY
-                // In canvas: offsetY is from top, increasing downward
-                // In PDF: offset_y is from bottom, increasing upward
-                // Convert: PDF Y = offset_y + (max_y - min_y) * scale - (y - min_y) * scale
-                //        = offset_y + (max_y - y) * scale - min_y * scale + min_y * scale
-                //        = offset_y + (max_y - y) * scale
-                // But offset_y already includes the base position, so:
-                let scaled_x = x * scale + offset_x;
-                let scaled_y = (max_y - y) * scale + offset_y;
+                // Calculate canvas coordinates exactly as frontend
+                let canvas_x = x * scale + offset_x;
+                let canvas_y = y * scale + offset_y;
+
+                // Convert to PDF coordinates (bottom-left origin)
+                let pdf_x = x_pos + canvas_x;
+                let pdf_y_coord = pdf_y + field_height - canvas_y;
 
                 if first_point {
                     // Move to start of stroke
                     operations.push(Operation::new("m", vec![
-                        Object::Real(scaled_x as f32),
-                        Object::Real(scaled_y as f32)
+                        Object::Real(pdf_x as f32),
+                        Object::Real(pdf_y_coord as f32)
                     ]));
                     first_point = false;
                 } else {
                     // Draw line to next point
                     operations.push(Operation::new("l", vec![
-                        Object::Real(scaled_x as f32),
-                        Object::Real(scaled_y as f32)
+                        Object::Real(pdf_x as f32),
+                        Object::Real(pdf_y_coord as f32)
                     ]));
                 }
             }
@@ -3336,6 +3243,13 @@ async fn generate_template_audit_log_pdf(
         }
 
         if let Some(signature_values) = entry.get("signature_values").and_then(|v| v.as_array()) {
+            // Add extra spacing before signature values
+            content.operations.push(Operation::new("Td", vec![
+                Object::Real(0.0),
+                Object::Real(-8.0),  // Extra space before signature
+            ]));
+            y_pos -= 8.0;
+            
             for (i, sig_value) in signature_values.iter().enumerate() {
                 if let Some(sig_str) = sig_value.as_str() {
                     if sig_str != "N/A" {
@@ -3354,9 +3268,9 @@ async fn generate_template_audit_log_pdf(
                         ]));
                         content.operations.push(Operation::new("Td", vec![
                             Object::Real(0.0),
-                            Object::Real(-12.0),
+                            Object::Real(-20.0),  // Increased spacing after signature
                         ]));
-                        y_pos -= 15.0;
+                        y_pos -= 20.0;
                     }
                 }
             }
