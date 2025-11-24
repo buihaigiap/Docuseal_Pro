@@ -5,13 +5,14 @@ import {
   Typography,
   Button,
 } from '@mui/material';
-import { Close as CloseIcon, Download as DownloadIcon, Email as EmailIcon } from '@mui/icons-material';
+import { Download as DownloadIcon, Email as EmailIcon } from '@mui/icons-material';
 import CreateTemplateButton from '@/components/CreateTemplateButton';
 import { downloadSignedPDF } from '../../services/pdfDownloadService';
 import toast from 'react-hot-toast';
 import { BadgeCheck } from 'lucide-react';
 
 import upstashService from '../../ConfigApi/upstashService';
+import confetti from 'canvas-confetti';
 
 interface CompletionDrawerProps {
   open: boolean;
@@ -34,6 +35,16 @@ const CompletionDrawer: React.FC<CompletionDrawerProps> = ({
 }) => {
   const [isDownloading, setIsDownloading] = React.useState(false);
   const [isSendingEmail, setIsSendingEmail] = React.useState(false);
+
+  React.useEffect(() => {
+    if (open) {
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+    }
+  }, [open]);
 
   const handleDownload = async () => {
     try {
