@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
-    Typography, Box, Button, Card, CardContent,
-    Avatar
+  Typography, Box, Button, Card, CardContent,
+  Avatar
 } from '@mui/material';
 import { CloudUpload, Delete } from '@mui/icons-material';
 import upstashService from '../../../ConfigApi/upstashService';
@@ -86,9 +86,9 @@ export default function LogoSection({ logoUrl, setLogoUrl, isPaidUser }: LogoSec
               />
               <Box>
                 <Button
-                 sx={{
-                    color : 'white'
-                 }}
+                  sx={{
+                    color: 'white'
+                  }}
                   variant="outlined"
                   startIcon={<CloudUpload />}
                   component="label"
@@ -119,6 +119,9 @@ export default function LogoSection({ logoUrl, setLogoUrl, isPaidUser }: LogoSec
               startIcon={<CloudUpload />}
               component="label"
               disabled={uploading}
+              sx={{
+                color: 'white'
+              }}
             >
               {uploading ? 'Uploading...' : 'Upload Logo'}
               <input

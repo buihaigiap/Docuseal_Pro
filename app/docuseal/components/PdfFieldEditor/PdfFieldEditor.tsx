@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from 'react';
-import {  FieldType } from '../../types';
+import { FieldType } from '../../types';
 import upstashService from '../../ConfigApi/upstashService';
 import { Rnd } from 'react-rnd';
 import PdfDisplay, { PdfDisplayRef } from '../PdfDisplay';
@@ -13,9 +13,9 @@ import { fieldTools } from './constants';
 import { measureTextWidth, getFieldClass } from './utils';
 import { useFieldManagement } from './hooks/useFieldManagement';
 import { usePdfInitialization } from './hooks/usePdfInitialization';
-import { canTemplate , useRoleAccess } from '@/hooks/useRoleAccess';
+import { canTemplate, useRoleAccess } from '@/hooks/useRoleAccess';
 import { useAuth } from '../../contexts/AuthContext';
-const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token } : any, ref) {
+const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token }: any, ref) {
   const { user } = useAuth();
   const overlayRef = useRef<HTMLDivElement>(null);
   const pdfDisplayRef = useRef<PdfDisplayRef>(null);
@@ -39,7 +39,7 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
   const [inputWidths, setInputWidths] = useState<Record<string, number>>({});
   const [originalFields, setOriginalFields] = useState<Record<number, any>>({});
   const [deletedIds, setDeletedIds] = useState<Set<number>>(new Set());
-  const [resizingColumn, setResizingColumn] = useState<{tempId: string, index: number} | null>(null);
+  const [resizingColumn, setResizingColumn] = useState<{ tempId: string, index: number } | null>(null);
   const [currentHandlePosition, setCurrentHandlePosition] = useState<number | null>(null);
   const [partners, setPartners] = useState<string[]>([]);
   const [currentPartner, setCurrentPartner] = useState<string>('');
@@ -100,7 +100,7 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
         console.warn('Failed to fetch global settings:', error);
       }
     };
-    
+
     if (user) {
       fetchGlobalSettings();
     }
@@ -197,14 +197,14 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
         // Creating columns by dragging - limit handle position within field boundaries
         const minCellWidth = 10; // Minimum width per cell in pixels
         const maxColumns = Math.floor(fieldWidth / minCellWidth); // Calculate max columns based on field width
-        
+
         const newHandlePos = Math.max(0, Math.min(fieldWidth, mouseX - fieldX)); // Clamp within 0 to fieldWidth
         const newRatio = Math.max(0.001, Math.min(1, newHandlePos / fieldWidth));
         setCurrentHandlePosition(newRatio);
-        
+
         const calculatedColumns = Math.round(1 / newRatio);
         const numColumns = Math.max(1, Math.min(maxColumns, calculatedColumns)); // Limit by maxColumns based on width
-        
+
         if (numColumns !== field.options.columns) {
           updateField(field.tempId, { options: { columns: numColumns, widths: Array(numColumns).fill(1) } });
         }
@@ -227,10 +227,10 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
   };
 
   const handleOverlayMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (resizingColumn) { 
-      setResizingColumn(null); 
+    if (resizingColumn) {
+      setResizingColumn(null);
       setCurrentHandlePosition(null);
-      return; 
+      return;
     }
     if (!isDrawing || (activeTool === 'cursor' && !e.shiftKey)) return;
     setIsDrawing(false);
@@ -265,24 +265,24 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
       field_type: fieldType,
       required: true,
       display_order: fields.length + 1,
-      position: { 
-        x: x, 
-        y: y, 
-        width: w, 
-        height: h, 
-        page: currentPage 
+      position: {
+        x: x,
+        y: y,
+        width: w,
+        height: h,
+        page: currentPage
       },
       ...(fieldType === 'radio' && { options: ['Option 1', 'Option 2'] }),
       ...(fieldType === 'multiple' && { options: ['Option 1', 'Option 2'] }),
       ...(fieldType === 'select' && { options: ['Option 1', 'Option 2'] }),
-      ...(fieldType === 'cells' && { options: { columns: 3, widths: [1,1,1] } }),
+      ...(fieldType === 'cells' && { options: { columns: 3, widths: [1, 1, 1] } }),
       partner: currentPartner
     };
     setFields(prev => [...prev, newField]);
     setSelectedFieldTempId(newField.tempId);
     setActiveTool('cursor');
   };
-  
+
   const handleDragStop = (tempId: string, e: any, d: { x: number; y: number }) => {
     const field = fields.find(f => f.tempId === tempId);
     if (!field || !field.position) return;
@@ -294,10 +294,10 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
     const x = Math.max(0, Math.min(1 - field.position.width, d.x / displayWidth));
     const y = Math.max(0, Math.min(1 - field.position.height, d.y / displayHeight));
 
-    let newPos = { 
-      ...field.position, 
-      x: x, 
-      y: y 
+    let newPos = {
+      ...field.position,
+      x: x,
+      y: y
     };
     updateField(tempId, { position: newPos });
   };
@@ -331,121 +331,121 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
     <div className="grid grid-cols-1 lg:grid-cols-3 ">
       <div className="lg:col-span-2">
         <PdfDisplay
-            ref={pdfDisplayRef}
-            filePath={template.file_url}
-            token={token}
-            page={currentPage}
-            onPageChange={(newPage: number) => setCurrentPage(newPage)}
-            onLoad={() => {
-              const pageW = pdfDisplayRef.current?.getPageWidth() || 0;
-              const pageH = pdfDisplayRef.current?.getPageHeight() || 0;
-              const canvasW = pdfDisplayRef.current?.getCanvasClientWidth() || 0;
-              const canvasH = pdfDisplayRef.current?.getCanvasClientHeight() || 0;
-              
-              setPageWidth(pageW);
-              setPageHeight(pageH);
-              setCanvasClientWidth(canvasW);
-              setCanvasClientHeight(canvasH);
-              setIsPdfLoaded(true);
-            }}
-            globalSettings={globalSettings}
-          >
-            <div ref={overlayRef} className="absolute top-0 left-0 w-full h-full z-10" onMouseDown={handleOverlayMouseDown} onMouseMove={handleOverlayMouseMove} onMouseUp={handleOverlayMouseUp} style={{ cursor: activeTool !== 'cursor' ? 'crosshair' : 'default' }}>
-              {fields.filter(f => f.position?.page === currentPage).map(f => {
-                const isSelected = selectedFieldTempId === f.tempId;
-                
-                const resizeHandles = ['nw','n','ne','e','se','s','sw','w'];
-                const handleCursors: { [key: string]: string } = {
-                  'nw': 'nwse-resize', 'n': 'ns-resize', 'ne': 'nesw-resize', 'e': 'ew-resize',
-                  'se': 'nwse-resize', 's': 'ns-resize', 'sw': 'nesw-resize', 'w': 'ew-resize',
-                };
+          ref={pdfDisplayRef}
+          filePath={template.file_url}
+          token={token}
+          page={currentPage}
+          onPageChange={(newPage: number) => setCurrentPage(newPage)}
+          onLoad={() => {
+            const pageW = pdfDisplayRef.current?.getPageWidth() || 0;
+            const pageH = pdfDisplayRef.current?.getPageHeight() || 0;
+            const canvasW = pdfDisplayRef.current?.getCanvasClientWidth() || 0;
+            const canvasH = pdfDisplayRef.current?.getCanvasClientHeight() || 0;
 
-                return (
-                  <Rnd
-                    key={f.tempId}
-                    size={{ 
-                      width: f.position!.width * (canvasClientWidth || 600), 
-                      height: f.position!.height * (canvasClientHeight || 800) 
-                    }}
-                    position={{ 
-                      x: f.position!.x * (canvasClientWidth || 600), 
-                      y: f.position!.y * (canvasClientHeight || 800) 
-                    }}
-                    onDragStop={(e, d) => handleDragStop(f.tempId, e, d)}
-                    onResizeStop={(e, direction, ref, delta, position) => handleResizeStop(f.tempId, e, direction, ref, delta, position)}
-                    dragAxis="both"
-                    bounds="parent"
-                    className={getFieldClass(f.partner, isSelected, partnerColorClasses)}
-                    enableResizing={isSelected ? (f.field_type === 'cells' ? {
-                      top: true,
-                      right: true,
-                      bottom: false,
-                      left: true,
-                      topRight: true,
-                      bottomRight: false,
-                      bottomLeft: false,
-                      topLeft: true
-                    } : true) : false}
-                    minWidth={20}
-                    minHeight={5}
-                    style={{ cursor: activeTool === 'cursor' ? 'move' : 'default' }}
-                  >
-                    {/* Field name label above the box */}
-                    {isSelected && (
+            setPageWidth(pageW);
+            setPageHeight(pageH);
+            setCanvasClientWidth(canvasW);
+            setCanvasClientHeight(canvasH);
+            setIsPdfLoaded(true);
+          }}
+          globalSettings={globalSettings}
+        >
+          <div ref={overlayRef} className="absolute top-0 left-0 w-full h-full z-10" onMouseDown={handleOverlayMouseDown} onMouseMove={handleOverlayMouseMove} onMouseUp={handleOverlayMouseUp} style={{ cursor: activeTool !== 'cursor' ? 'crosshair' : 'default' }}>
+            {fields.filter(f => f.position?.page === currentPage).map(f => {
+              const isSelected = selectedFieldTempId === f.tempId;
+
+              const resizeHandles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+              const handleCursors: { [key: string]: string } = {
+                'nw': 'nwse-resize', 'n': 'ns-resize', 'ne': 'nesw-resize', 'e': 'ew-resize',
+                'se': 'nwse-resize', 's': 'ns-resize', 'sw': 'nesw-resize', 'w': 'ew-resize',
+              };
+
+              return (
+                <Rnd
+                  key={f.tempId}
+                  size={{
+                    width: f.position!.width * (canvasClientWidth || 600),
+                    height: f.position!.height * (canvasClientHeight || 800)
+                  }}
+                  position={{
+                    x: f.position!.x * (canvasClientWidth || 600),
+                    y: f.position!.y * (canvasClientHeight || 800)
+                  }}
+                  onDragStop={(e, d) => handleDragStop(f.tempId, e, d)}
+                  onResizeStop={(e, direction, ref, delta, position) => handleResizeStop(f.tempId, e, direction, ref, delta, position)}
+                  dragAxis="both"
+                  bounds="parent"
+                  className={getFieldClass(f.partner, isSelected, partnerColorClasses)}
+                  enableResizing={isSelected ? (f.field_type === 'cells' ? {
+                    top: true,
+                    right: true,
+                    bottom: false,
+                    left: true,
+                    topRight: true,
+                    bottomRight: false,
+                    bottomLeft: false,
+                    topLeft: true
+                  } : true) : false}
+                  minWidth={20}
+                  minHeight={5}
+                  style={{ cursor: activeTool === 'cursor' ? 'move' : 'default' }}
+                >
+                  {/* Field name label above the box */}
+                  {isSelected && (
+                    <div
+                      className="absolute z-11 bg-black bg-opacity-50 p-1 select-none flex items-center field-label"
+                      style={{
+                        top: -30,
+                        left: -4,
+                        fontSize: '12px',
+                        color: 'white'
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedFieldTempId(f.tempId);
+                        setActiveTool('cursor');
+                        setOriginalFieldName(f.name);
+                        updateInputWidth(f.tempId, f.name);
+                        setEditingFieldTempId(f.tempId);
+                      }}
+                    >
                       <div
-                        className="absolute z-11 bg-black bg-opacity-50 p-1 select-none flex items-center field-label"
-                        style={{
-                          top: -30,
-                          left: -4,
-                          fontSize: '12px',
-                          color: 'white'
+                        className={`w-3 h-3 rounded-full mr-1 cursor-pointer ${(getPartnerColorClass(f.partner) || 'bg-gray-500 text-gray-900').split(' ')[0]}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowPartnerDropdown(showPartnerDropdown === f.tempId ? null : f.tempId);
                         }}
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          setSelectedFieldTempId(f.tempId); 
-                          setActiveTool('cursor');
-                          setOriginalFieldName(f.name);
-                          updateInputWidth(f.tempId, f.name);
-                          setEditingFieldTempId(f.tempId);
+                        title={`Partner: ${f.partner}`}
+                      />
+                      {/* Field Type Icon Selector */}
+                      <div
+                        className="mr-1 cursor-pointer  rounded hover:bg-white hover:bg-opacity-10 w-4 h-4 flex items-center justify-center"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowToolDropdown(showToolDropdown === f.tempId ? null : f.tempId);
                         }}
+                        title={`Field Type: ${f.field_type}`}
                       >
-                        <div
-                          className={`w-3 h-3 rounded-full mr-1 cursor-pointer ${(getPartnerColorClass(f.partner) || 'bg-gray-500 text-gray-900').split(' ')[0]}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowPartnerDropdown(showPartnerDropdown === f.tempId ? null : f.tempId);
-                          }}
-                          title={`Partner: ${f.partner}`}
-                        />
-                        {/* Field Type Icon Selector */}
-                        <div
-                          className="mr-1 cursor-pointer  rounded hover:bg-white hover:bg-opacity-10 w-4 h-4 flex items-center justify-center"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowToolDropdown(showToolDropdown === f.tempId ? null : f.tempId);
-                          }}
-                          title={`Field Type: ${f.field_type}`}
-                        >
-                          {getCurrentToolIcon(f.field_type)}
-                        </div>
-                        {editingFieldTempId === f.tempId ? (
-                          <>
-                            <input
-                              type="text"
-                              value={f.name}
-                              onChange={e => {
-                                updateField(f.tempId, { name: e.target.value });
-                                updateInputWidth(f.tempId, e.target.value);
-                              }}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') {
-                                  setEditingFieldTempId(null);
-                                } else if (e.key === 'Escape') {
-                                  updateField(f.tempId, { name: originalFieldName });
-                                  updateInputWidth(f.tempId, originalFieldName);
-                                  setEditingFieldTempId(null);
-                                }
-                              }}
+                        {getCurrentToolIcon(f.field_type)}
+                      </div>
+                      {editingFieldTempId === f.tempId ? (
+                        <>
+                          <input
+                            type="text"
+                            value={f.name}
+                            onChange={e => {
+                              updateField(f.tempId, { name: e.target.value });
+                              updateInputWidth(f.tempId, e.target.value);
+                            }}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                setEditingFieldTempId(null);
+                              } else if (e.key === 'Escape') {
+                                updateField(f.tempId, { name: originalFieldName });
+                                updateInputWidth(f.tempId, originalFieldName);
+                                setEditingFieldTempId(null);
+                              }
+                            }}
                             onClick={e => e.stopPropagation()}
                             onBlur={e => {
                               // Nếu focus chuyển sang checkbox hoặc label, không ẩn UI
@@ -462,149 +462,145 @@ const DocumentEditor = forwardRef<any>(function DocumentEditor({ template, token
                             className="bg-transparent border-none outline-none text-white font-medium text-xs"
                             autoFocus
                           />
-                            {/* Required Checkbox */}
-                            <label className="ml-2 flex items-center cursor-pointer" title="Required">
-                              <input
-                                type="checkbox"
-                                checked={f.required}
-                                onChange={e => updateField(f.tempId, { required: e.target.checked })}
-                                onClick={e => e.stopPropagation()}
-                                className="w-3 h-3 text-indigo-600 bg-transparent border border-white border-opacity-30 rounded focus:ring-indigo-500 mr-1"
-                              />
-                              <span className="text-xs text-white">Required</span>
-                            </label>
-                          </>
-                        ) : (
-                          f.name
-                        )}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); deleteField(f.tempId); }}
-                          className="ml-2 w-3 h-3 bg-red-500 hover:bg-red-600 text-white text-xs rounded-full flex items-center justify-center"
-                          title="Delete field"
-                        >
-                          ×
-                        </button>
-                        {showToolDropdown === f.tempId && (
-                          <div className="tool-dropdown absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded shadow-lg z-20" style={{ width: 'auto', minWidth: '150px' }}>
-                            {fieldTools.filter(t => t.type !== 'cursor').map(tool => (
-                              <div
-                                key={tool.type}
-                                className="px-2 py-1 hover:bg-gray-100 cursor-pointer text-xs text-black flex items-center"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const newType = tool.type as any;
-                                  const baseName = tool.name;
-                                  const existingCount = fields.filter(field => field.field_type === newType && field.tempId !== f.tempId).length + 1;
-                                  const newName = `${baseName}_${existingCount}`;
-                                  updateField(f.tempId, { field_type: newType, name: newName });
-                                  updateInputWidth(f.tempId, newName);
-                                  setShowToolDropdown(null);
-                                }}
-                              >
-                                {tool.iconComponent('w-4 h-4 mr-2')}
-                                {tool.name}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      {showPartnerDropdown === f.tempId && checkRole && !hasAccess && (
-                          <div className="partner-dropdown absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded shadow-lg z-20" style={{ width: 'auto' }}>
-                            {partners.filter(p => p !== f.partner).map(p => (
-                              <div
-                                key={p}
-                                className="px-2 py-1 hover:bg-gray-100 cursor-pointer text-xs text-black flex items-center"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  updateField(f.tempId, { partner: p });
-                                  setShowPartnerDropdown(null);
-                                }}
-                              >
-                                <div className={`w-3 h-3 rounded-full mr-2 ${(getPartnerColorClass(p) || 'bg-gray-500 text-gray-900').split(' ')[0]}`} />
-                                {p}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <div
-                      ref={el => { if (el) fieldRefs.current.set(f.tempId, el); else fieldRefs.current.delete(f.tempId); }}
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        setSelectedFieldTempId(f.tempId); 
-                        setActiveTool('cursor');
-                      }}
-                      className="w-full h-full relative"
-                    >
-                      {f.field_type === 'cells' ? (
-                        <>
-                          <FieldRenderer 
-                            field={f}
-                            defaultSignature={user?.signature}
-                            defaultInitials={user?.initials}
-                          />
-                          {/* Bottom bar with single handle for column resizing */}
-                          <div className="absolute bottom-0 left-0 right-0 h-4 bg-gray-200 flex items-center justify-center overflow-hidden">
-                            <div 
-                              className="absolute w-3 h-3 bg-blue-500 rounded-full cursor-ew-resize border border-white"
-                              style={{ 
-                                left: `${Math.max(0, Math.min(100, ((resizingColumn?.tempId === f.tempId && currentHandlePosition !== null) ? currentHandlePosition : (1 / f.options.columns)) * 100))}%`, 
-                                top: '50%', 
-                                transform: 'translate(-50%, -50%)' 
-                              }}
-                              onMouseDown={(e) => { e.stopPropagation(); setResizingColumn({tempId: f.tempId, index: -1}); }}
-                            ></div>
-                          </div>
+                          {/* Required Checkbox */}
+                          <label className="ml-2 flex items-center cursor-pointer" title="Required">
+                            <input
+                              type="checkbox"
+                              checked={f.required}
+                              onChange={e => updateField(f.tempId, { required: e.target.checked })}
+                              onClick={e => e.stopPropagation()}
+                              className="w-3 h-3 text-indigo-600 bg-transparent border border-white border-opacity-30 rounded focus:ring-indigo-500 mr-1"
+                            />
+                            <span className="text-xs text-white">Required</span>
+                          </label>
                         </>
                       ) : (
-                        <FieldRenderer
-                          field={f}
-                          defaultSignature={user?.signature}
-                          defaultInitials={user?.initials}
-                        />
+                        f.name
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteField(f.tempId); }}
+                        className="ml-2 w-3 h-3 bg-red-500 hover:bg-red-600 text-white text-xs rounded-full flex items-center justify-center"
+                        title="Delete field"
+                      >
+                        ×
+                      </button>
+                      {showToolDropdown === f.tempId && (
+                        <div className="tool-dropdown absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded shadow-lg z-20" style={{ width: 'auto', minWidth: '150px' }}>
+                          {fieldTools.filter(t => t.type !== 'cursor').map(tool => (
+                            <div
+                              key={tool.type}
+                              className="px-2 py-1 hover:bg-gray-100 cursor-pointer text-xs text-black flex items-center"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const newType = tool.type as any;
+                                const baseName = tool.name;
+                                const existingCount = fields.filter(field => field.field_type === newType && field.tempId !== f.tempId).length + 1;
+                                const newName = `${baseName}_${existingCount}`;
+                                updateField(f.tempId, { field_type: newType, name: newName });
+                                updateInputWidth(f.tempId, newName);
+                                setShowToolDropdown(null);
+                              }}
+                            >
+                              {tool.iconComponent('w-4 h-4 mr-2')}
+                              {tool.name}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {showPartnerDropdown === f.tempId && checkRole && !hasAccess && (
+                        <div className="partner-dropdown absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded shadow-lg z-20" style={{ width: 'auto' }}>
+                          {partners.filter(p => p !== f.partner).map(p => (
+                            <div
+                              key={p}
+                              className="px-2 py-1 hover:bg-gray-100 cursor-pointer text-xs text-black flex items-center"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateField(f.tempId, { partner: p });
+                                setShowPartnerDropdown(null);
+                              }}
+                            >
+                              <div className={`w-3 h-3 rounded-full mr-2 ${(getPartnerColorClass(p) || 'bg-gray-500 text-gray-900').split(' ')[0]}`} />
+                              {p}
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
-                  </Rnd>
-                );
-              })}
-              {currentRect && <div style={currentRect}></div>}
-            </div>
-        </PdfDisplay>
-        </div>
-
-        <div className="lg:col-span-1 text-black p-4 rounded-lg space-y-6">
-          <PartnersPanel
-            checkRole={checkRole}
-            hasAccess={hasAccess}
-            getPartnerColorClass={getPartnerColorClass}
-            partners={partners}
-            setPartners={setPartners}
-            currentPartner={currentPartner}
-            setCurrentPartner={setCurrentPartner}
-            fields={fields}
-            setFields={setFields}
-          />
-
-          <FieldProperties
-            getCurrentToolIcon={getCurrentToolIcon}
-            fields={fields}
-            currentPartner={currentPartner}
-            selectedFieldTempId={selectedFieldTempId}
-            setSelectedFieldTempId={setSelectedFieldTempId}
-            updateField={updateField}
-            deleteField={deleteField}
-          />
-          {checkRole && !hasAccess && (
-           <div>
-              <FieldTools
-                activeTool={activeTool}
-                setActiveTool={setActiveTool}
-                setLastFieldTool={setLastFieldTool}
-              />
+                  )}
+                  <div
+                    ref={el => { if (el) fieldRefs.current.set(f.tempId, el); else fieldRefs.current.delete(f.tempId); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedFieldTempId(f.tempId);
+                      setActiveTool('cursor');
+                    }}
+                    className="w-full h-full relative"
+                  >
+                    {f.field_type === 'cells' ? (
+                      <>
+                        <FieldRenderer
+                          field={f}
+                        />
+                        {/* Bottom bar with single handle for column resizing */}
+                        <div className="absolute bottom-0 left-0 right-0 h-4 bg-gray-200 flex items-center justify-center overflow-hidden">
+                          <div
+                            className="absolute w-3 h-3 bg-blue-500 rounded-full cursor-ew-resize border border-white"
+                            style={{
+                              left: `${Math.max(0, Math.min(100, ((resizingColumn?.tempId === f.tempId && currentHandlePosition !== null) ? currentHandlePosition : (1 / f.options.columns)) * 100))}%`,
+                              top: '50%',
+                              transform: 'translate(-50%, -50%)'
+                            }}
+                            onMouseDown={(e) => { e.stopPropagation(); setResizingColumn({ tempId: f.tempId, index: -1 }); }}
+                          ></div>
+                        </div>
+                      </>
+                    ) : (
+                      <FieldRenderer
+                        field={f}
+                      />
+                    )}
+                  </div>
+                </Rnd>
+              );
+            })}
+            {currentRect && <div style={currentRect}></div>}
           </div>
-          )}
-      
-        </div>
+        </PdfDisplay>
+      </div>
+
+      <div className="lg:col-span-1 text-black p-4 rounded-lg space-y-6">
+        <PartnersPanel
+          checkRole={checkRole}
+          hasAccess={hasAccess}
+          getPartnerColorClass={getPartnerColorClass}
+          partners={partners}
+          setPartners={setPartners}
+          currentPartner={currentPartner}
+          setCurrentPartner={setCurrentPartner}
+          fields={fields}
+          setFields={setFields}
+        />
+
+        <FieldProperties
+          getCurrentToolIcon={getCurrentToolIcon}
+          fields={fields}
+          currentPartner={currentPartner}
+          selectedFieldTempId={selectedFieldTempId}
+          setSelectedFieldTempId={setSelectedFieldTempId}
+          updateField={updateField}
+          deleteField={deleteField}
+        />
+        {checkRole && !hasAccess && (
+          <div>
+            <FieldTools
+              activeTool={activeTool}
+              setActiveTool={setActiveTool}
+              setLastFieldTool={setLastFieldTool}
+            />
+          </div>
+        )}
+
+      </div>
     </div>
   );
 });

@@ -5,11 +5,13 @@ import SignaturePad from './SignaturePad';
 import CreateTemplateButton from '../../components/CreateTemplateButton';
 import PdfFullView from './PdfFullView';
 import CompletionScreen from './CompletionScreen';
-import { Dialog, DialogContent, DialogActions, Button, IconButton,
-   Typography, LinearProgress, TextField, Checkbox, Radio, 
-   RadioGroup, FormControlLabel, Select, MenuItem, 
-   FormControl, InputLabel, Box, Card, 
-   CardMedia, Link } from '@mui/material';
+import {
+  Dialog, DialogContent, DialogActions, Button, IconButton,
+  Typography, LinearProgress, TextField, Checkbox, Radio,
+  RadioGroup, FormControlLabel, Select, MenuItem,
+  FormControl, InputLabel, Box, Card,
+  CardMedia, Link
+} from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import toast from 'react-hot-toast';
 import { useBasicSettings } from '../../hooks/useBasicSettings';
@@ -38,7 +40,7 @@ interface TemplateField {
 }
 
 interface TemplateInfo {
-  id: number; 
+  id: number;
   name: string;
   slug: string;
   user_id: number;
@@ -59,12 +61,12 @@ const TemplateEditPage = () => {
   const [currentFieldIndex, setCurrentFieldIndex] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [page, setPage] = useState(1);
-  const [submitterInfo, setSubmitterInfo] = useState<{ 
-    id: number; 
-    email: string; 
+  const [submitterInfo, setSubmitterInfo] = useState<{
+    id: number;
+    email: string;
     template_name?: string;
-    status: string; 
-    signed_at?: string 
+    status: string;
+    signed_at?: string
   } | null>(null);
   const [pendingUploads, setPendingUploads] = useState<Record<number, File>>({});
   const [fileUploading, setFileUploading] = useState(false);
@@ -83,11 +85,6 @@ const TemplateEditPage = () => {
     // TODO: Implement send copy via email functionality
     toast.info('Send copy via email functionality will be implemented');
   };
-
-  const handleTestAction = () => {
-    // TODO: Implement test action
-    toast.info('Test action will be implemented');
-  };
   const uploadFile = async (file: File): Promise<string | null> => {
     try {
       setFileUploading(true);
@@ -100,7 +97,7 @@ const TemplateEditPage = () => {
       const data = response.data;
       if (data && data.success && data.data && data.data.url) {
         return data.data.url;
-      } 
+      }
     } catch (error) {
       // Log more details about the error
       if (error.response) {
@@ -117,7 +114,7 @@ const TemplateEditPage = () => {
       const data = await upstashService.getSubmissionFields(token);
       if (data.success) {
         setTemplateInfo(data.data.template_info);
-        
+
         // Extract submitter information if available
         if (data.data.information) {
           // Fetch full submitter info to get status
@@ -138,14 +135,14 @@ const TemplateEditPage = () => {
             });
           }
         }
-        
+
         // Convert position from pixels to decimal (0-1) if needed
         const processedFields = data.data.template_fields.map((field: TemplateField) => {
           if (field.position && typeof field.position.x === 'number') {
             // Use default page dimensions since we don't have actual page dimensions here
             const pageWidth = 600; // Default A4 width in pixels
             const pageHeight = 800; // Default A4 height in pixels
-            
+
             // Check if position is in pixels (values > 1) or already in decimal (0-1)
             if (field.position.x > 1 || field.position.y > 1 || field.position.width > 1 || field.position.height > 1) {
               // Position is in pixels, convert to decimal (0-1)
@@ -165,12 +162,12 @@ const TemplateEditPage = () => {
           }
           return field;
         });
-        
+
         setFields(processedFields);
       }
     } catch (err) {
       console.error('Fetch error:', err);
-    } 
+    }
   }, [token]);
 
   useEffect(() => {
@@ -250,7 +247,7 @@ const TemplateEditPage = () => {
       toast.error(`Please fill in the required field: ${currentField.name}`);
       return;
     }
-    
+
     if (currentFieldIndex < fields.length - 1) {
       const nextIndex = currentFieldIndex + 1;
       setCurrentFieldIndex(nextIndex);
@@ -461,16 +458,16 @@ const TemplateEditPage = () => {
   const isCompleted = submitterInfo?.status === 'signed' || submitterInfo?.status === 'completed';
   // If completed, show completion screen
   if (isCompleted) {
-    const signedDate = submitterInfo?.signed_at 
-      ? new Date(submitterInfo.signed_at).toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric' 
-        })
+    const signedDate = submitterInfo?.signed_at
+      ? new Date(submitterInfo.signed_at).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
       : 'Recently';
 
     return (
-      <CompletionScreen 
+      <CompletionScreen
         signedDate={signedDate}
         templateName={submitterInfo?.template_name}
         token={token}
@@ -495,7 +492,7 @@ const TemplateEditPage = () => {
           />
         )}
       </div>
-      
+
 
       {/* PDF Full View */}
       <PdfFullView
@@ -746,7 +743,7 @@ const TemplateEditPage = () => {
                     MenuProps={{
                       PaperProps: {
                         sx: {
-                          color:'black'
+                          color: 'black'
                         }
                       }
                     }}
@@ -811,21 +808,21 @@ const TemplateEditPage = () => {
           )}
         </DialogContent>
         <DialogActions>
-            <Button
-              disabled={completing}
-              onClick={handlePrevious}
-              variant="outlined"
-              color="inherit"
-              sx={{
-                borderColor: "#475569",
-                color: "#cbd5e1",
-                textTransform: "none",
-                fontWeight: 500,
-                "&:hover": { backgroundColor: "#334155" },
-              }}
-            >
-                Previous
-            </Button>
+          <Button
+            disabled={completing}
+            onClick={handlePrevious}
+            variant="outlined"
+            color="inherit"
+            sx={{
+              borderColor: "#475569",
+              color: "#cbd5e1",
+              textTransform: "none",
+              fontWeight: 500,
+              "&:hover": { backgroundColor: "#334155" },
+            }}
+          >
+            Previous
+          </Button>
           {!isLastField ? (
             <CreateTemplateButton
               onClick={handleNext}
@@ -838,7 +835,7 @@ const TemplateEditPage = () => {
           )}
         </DialogActions>
       </Dialog>
-          
+
       {/* Decline Modal */}
       <Dialog
         open={declineModalOpen}
@@ -883,14 +880,11 @@ const TemplateEditPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
-        
+
 
       {/* Completion Drawer */}
       <CompletionDrawer
         open={completionDrawerOpen}
-        onClose={() => setCompletionDrawerOpen(false)}
-        title="Document Signed Successfully!"
-        body="Your document has been signed and completed. You can now download the signed document or send a copy via email."
         pdfUrl={templateInfo?.document.url || ''}
         signatures={fields.map(field => ({
           field_id: field.id,
@@ -900,8 +894,7 @@ const TemplateEditPage = () => {
         templateName={templateInfo?.name || 'document'}
         submitterInfo={submitterInfo}
         globalSettings={globalSettings}
-        onSendCopy={handleSendCopyViaEmail}
-        onTest={handleTestAction}
+        token={token}
       />
 
     </div>

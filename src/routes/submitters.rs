@@ -831,19 +831,36 @@ async fn send_single_completion_email(
         .collect::<Vec<_>>()
         .join(", ");
     
-    let submitter_link = format!("{}/s/{}", "http://localhost:8081", token);
+    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8081".to_string());
+    let submitter_link = format!("{}/s/{}", base_url, token);
+    let signed_submission_link = format!("{}/signed-submission/{}", base_url, token);
+    let template_name_html = format!(r#"<a href="{}">{}</a>"#, signed_submission_link, template.name);
     let progress = format!("{} of {} completed", completed_count, total_count);
     
-    let mut variables = std::collections::HashMap::new();
-    variables.insert("submitter.name", to_name);
-    variables.insert("template.name", template.name.as_str());
-    variables.insert("submitter.link", submitter_link.as_str());
-    variables.insert("account.name", "DocuSeal Pro");
-    variables.insert("completed.signers", completed_signers.as_str());
-    variables.insert("progress", progress.as_str());
+    let mut subject_variables = std::collections::HashMap::new();
+    subject_variables.insert("submitter.name", to_name);
+    subject_variables.insert("template.name", template.name.as_str());
+    subject_variables.insert("submitter.link", submitter_link.as_str());
+    subject_variables.insert("account.name", "DocuSeal Pro");
+    subject_variables.insert("completed.signers", completed_signers.as_str());
+    subject_variables.insert("progress", progress.as_str());
 
-    let subject = replace_template_variables(&email_template.subject, &variables);
-    let body = replace_template_variables(&email_template.body, &variables);
+    let mut body_variables = std::collections::HashMap::new();
+    body_variables.insert("submitter.name", to_name);
+    
+    if email_template.body_format == "html" {
+        body_variables.insert("template.name", template_name_html.as_str());
+    } else {
+        body_variables.insert("template.name", template.name.as_str());
+    }
+
+    body_variables.insert("submitter.link", submitter_link.as_str());
+    body_variables.insert("account.name", "DocuSeal Pro");
+    body_variables.insert("completed.signers", completed_signers.as_str());
+    body_variables.insert("progress", progress.as_str());
+
+    let subject = replace_template_variables(&email_template.subject, &subject_variables);
+    let body = replace_template_variables(&email_template.body, &body_variables);
 
     let mut document_path = combined_document_path.map(|s| s.to_string());
     let mut audit_log_path = None;
@@ -2726,13 +2743,27 @@ pub async fn send_copy_email(
                     match email_template_result {
                         Ok(Some(email_template)) => {
                             // Use custom email template
-                            let mut variables = std::collections::HashMap::new();
-                            variables.insert("submitter.name", db_submitter.name.as_str());
-                            variables.insert("template.name", template.name.as_str());
-                            variables.insert("account.name", "DocuSeal Pro");
+                            let mut subject_variables = std::collections::HashMap::new();
+                            subject_variables.insert("submitter.name", db_submitter.name.as_str());
+                            subject_variables.insert("template.name", template.name.as_str());
+                            subject_variables.insert("account.name", "DocuSeal Pro");
 
-                            let subject = replace_template_variables(&email_template.subject, &variables);
-                            let body = replace_template_variables(&email_template.body, &variables);
+                            let mut body_variables = std::collections::HashMap::new();
+                            body_variables.insert("submitter.name", db_submitter.name.as_str());
+                            body_variables.insert("account.name", "DocuSeal Pro");
+                            
+                            let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8081".to_string());
+                            let signed_submission_link = format!("{}/signed-submission/{}", base_url, token);
+                            let template_name_html = format!(r#"<a href="{}">{}</a>"#, signed_submission_link, template.name);
+
+                            if email_template.body_format == "html" {
+                                body_variables.insert("template.name", template_name_html.as_str());
+                            } else {
+                                body_variables.insert("template.name", template.name.as_str());
+                            }
+                            
+                            let subject = replace_template_variables(&email_template.subject, &subject_variables);
+                            let body = replace_template_variables(&email_template.body, &body_variables);
 
                             // Generate attachments if needed
                             let mut document_path = None;
@@ -2791,6 +2822,7 @@ pub async fn send_copy_email(
                                 &db_submitter.name,
                                 &template.name,
                                 &db_submitter.name,
+                                &db_submitter.token,
                             ).await {
                                 Ok(_) => ApiResponse::success("Email sent successfully".to_string(), "Email sent successfully".to_string()),
                                 Err(e) => ApiResponse::internal_error(format!("Failed to send email: {}", e)),

@@ -4,42 +4,40 @@ import {
   Box,
   Typography,
   Button,
-  IconButton,
 } from '@mui/material';
-import { Close as CloseIcon, Download as DownloadIcon, Email as EmailIcon, Build as TestIcon } from '@mui/icons-material';
+import { Close as CloseIcon, Download as DownloadIcon, Email as EmailIcon } from '@mui/icons-material';
 import CreateTemplateButton from '@/components/CreateTemplateButton';
 import { downloadSignedPDF } from '../../services/pdfDownloadService';
 import toast from 'react-hot-toast';
+import { BadgeCheck } from 'lucide-react';
+
+import upstashService from '../../ConfigApi/upstashService';
 
 interface CompletionDrawerProps {
   open: boolean;
-  onClose: () => void;
-  title: string;
-  body: string;
   pdfUrl: string;
   signatures: any[];
   templateName: string;
   submitterInfo?: { id: number; email: string } | null;
   globalSettings?: any;
-  onSendCopy: () => void;
-  onTest: () => void;
+  token?: string;
 }
 
 const CompletionDrawer: React.FC<CompletionDrawerProps> = ({
   open,
-  onClose,
-  title,
-  body,
   pdfUrl,
   signatures,
   templateName,
   submitterInfo,
   globalSettings,
-  onSendCopy,
-  onTest
+  token
 }) => {
+  const [isDownloading, setIsDownloading] = React.useState(false);
+  const [isSendingEmail, setIsSendingEmail] = React.useState(false);
+
   const handleDownload = async () => {
     try {
+      setIsDownloading(true);
       await downloadSignedPDF(
         pdfUrl,
         signatures,
@@ -51,16 +49,38 @@ const CompletionDrawer: React.FC<CompletionDrawerProps> = ({
     } catch (error) {
       console.error('Download error:', error);
       toast.error('Failed to download document');
+    } finally {
+      setIsDownloading(false);
     }
   };
+
+  const handleSendEmail = async () => {
+    if (!token) {
+      toast.error('Token is missing');
+      return;
+    }
+    try {
+      setIsSendingEmail(true);
+      await upstashService.sendCopyEmail(token);
+      toast.success('Email sent successfully');
+    } catch (error) {
+      console.error('Email send error:', error);
+      toast.error('Failed to send email');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
   return (
     <Drawer
       anchor="bottom"
       open={open}
-      onClose={onClose}
+      ModalProps={{
+        disableEscapeKeyDown: true,
+      }}
       sx={{
         '& .MuiDrawer-paper': {
-          width:'100%',
+          width: '100%',
           maxWidth: 800,
           position: 'absolute',
           left: '35%',
@@ -73,49 +93,65 @@ const CompletionDrawer: React.FC<CompletionDrawerProps> = ({
       }}
     >
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Typography variant="h6" component="h2" sx={{ fontWeight: 600 }}>
-          {title}
-        </Typography>
-        <IconButton onClick={onClose} size="small">
-          <CloseIcon  sx={{color :'white'}}/>
-        </IconButton>
+      <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <BadgeCheck color="green" />
+          <Typography variant="h6" component="h2" sx={{ fontWeight: 600 }}>
+            {globalSettings?.completion_title || 'Signed successfully'}
+          </Typography>
+        </Box>
       </Box>
 
       {/* Body */}
-      <Box >
-        <Typography variant="body1" sx={{ color: 'text.secondary', lineHeight: 1.6 }}>
-          {body}
-        </Typography>
-      </Box>
+      {globalSettings?.completion_body !== "" && (
+        <Box>
+          <Typography variant="body1" sx={{ color: 'white', lineHeight: 1.6 }}>
+            {globalSettings?.completion_body}
+          </Typography>
+        </Box>
+      )}
 
       {/* Buttons */}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+
+        {/* Download Button */}
         <Button
           variant="contained"
-          startIcon={<DownloadIcon />}
+          startIcon={!isDownloading ? <DownloadIcon /> : null}
           onClick={handleDownload}
           fullWidth
+          disabled={isDownloading}
+          loading={isDownloading}
         >
           Download Document
         </Button>
 
+        {/* Send Email Button */}
         <Button
-          sx={{
-            color : 'white'
-          }}
+          sx={{ color: 'white' }}
           variant="outlined"
-          startIcon={<EmailIcon />}
-          onClick={onSendCopy}
+          startIcon={!isSendingEmail ? <EmailIcon /> : null}
+          onClick={handleSendEmail}
           fullWidth
+          disabled={isSendingEmail}
+          loading={isSendingEmail}
         >
           Send Copy Via Email
         </Button>
 
-        <CreateTemplateButton
-            text="text"
-            onClick={onTest}
-        />
+        {/* Redirect Button */}
+        {globalSettings?.redirect_title !== "" && (
+          <CreateTemplateButton
+            text={globalSettings?.redirect_title}
+            onClick={() => {
+              window.open(globalSettings?.redirect_url, "_blank");
+            }}
+          />
+        )}
+
+        <Typography variant="body1" sx={{ color: 'white', lineHeight: 1.6 }}>
+          Powered by <a href="/" target="_blank" className="underline-link">LetMesign</a> - open source documents software
+        </Typography>
       </Box>
     </Drawer>
   );

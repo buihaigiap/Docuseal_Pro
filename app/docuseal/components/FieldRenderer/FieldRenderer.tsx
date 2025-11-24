@@ -53,17 +53,17 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
     if (children) {
       return children;
     }
-    
+
     // Safety check for field
     if (!field) {
       return null;
     }
-    
+
     // Xác định giá trị hiển thị: ưu tiên value, sau đó dùng default từ user profile
-    const displayValue = value || 
-      (field.field_type === 'signature' ? defaultSignature : 
-       field.field_type === 'initials' ? defaultInitials : 
-       undefined);
+    const displayValue = value ||
+      (field.field_type === 'signature' ? defaultSignature :
+        field.field_type === 'initials' ? defaultInitials :
+          undefined);
     // Nếu có displayValue, render theo field type
     if (displayValue) {
       switch (field.field_type) {
@@ -84,9 +84,9 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
         case 'image':
           return (
             <div className="w-full h-full">
-              <img 
-                src={displayValue} 
-                alt="Uploaded" 
+              <img
+                src={displayValue}
+                alt="Uploaded"
                 className="w-full h-full object-contain"
               />
             </div>
@@ -131,13 +131,13 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
 
         case 'cells':
           return (
-            <div 
-              className="w-full h-full grid overflow-hidden" 
-              style={{ 
-                gridTemplateColumns: field.options?.widths?.map((w: number) => `${w}fr`).join(' ') || '1fr 1fr 1fr' 
+            <div
+              className="w-full h-full grid overflow-hidden"
+              style={{
+                gridTemplateColumns: field.options?.widths?.map((w: number) => `${w}fr`).join(' ') || '1fr 1fr 1fr'
               }}
             >
-              {Array.from({length: field.options?.columns || 3}, (_, i) => {
+              {Array.from({ length: field.options?.columns || 3 }, (_, i) => {
                 const char = displayValue?.[i] || '';
                 return (
                   <div key={i} className="border border-gray-400 flex items-center justify-end text-base font-bold px-1">
@@ -157,13 +157,13 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
     // Nếu không có value, hiển thị preview/placeholder
     if (field.field_type === 'cells') {
       return (
-        <div 
-          className="w-full h-full grid overflow-hidden" 
-          style={{ 
-            gridTemplateColumns: field.options?.widths?.map((w: number) => `${w}fr`).join(' ') || '1fr 1fr 1fr' 
+        <div
+          className="w-full h-full grid overflow-hidden"
+          style={{
+            gridTemplateColumns: field.options?.widths?.map((w: number) => `${w}fr`).join(' ') || '1fr 1fr 1fr'
           }}
         >
-          {Array.from({length: field.options?.columns || 3}, (_, i) => (
+          {Array.from({ length: field.options?.columns || 3 }, (_, i) => (
             <div key={i} className="border border-gray-400 flex items-center justify-center text-xs bg-white bg-opacity-50">
               {i + 1}
             </div>

@@ -2,7 +2,6 @@ import { Button, Typography } from '@mui/material';
 import toast from 'react-hot-toast';
 import upstashService from '../../ConfigApi/upstashService';
 import CreateTemplateButtonProps from '../../components/CreateTemplateButton';
-import { useNavigate } from 'react-router-dom';
 import { downloadSignedPDF, fetchAuditLog, generateMockAuditLog } from '../../services/pdfDownloadService';
 import { useBasicSettings } from '../../hooks/useBasicSettings';
 import { useEffect, useState } from 'react';
@@ -14,18 +13,14 @@ interface CompletionScreenProps {
   allowResubmit: boolean;
 }
 
-const CompletionScreen: React.FC<CompletionScreenProps> = ({ 
+const CompletionScreen: React.FC<CompletionScreenProps> = ({
   signedDate,
   templateName,
-  token, 
-  allowResubmit 
+  token,
+  allowResubmit
 }) => {
-  const navigate = useNavigate();
   const { globalSettings } = useBasicSettings();
   const [canDownload, setCanDownload] = useState<boolean>(true);
-  
-  console.log('globalSettings' , globalSettings)
-  
   useEffect(() => {
     // Fetch submitter info to get can_download status
     const fetchSubmitterInfo = async () => {
@@ -41,7 +36,7 @@ const CompletionScreen: React.FC<CompletionScreenProps> = ({
         setCanDownload(true);
       }
     };
-    
+
     fetchSubmitterInfo();
   }, [token]);
   const handleSendEmail = async () => {
@@ -128,15 +123,9 @@ const CompletionScreen: React.FC<CompletionScreenProps> = ({
     <div className="flex items-center justify-center  ">
       <div className="max-w-md w-full  rounded-lg shadow-lg p-8">
         <div className=" mb-6">
-            <div className="h-[200px]">
-                <img src='/logo.png' alt="Logo"/>      
-            </div>
-          <Typography variant="h4" sx={{ mb: 2, textAlign: 'center' }}>
-            {globalSettings?.completion_title || 'Form Completed Successfully'}
-          </Typography>
-          <Typography variant="body1" sx={{ mb: 2, textAlign: 'center' }}>
-            {globalSettings?.completion_body || 'Thank you for completing the form. Your submission has been received.'}
-          </Typography>
+          <div className="h-[200px]">
+            <img src='/logo.png' alt="Logo" />
+          </div>
           <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
             Template Name: {templateName}
           </Typography>
@@ -146,21 +135,6 @@ const CompletionScreen: React.FC<CompletionScreenProps> = ({
         </div>
 
         <div className="space-y-3">
-          {globalSettings?.redirect_title && globalSettings?.redirect_url && (
-            <Button
-              variant="contained"
-              fullWidth
-              sx={{
-                textTransform: 'none',
-                backgroundColor: '#10b981',
-                '&:hover': { backgroundColor: '#059669' }
-              }}
-              onClick={() => window.open(globalSettings.redirect_url, '_blank')}
-            >
-              {globalSettings.redirect_title}
-            </Button>
-          )}
-
           <Button
             variant="contained"
             fullWidth
@@ -188,12 +162,12 @@ const CompletionScreen: React.FC<CompletionScreenProps> = ({
               DOWNLOAD DOCUMENTS
             </Button>
           )}
-          
+
           {!canDownload && (
-            <Typography 
-              variant="body2" 
-              sx={{ 
-                color: '#9ca3af', 
+            <Typography
+              variant="body2"
+              sx={{
+                color: '#9ca3af',
                 textAlign: 'center',
                 fontStyle: 'italic',
                 py: 1
@@ -205,11 +179,10 @@ const CompletionScreen: React.FC<CompletionScreenProps> = ({
 
           {allowResubmit && (
             <CreateTemplateButtonProps
-                text = "RESUBMIT FORM"
-                onClick={handleResubmit}
-                width = "100%"
+              text="RESUBMIT FORM"
+              onClick={handleResubmit}
+              width="100%"
             />
-           
           )}
         </div>
       </div>

@@ -552,6 +552,7 @@ impl EmailService {
         to_name: &str,
         submission_name: &str,
         submitter_name: &str,
+        token: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         if self.test_mode {
             println!("TEST MODE: Would send completion email to {} ({}) for submission: {}", to_email, to_name, submission_name);
@@ -559,6 +560,8 @@ impl EmailService {
         }
 
         let subject = format!("Document Signing Completed: {}", submission_name);
+        let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8081".to_string());
+        let link = format!("{}/signed-submission/{}", base_url, token);
 
         let html_body = format!(
             r#"
@@ -608,6 +611,13 @@ impl EmailService {
                             color: #6c757d;
                             text-align: center;
                         }}
+                        a {{
+                            color: #007bff;
+                            text-decoration: none;
+                        }}
+                        a:hover {{
+                            text-decoration: underline;
+                        }}
                     </style>
                 </head>
                 <body>
@@ -619,7 +629,7 @@ impl EmailService {
                         </div>
 
                         <div class="content">
-                            <p>We are pleased to inform you that the document <strong>"{}"</strong> has been successfully signed by <strong>{}</strong>.</p>
+                            <p>We are pleased to inform you that the document <strong><a href="{}">"{}"</a></strong> has been successfully signed by <strong>{}</strong>.</p>
 
                             <p>The document has been processed and stored securely in the DocuSeal Pro system.</p>
 
@@ -634,17 +644,18 @@ impl EmailService {
                 </body>
                 </html>
             "#,
-            to_name, submission_name, submitter_name
+            to_name, link, submission_name, submitter_name
         );
 
         let text_body = format!(
             "Hello {},\n\n\
             The document '{}' has been successfully signed by {}.\n\n\
+            You can view the signed document here: {}\n\n\
             The document has been stored securely in the system.\n\n\
             Thank you for using DocuSeal Pro!\n\n\
             Best regards,\n\
             DocuSeal Pro",
-            to_name, submission_name, submitter_name
+            to_name, submission_name, submitter_name, link
         );
 
         let email = Message::builder()
