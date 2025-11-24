@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
     Typography, Box, Button, Card, CardContent, TextField,
+    Switch
 } from '@mui/material';
 import { Save } from '@mui/icons-material';
 import upstashService from '../../../ConfigApi/upstashService';
@@ -15,6 +16,8 @@ interface CompletedFormSettingsSectionProps {
   setRedirectTitle: (title: string) => void;
   redirectUrl: string;
   setRedirectUrl: (url: string) => void;
+  enableConfetti: boolean;
+  setEnableConfetti: (enabled: boolean) => void;
 }
 
 export default function CompletedFormSettingsSection({
@@ -25,7 +28,9 @@ export default function CompletedFormSettingsSection({
   redirectTitle,
   setRedirectTitle,
   redirectUrl,
-  setRedirectUrl
+  setRedirectUrl,
+  enableConfetti,
+  setEnableConfetti
 }: CompletedFormSettingsSectionProps) {
   const [saving, setSaving] = useState(false);
 
@@ -33,10 +38,11 @@ export default function CompletedFormSettingsSection({
     setSaving(true);
     try {
       const response = await upstashService.updateUserSettings({
-        completion_title: completionTitle || null,
-        completion_body: completionBody || null,
-        redirect_title: redirectTitle || null,
-        redirect_url: redirectUrl || null,
+        completion_title: completionTitle || '',
+        completion_body: completionBody || '',
+        redirect_title: redirectTitle || '',
+        redirect_url: redirectUrl || '',
+        enable_confetti: enableConfetti,
       });
       if (response.success) {
         toast.success('Completed form settings updated successfully');
@@ -107,6 +113,18 @@ export default function CompletedFormSettingsSection({
             onChange={(e) => setRedirectUrl(e.target.value)}
             placeholder="https://example.com/thank-you"
             type="url"
+          />
+        </Box>
+
+        {/* Confetti Settings */}
+        <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography variant="subtitle1" sx={{ flex: 1 }}>
+            Show confetti on successful completion
+          </Typography>
+          <Switch
+            checked={enableConfetti}
+            onChange={(e) => setEnableConfetti(e.target.checked)}
+            color="primary"
           />
         </Box>
 

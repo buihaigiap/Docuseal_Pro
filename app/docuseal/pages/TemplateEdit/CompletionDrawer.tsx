@@ -37,7 +37,7 @@ const CompletionDrawer: React.FC<CompletionDrawerProps> = ({
   const [isSendingEmail, setIsSendingEmail] = React.useState(false);
 
   React.useEffect(() => {
-    if (open) {
+    if (globalSettings?.enable_confetti && open) {
       confetti({
         particleCount: 100,
         spread: 70,

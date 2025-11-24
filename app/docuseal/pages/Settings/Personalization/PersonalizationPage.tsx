@@ -35,6 +35,7 @@ export default function PersonalizationPage() {
   const [completionBody, setCompletionBody] = useState<string>('');
   const [redirectTitle, setRedirectTitle] = useState<string>('');
   const [redirectUrl, setRedirectUrl] = useState<string>('');
+  const [enableConfetti, setEnableConfetti] = useState<boolean>(false);
 
   useEffect(() => {
     fetchSettings();
@@ -52,6 +53,7 @@ export default function PersonalizationPage() {
         setCompletionBody(settingsRes.data.completion_body || '');
         setRedirectTitle(settingsRes.data.redirect_title || '');
         setRedirectUrl(settingsRes.data.redirect_url || '');
+        setEnableConfetti(settingsRes.data.enable_confetti || false);
       }
     } catch (error) {
       console.error('Failed to fetch settings:', error);
@@ -117,6 +119,8 @@ export default function PersonalizationPage() {
         setRedirectTitle={setRedirectTitle}
         redirectUrl={redirectUrl}
         setRedirectUrl={setRedirectUrl}
+        enableConfetti={enableConfetti}
+        setEnableConfetti={setEnableConfetti}
       />
 
       <EmailTemplatesSection

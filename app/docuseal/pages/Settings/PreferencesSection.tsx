@@ -74,7 +74,6 @@ export default function PreferencesSection({ initialPreferences }: PreferencesSe
          'expirable_file_download_links']: newValue
       });
 
-      console.log('User setting updated successfully');
       toast.success(`${label} updated`);
     } catch (err) {
       console.error('Failed to update user setting:', err);

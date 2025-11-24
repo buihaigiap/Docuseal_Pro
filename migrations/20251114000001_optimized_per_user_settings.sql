@@ -19,6 +19,27 @@ ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS remember_and_pre_fill_signa
 ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS require_authentication_for_file_download_links BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS combine_completed_documents_and_audit_log BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS expirable_file_download_links BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS enable_confetti BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Add logo_url column
+ALTER TABLE global_settings ADD COLUMN IF NOT EXISTS logo_url TEXT;
+
+-- Add completion and redirect settings
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'global_settings' AND column_name = 'completion_title') THEN
+        ALTER TABLE global_settings ADD COLUMN completion_title TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'global_settings' AND column_name = 'completion_body') THEN
+        ALTER TABLE global_settings ADD COLUMN completion_body TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'global_settings' AND column_name = 'redirect_title') THEN
+        ALTER TABLE global_settings ADD COLUMN redirect_title TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'global_settings' AND column_name = 'redirect_url') THEN
+        ALTER TABLE global_settings ADD COLUMN redirect_url TEXT;
+    END IF;
+END $$;
 
 -- Create unique constraint on user_id (NULL allowed for global)
 ALTER TABLE global_settings ADD CONSTRAINT unique_user_or_global UNIQUE (user_id);
@@ -37,7 +58,13 @@ INSERT INTO global_settings (
     remember_and_pre_fill_signatures,
     require_authentication_for_file_download_links,
     combine_completed_documents_and_audit_log,
-    expirable_file_download_links
+    expirable_file_download_links,
+    enable_confetti,
+    logo_url,
+    completion_title,
+    completion_body,
+    redirect_title,
+    redirect_url
 )
 SELECT
     u.id,
@@ -50,7 +77,13 @@ SELECT
     gs.remember_and_pre_fill_signatures,
     gs.require_authentication_for_file_download_links,
     gs.combine_completed_documents_and_audit_log,
-    gs.expirable_file_download_links
+    gs.expirable_file_download_links,
+    gs.enable_confetti,
+    gs.logo_url,
+    gs.completion_title,
+    gs.completion_body,
+    gs.redirect_title,
+    gs.redirect_url
 FROM users u
 CROSS JOIN global_settings gs
 WHERE gs.user_id IS NULL;

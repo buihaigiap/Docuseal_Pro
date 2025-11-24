@@ -81,10 +81,6 @@ const TemplateEditPage = () => {
   const [completionDrawerOpen, setCompletionDrawerOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
 
-  const handleSendCopyViaEmail = () => {
-    // TODO: Implement send copy via email functionality
-    toast.info('Send copy via email functionality will be implemented');
-  };
   const uploadFile = async (file: File): Promise<string | null> => {
     try {
       setFileUploading(true);

@@ -2067,7 +2067,7 @@ impl OAuthTokenQueries {
 impl GlobalSettingsQueries {
     pub async fn get_global_settings(pool: &PgPool) -> Result<Option<DbGlobalSettings>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at FROM global_settings WHERE user_id IS NULL"
+            "SELECT id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at FROM global_settings WHERE user_id IS NULL"
         )
         .fetch_optional(pool)
         .await?;
@@ -2090,6 +2090,7 @@ impl GlobalSettingsQueries {
                 require_authentication_for_file_download_links: row.try_get("require_authentication_for_file_download_links")?,
                 combine_completed_documents_and_audit_log: row.try_get("combine_completed_documents_and_audit_log")?,
                 expirable_file_download_links: row.try_get("expirable_file_download_links")?,
+                enable_confetti: row.try_get("enable_confetti")?,
                 completion_title: row.try_get("completion_title")?,
                 completion_body: row.try_get("completion_body")?,
                 redirect_title: row.try_get("redirect_title")?,
@@ -2103,7 +2104,7 @@ impl GlobalSettingsQueries {
 
     pub async fn get_user_settings(pool: &PgPool, user_id: i32) -> Result<Option<DbGlobalSettings>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at FROM global_settings WHERE user_id = $1"
+            "SELECT id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at FROM global_settings WHERE user_id = $1"
         )
         .bind(user_id)
         .fetch_optional(pool)
@@ -2127,6 +2128,7 @@ impl GlobalSettingsQueries {
                 require_authentication_for_file_download_links: row.try_get("require_authentication_for_file_download_links")?,
                 combine_completed_documents_and_audit_log: row.try_get("combine_completed_documents_and_audit_log")?,
                 expirable_file_download_links: row.try_get("expirable_file_download_links")?,
+                enable_confetti: row.try_get("enable_confetti")?,
                 completion_title: row.try_get("completion_title")?,
                 completion_body: row.try_get("completion_body")?,
                 redirect_title: row.try_get("redirect_title")?,
@@ -2142,9 +2144,9 @@ impl GlobalSettingsQueries {
         let now = Utc::now();
         let row = sqlx::query(
             r#"
-            INSERT INTO global_settings (user_id, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, created_at, updated_at)
-            VALUES ($1, false, false, false, true, false, false, false, false, false, false, $2, $2)
-            RETURNING id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, NULL as completion_title, NULL as completion_body, NULL as redirect_title, NULL as redirect_url, created_at, updated_at
+            INSERT INTO global_settings (user_id, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, created_at, updated_at)
+            VALUES ($1, false, false, false, true, false, false, false, false, false, false, false, $2, $2)
+            RETURNING id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, NULL as completion_title, NULL as completion_body, NULL as redirect_title, NULL as redirect_url, created_at, updated_at
             "#
         )
         .bind(user_id)
@@ -2169,6 +2171,7 @@ impl GlobalSettingsQueries {
             require_authentication_for_file_download_links: row.try_get("require_authentication_for_file_download_links")?,
             combine_completed_documents_and_audit_log: row.try_get("combine_completed_documents_and_audit_log")?,
             expirable_file_download_links: row.try_get("expirable_file_download_links")?,
+            enable_confetti: row.try_get("enable_confetti")?,
             completion_title: row.try_get("completion_title")?,
             completion_body: row.try_get("completion_body")?,
             redirect_title: row.try_get("redirect_title")?,
@@ -2190,7 +2193,8 @@ impl GlobalSettingsQueries {
                 allow_to_resubmit_completed_forms = $9, allow_to_decline_documents = $10, 
                 remember_and_pre_fill_signatures = $11, require_authentication_for_file_download_links = $12, 
                 combine_completed_documents_and_audit_log = $13, expirable_file_download_links = $14,
-                updated_at = $15
+                enable_confetti = $15,
+                updated_at = $16
             WHERE user_id IS NULL
             "#
         )
@@ -2208,6 +2212,7 @@ impl GlobalSettingsQueries {
         .bind(settings.require_authentication_for_file_download_links)
         .bind(settings.combine_completed_documents_and_audit_log)
         .bind(settings.expirable_file_download_links)
+        .bind(settings.enable_confetti)
         .bind(now)
         .execute(pool)
         .await?;
@@ -2226,9 +2231,9 @@ impl GlobalSettingsQueries {
             // Create user settings with the provided values if they don't exist
             let row = sqlx::query(
                 r#"
-                INSERT INTO global_settings (user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20)
-                RETURNING id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at
+                INSERT INTO global_settings (user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $21)
+                RETURNING id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at
                 "#
             )
             .bind(user_id)
@@ -2246,6 +2251,7 @@ impl GlobalSettingsQueries {
             .bind(settings.require_authentication_for_file_download_links.unwrap_or(false))
             .bind(settings.combine_completed_documents_and_audit_log.unwrap_or(false))
             .bind(settings.expirable_file_download_links.unwrap_or(false))
+            .bind(settings.enable_confetti.unwrap_or(false))
             .bind(settings.completion_title.as_deref())
             .bind(settings.completion_body.as_deref())
             .bind(settings.redirect_title.as_deref())
@@ -2271,6 +2277,7 @@ impl GlobalSettingsQueries {
                 require_authentication_for_file_download_links: row.try_get("require_authentication_for_file_download_links")?,
                 combine_completed_documents_and_audit_log: row.try_get("combine_completed_documents_and_audit_log")?,
                 expirable_file_download_links: row.try_get("expirable_file_download_links")?,
+                enable_confetti: row.try_get("enable_confetti")?,
                 completion_title: row.try_get("completion_title")?,
                 completion_body: row.try_get("completion_body")?,
                 redirect_title: row.try_get("redirect_title")?,
@@ -2298,12 +2305,13 @@ impl GlobalSettingsQueries {
                 require_authentication_for_file_download_links = COALESCE($12, require_authentication_for_file_download_links),
                 combine_completed_documents_and_audit_log = COALESCE($13, combine_completed_documents_and_audit_log),
                 expirable_file_download_links = COALESCE($14, expirable_file_download_links),
-                completion_title = COALESCE($15, completion_title),
-                completion_body = COALESCE($16, completion_body),
-                redirect_title = COALESCE($17, redirect_title),
-                redirect_url = COALESCE($18, redirect_url),
-                updated_at = $19
-            WHERE user_id = $20
+                enable_confetti = COALESCE($15, enable_confetti),
+                completion_title = COALESCE($16, completion_title),
+                completion_body = COALESCE($17, completion_body),
+                redirect_title = COALESCE($18, redirect_title),
+                redirect_url = COALESCE($19, redirect_url),
+                updated_at = $20
+            WHERE user_id = $21
             "#
         );
         
@@ -2322,6 +2330,7 @@ impl GlobalSettingsQueries {
         query = query.bind(settings.require_authentication_for_file_download_links);
         query = query.bind(settings.combine_completed_documents_and_audit_log);
         query = query.bind(settings.expirable_file_download_links);
+        query = query.bind(settings.enable_confetti);
         query = query.bind(settings.completion_title.as_deref());
         query = query.bind(settings.completion_body.as_deref());
         query = query.bind(settings.redirect_title.as_deref());
@@ -2344,14 +2353,15 @@ impl GlobalSettingsQueries {
                 force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, 
                 allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, 
                 remember_and_pre_fill_signatures, require_authentication_for_file_download_links, 
-                combine_completed_documents_and_audit_log, expirable_file_download_links, 
+                combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti,
                 created_at, updated_at)
             VALUES (1, 'DocuSeal', 'UTC', 'en-US', 
-                FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, 
+                FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE,
                 $1, $2)
             ON CONFLICT (id) DO NOTHING
             "#
         )
+        .bind(now)
         .bind(now)
         .execute(pool)
         .await?;

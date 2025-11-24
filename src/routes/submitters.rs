@@ -3101,6 +3101,7 @@ async fn generate_signed_pdf_for_template_with_filter(
             require_authentication_for_file_download_links: false,
             combine_completed_documents_and_audit_log: false,
             expirable_file_download_links: false,
+            enable_confetti: false,
             completion_title: None,
             completion_body: None,
             redirect_title: None,

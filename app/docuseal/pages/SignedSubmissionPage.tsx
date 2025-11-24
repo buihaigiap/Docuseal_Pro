@@ -22,6 +22,7 @@ const SignedSubmissionPage = () => {
           upstashService.getSubmissionFields(token)
         ]);
 
+        console.log('submitterResult', submitterResult);
         if (submitterResult.success) {
           setData(prevData => ({ ...prevData, submitter: submitterResult.data }));
         }
