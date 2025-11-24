@@ -27,6 +27,9 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { globalSettings } = useBasicSettings();
   useEffect(() => {
+    // Log signature field size
+    console.log(`Signature field size: width=${width}, height=${height}`);
+
     // Map common timezone names to IANA identifiers
     const timeZoneMap: Record<string, string> = {
       "Midway Island": "Pacific/Midway",
@@ -508,6 +511,7 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
         maxWidth: '100%',
         maxHeight: '100%',
         imageRendering: 'auto',
+        // border: '0.5px solid #000000', // Add border around the signature area
         // border: 'none',
         // outline: 'none'
       }}

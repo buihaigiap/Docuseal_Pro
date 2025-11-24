@@ -485,11 +485,59 @@ pub async fn submit_bulk_signatures(
                     .find(|f| f.id == field_id)
                     .map(|f| f.name.clone())
                     .unwrap_or_else(|| format!("field_{}", field_id));
+                
+                // Get field position and calculate absolute PDF coordinates
+                let (abs_x, abs_y, abs_w, abs_h) = if let Some(field) = submission_fields.iter().find(|f| f.id == field_id) {
+                    if let Some(position_json) = &field.position {
+                        if let Ok(position) = serde_json::from_value::<crate::models::template::FieldPosition>(position_json.clone()) {
+                            // Get PDF page dimensions (assume A4 for now, will be corrected during rendering)
+                            let pdf_width = 595.276;
+                            let pdf_height = 841.89;
+                            let default_viewer_width = 600.0;
+                            let default_viewer_height = 800.0;
+                            
+                            // Calculate coord_mode and convert to absolute
+                            let (x_pos, y_pos, field_width, field_height) = if position.x <= 1.0 && position.y <= 1.0 && position.width <= 1.0 && position.height <= 1.0 {
+                                // Relative coordinates
+                                (
+                                    position.x * pdf_width,
+                                    position.y * pdf_height,
+                                    position.width * pdf_width,
+                                    position.height * pdf_height
+                                )
+                            } else if position.x <= default_viewer_width && position.y <= default_viewer_height && position.width <= default_viewer_width && position.height <= default_viewer_height {
+                                // Viewer pixels - normalize to relative then to PDF
+                                (
+                                    (position.x / default_viewer_width) * pdf_width,
+                                    (position.y / default_viewer_height) * pdf_height,
+                                    (position.width / default_viewer_width) * pdf_width,
+                                    (position.height / default_viewer_height) * pdf_height,
+                                )
+                            } else {
+                                // Already absolute coordinates
+                                (position.x, position.y, position.width, position.height)
+                            };
+                            
+                            (x_pos, y_pos, field_width, field_height)
+                        } else {
+                            (0.0, 0.0, 100.0, 20.0)
+                        }
+                    } else {
+                        (0.0, 0.0, 100.0, 20.0)
+                    }
+                } else {
+                    (0.0, 0.0, 100.0, 20.0)
+                };
+                
                 signatures_array.push(serde_json::json!({
                     "field_id": field_id,
                     "field_name": field_name,
                     "signature_value": signature_item.signature_value,
-                    "reason": signature_item.reason
+                    "reason": signature_item.reason,
+                    "abs_x": abs_x,
+                    "abs_y": abs_y,
+                    "abs_w": abs_w,
+                    "abs_h": abs_h
                 }));
             }
 

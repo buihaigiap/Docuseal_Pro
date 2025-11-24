@@ -1130,6 +1130,27 @@ pub async fn get_public_submitter_signatures(
     }
 }
 
+/// Helper function to normalize position coordinates (matching frontend logic)
+/// Converts pixel coordinates to decimal (0-1) format using 600x800 reference dimensions
+fn normalize_position(x: f64, y: f64, width: f64, height: f64) -> (f64, f64, f64, f64) {
+    const PAGE_WIDTH: f64 = 600.0;  // Default A4 width in pixels (matching frontend)
+    const PAGE_HEIGHT: f64 = 800.0; // Default A4 height in pixels (matching frontend)
+    
+    // Check if position is in pixels (values > 1) or already in decimal (0-1)
+    if x > 1.0 || y > 1.0 || width > 1.0 || height > 1.0 {
+        // Position is in pixels, convert to decimal (0-1)
+        (
+            x / PAGE_WIDTH,
+            y / PAGE_HEIGHT,
+            width / PAGE_WIDTH,
+            height / PAGE_HEIGHT,
+        )
+    } else {
+        // Already in decimal format
+        (x, y, width, height)
+    }
+}
+
 /// Helper function to render signatures on PDF using the position formula
 fn render_signatures_on_pdf(
     pdf_bytes: &[u8],
@@ -1137,6 +1158,7 @@ fn render_signatures_on_pdf(
     user_settings: &crate::database::models::DbGlobalSettings,
     submitter: &crate::database::models::DbSubmitter,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    println!("=== RENDER_SIGNATURES_ON_PDF CALLED (submitters.rs) ===");
     use lopdf::{Document, Object, Stream, Dictionary};
     use lopdf::content::{Content, Operation};
     
@@ -1149,12 +1171,16 @@ fn render_signatures_on_pdf(
         .map(|(_, obj_id)| obj_id)
         .collect();
     
+    println!("Rendering {} signatures on PDF", signatures.len());
+    
     // Process each signature
     for (field_name, field_type, signature_value, area_x, area_y, area_w, area_h, page_num, signature_json) in signatures {
         // Skip empty signatures
         if signature_value.trim().is_empty() {
             continue;
         }
+        
+        println!("Processing signature: field_name={}, field_type={}, value_len={}", field_name, field_type, signature_value.len());
         
         // Convert page number from 1-based to 0-based index
         let page_index = (*page_num - 1).max(0) as usize;
@@ -1202,41 +1228,34 @@ fn render_signatures_on_pdf(
             }
         };
         
-        // Convert position from relative (0-1) or pixel values (0..600/800 per default viewer) to absolute PDF points
-        // If values are between 0 and 1, they are relative and need to be converted by page size
-        // If values are >1 but look like pixel values from the web viewer, normalize by the viewer's default dimensions (600x800)
-        let default_viewer_pdf_width: f64 = 600.0;
-        let default_viewer_pdf_height: f64 = 800.0;
-
-        let coord_mode = if *area_x <= 1.0 && *area_y <= 1.0 && *area_w <= 1.0 && *area_h <= 1.0 {
-            "relative"
-        } else if *area_x <= default_viewer_pdf_width && *area_y <= default_viewer_pdf_height && *area_w <= default_viewer_pdf_width && *area_h <= default_viewer_pdf_height {
-            "viewer_pixels"
+        // Try to get absolute coordinates from signature_json first, fallback to calculation
+        let (x_pos, y_pos, field_width, field_height) = if let (Some(abs_x), Some(abs_y), Some(abs_w), Some(abs_h)) = (
+            signature_json.get("abs_x").and_then(|v| v.as_f64()),
+            signature_json.get("abs_y").and_then(|v| v.as_f64()),
+            signature_json.get("abs_w").and_then(|v| v.as_f64()),
+            signature_json.get("abs_h").and_then(|v| v.as_f64()),
+        ) {
+            println!("DEBUG: Using absolute coordinates from DB: x={}, y={}, w={}, h={}", abs_x, abs_y, abs_w, abs_h);
+            // Use absolute coordinates from DB (already in PDF units)
+            (abs_x, abs_y, abs_w, abs_h)
         } else {
-            "absolute_pdf_units"
+            // Convert normalized decimal coordinates (0-1) to absolute PDF coordinates
+            // Matching frontend: left: ${normalizedPos.x * 100}% → x = normalizedPos.x * pageWidth
+            println!("DEBUG: Converting normalized coordinates to absolute PDF units");
+            println!("DEBUG: Input (normalized): x={}, y={}, w={}, h={}", area_x, area_y, area_w, area_h);
+            println!("DEBUG: Page dimensions: {}x{}", page_width, page_height);
+            
+            let abs_x = area_x * page_width;
+            let abs_y = area_y * page_height;
+            let abs_w = area_w * page_width;
+            let abs_h = area_h * page_height;
+            
+            println!("DEBUG: Output (absolute): x={}, y={}, w={}, h={}", abs_x, abs_y, abs_w, abs_h);
+            
+            (abs_x, abs_y, abs_w, abs_h)
         };
-
-        let (x_pos, y_pos, field_width, field_height) = if coord_mode == "relative" {
-            // Relative coordinates - convert to absolute by page dimensions
-            (
-                *area_x * page_width,
-                *area_y * page_height,
-                *area_w * page_width,
-                *area_h * page_height
-            )
-        } else if coord_mode == "viewer_pixels" {
-            // Values appear to be pixel coordinates from the frontend viewer that uses default 600x800.
-            // Normalize them into relative (0-1) and then convert to page points
-            (
-                (*area_x / default_viewer_pdf_width) * page_width,
-                (*area_y / default_viewer_pdf_height) * page_height,
-                (*area_w / default_viewer_pdf_width) * page_width,
-                (*area_h / default_viewer_pdf_height) * page_height,
-            )
-        } else {
-            // Already absolute coordinates in PDF units
-            (*area_x, *area_y, *area_w, *area_h)
-        };
+        
+        println!("Final coordinates: x={}, y={}, w={}, h={}, page: {}x{}", x_pos, y_pos, field_width, field_height, page_width, page_height);
         
         // Convert from top-left (web) to bottom-left (PDF) coordinate system
         let pdf_y = page_height - y_pos - field_height;
@@ -1296,6 +1315,52 @@ fn render_signatures_on_pdf(
                 // Important: Signature is rendered in the TOP portion, text in BOTTOM portion
                 let sig_height = field_height - text_height;
                 let sig_y = pdf_y + text_height; // Signature Y position in PDF coordinates (bottom-left origin)
+                
+                // Log signature field size
+                println!("Signature field size (initials): width={}, height={}", field_width, field_height);
+                
+                // // Draw border around signature area
+                // {
+                //     let border_ops = vec![
+                //         Operation::new("w", vec![Object::Real(0.5)]),
+                //         Operation::new("m", vec![Object::Real(x_pos as f32), Object::Real(sig_y as f32)]),
+                //         Operation::new("l", vec![Object::Real((x_pos + field_width) as f32), Object::Real(sig_y as f32)]),
+                //         Operation::new("l", vec![Object::Real((x_pos + field_width) as f32), Object::Real((sig_y + sig_height) as f32)]),
+                //         Operation::new("l", vec![Object::Real(x_pos as f32), Object::Real((sig_y + sig_height) as f32)]),
+                //         Operation::new("h", vec![]),
+                //         Operation::new("S", vec![]),
+                //     ];
+                //     let content = Content { operations: border_ops };
+                //     let content_data = content.encode()?;
+                //     let mut stream_dict = Dictionary::new();
+                //     stream_dict.set("Length", Object::Integer(content_data.len() as i64));
+                //     let stream = Stream::new(stream_dict, content_data);
+                //     let stream_id = doc.add_object(stream);
+                //     // Add to page contents
+                //     {
+                //         let page_obj = doc.get_object_mut(page_id)?;
+                //         let page_dict = page_obj.as_dict_mut()?;
+                //         if let Ok(contents_obj) = page_dict.get_mut(b"Contents") {
+                //             match contents_obj {
+                //                 Object::Reference(ref_id) => {
+                //                     let old_ref = *ref_id;
+                //                     *contents_obj = Object::Array(vec![
+                //                         Object::Reference(old_ref),
+                //                         Object::Reference(stream_id),
+                //                     ]);
+                //                 }
+                //                 Object::Array(ref mut arr) => {
+                //                     arr.push(Object::Reference(stream_id));
+                //                 }
+                //                 _ => {
+                //                     *contents_obj = Object::Array(vec![Object::Reference(stream_id)]);
+                //                 }
+                //             }
+                //         } else {
+                //             page_dict.set("Contents", Object::Array(vec![Object::Reference(stream_id)]));
+                //         }
+                //     }
+                // }
                 
                 // Render chữ ký từ vector data hoặc text
                 if signature_value.starts_with('[') {
@@ -1357,6 +1422,57 @@ fn render_signatures_on_pdf(
                 // Important: Signature is rendered in the TOP portion, text in BOTTOM portion
                 let sig_height = field_height - text_height;
                 let sig_y = pdf_y + text_height; // Signature Y position in PDF coordinates (bottom-left origin)
+
+                // // Log detailed size breakdown
+                // println!("=== SIZE BREAKDOWN ===");
+                // println!("Total field size: width={}, height={}", field_width, field_height);
+                // println!("Text area size: width={}, height={}", field_width, text_height);
+                // println!("Signature area size: width={}, height={}", field_width, sig_height);
+                // println!("Total occupied height: {}", text_height + sig_height);
+                // println!("=====================");
+                
+                // // Draw border around signature area
+                // {
+                //     let border_ops = vec![
+                //         Operation::new("w", vec![Object::Real(0.5)]),
+                //         Operation::new("m", vec![Object::Real(x_pos as f32), Object::Real(sig_y as f32)]),
+                //         Operation::new("l", vec![Object::Real((x_pos + field_width) as f32), Object::Real(sig_y as f32)]),
+                //         Operation::new("l", vec![Object::Real((x_pos + field_width) as f32), Object::Real((sig_y + sig_height) as f32)]),
+                //         Operation::new("l", vec![Object::Real(x_pos as f32), Object::Real((sig_y + sig_height) as f32)]),
+                //         Operation::new("h", vec![]),
+                //         Operation::new("S", vec![]),
+                //     ];
+                //     let content = Content { operations: border_ops };
+                //     let content_data = content.encode()?;
+                //     let mut stream_dict = Dictionary::new();
+                //     stream_dict.set("Length", Object::Integer(content_data.len() as i64));
+                //     let stream = Stream::new(stream_dict, content_data);
+                //     let stream_id = doc.add_object(stream);
+                //     // Add to page contents
+                //     {
+                //         let page_obj = doc.get_object_mut(page_id)?;
+                //         let page_dict = page_obj.as_dict_mut()?;
+                //         if let Ok(contents_obj) = page_dict.get_mut(b"Contents") {
+                //             match contents_obj {
+                //                 Object::Reference(ref_id) => {
+                //                     let old_ref = *ref_id;
+                //                     *contents_obj = Object::Array(vec![
+                //                         Object::Reference(old_ref),
+                //                         Object::Reference(stream_id),
+                //                     ]);
+                //                 }
+                //                 Object::Array(ref mut arr) => {
+                //                     arr.push(Object::Reference(stream_id));
+                //                 }
+                //                 _ => {
+                //                     *contents_obj = Object::Array(vec![Object::Reference(stream_id)]);
+                //                 }
+                //             }
+                //         } else {
+                //             page_dict.set("Contents", Object::Array(vec![Object::Reference(stream_id)]));
+                //         }
+                //     }
+                // }
                 
                 // Mặc định (trường văn bản hoặc chữ ký): Kiểm tra xem có phải vector signature không
                 if signature_value.starts_with('[') {
@@ -1589,16 +1705,63 @@ fn render_signature_id_info(
         reason
     );
 
+    // // Draw border around text area
+    // {
+    //     let text_border_ops = vec![
+    //         Operation::new("w", vec![Object::Real(0.5)]),
+    //         Operation::new("m", vec![Object::Real(x_pos as f32), Object::Real(pdf_y as f32)]),
+    //         Operation::new("l", vec![Object::Real((x_pos + field_width) as f32), Object::Real(pdf_y as f32)]),
+    //         Operation::new("l", vec![Object::Real((x_pos + field_width) as f32), Object::Real((pdf_y + text_height) as f32)]),
+    //         Operation::new("l", vec![Object::Real(x_pos as f32), Object::Real((pdf_y + text_height) as f32)]),
+    //         Operation::new("h", vec![]),
+    //         Operation::new("S", vec![]),
+    //     ];
+    //     let text_border_content = Content { operations: text_border_ops };
+    //     let text_border_data = text_border_content.encode()?;
+    //     let mut text_border_stream_dict = Dictionary::new();
+    //     text_border_stream_dict.set("Length", Object::Integer(text_border_data.len() as i64));
+    //     let text_border_stream = Stream::new(text_border_stream_dict, text_border_data);
+    //     let text_border_stream_id = doc.add_object(text_border_stream);
+    //     // Add to page contents
+    //     {
+    //         let page_obj = doc.get_object_mut(page_id)?;
+    //         let page_dict = page_obj.as_dict_mut()?;
+    //         if let Ok(contents_obj) = page_dict.get_mut(b"Contents") {
+    //             match contents_obj {
+    //                 Object::Reference(ref_id) => {
+    //                     let old_ref = *ref_id;
+    //                     *contents_obj = Object::Array(vec![
+    //                         Object::Reference(old_ref),
+    //                         Object::Reference(text_border_stream_id),
+    //                     ]);
+    //                 }
+    //                 Object::Array(ref mut arr) => {
+    //                     arr.push(Object::Reference(text_border_stream_id));
+    //                 }
+    //                 _ => {
+    //                     *contents_obj = Object::Array(vec![Object::Reference(text_border_stream_id)]);
+    //                 }
+    //             }
+    //         } else {
+    //             page_dict.set("Contents", Object::Array(vec![Object::Reference(text_border_stream_id)]));
+    //         }
+    //     }
+    // }
+
     // Position the signature info at the BOTTOM of the field
     // Matching SignatureRenderer.tsx: text starts from bottom and goes up
     let info_x = x_pos + 5.0; // Match frontend padding of 5px
-    let font_size = 6.5; // Fine-tuned for visual match with Web UI
-    let line_height = 6.5; // Fine-tuned spacing
+    let font_size = 8.0; // Increased for better visibility
+    let line_height = 8.5; // Increased spacing to fill height
     
     // Text area is at the bottom: from pdf_y to (pdf_y + text_height)
     // Calculate actual text height needed (matching frontend calculation)
     let actual_text_height = (signature_info_parts.len() as f64 - 1.0) * line_height + font_size + 2.0 + 10.0;
-    
+
+    // Debug: Log text dimensions
+    println!("DEBUG: Text dimensions - actual_text_height={}, font_size={}, line_height={}, signature_info_parts_count={}",
+             actual_text_height, font_size, line_height, signature_info_parts.len());
+
     // Start rendering from the bottom of text area
     // First line should be at pdf_y + 3 (bottom padding), last line at the top
     let text_start_y = pdf_y + 2.0; // Bottom padding: 2px from the bottom (matching frontend)
@@ -2837,14 +3000,44 @@ async fn generate_signed_pdf_for_template_with_filter(
                             // Parse position from JSON
                             if let Some(position_json) = &template_field.position {
                                 if let Ok(position) = serde_json::from_value::<crate::models::template::FieldPosition>(position_json.clone()) {
+                                    // Use absolute coordinates from bulk_signatures if available, otherwise use template position
+                                    let (final_x, final_y, final_w, final_h) = if let (Some(abs_x), Some(abs_y), Some(abs_w), Some(abs_h)) = (
+                                        sig.get("abs_x").and_then(|v| v.as_f64()),
+                                        sig.get("abs_y").and_then(|v| v.as_f64()),
+                                        sig.get("abs_w").and_then(|v| v.as_f64()),
+                                        sig.get("abs_h").and_then(|v| v.as_f64()),
+                                    ) {
+                                        println!("DEBUG: Using absolute coordinates from DB: x={}, y={}, w={}, h={}", abs_x, abs_y, abs_w, abs_h);
+                                        // Use absolute coordinates from DB
+                                        (abs_x, abs_y, abs_w, abs_h)
+                                    } else {
+                                        println!("DEBUG: Using template position: x={}, y={}, w={}, h={}", position.x, position.y, position.width, position.height);
+                                        println!("DEBUG: Full signature JSON: {}", serde_json::to_string_pretty(&sig).unwrap_or("Invalid JSON".to_string()));
+
+                                        // Normalize position to decimal (0-1) format (matching frontend)
+                                        let (norm_x, norm_y, norm_w, norm_h) = normalize_position(
+                                            position.x,
+                                            position.y,
+                                            position.width,
+                                            position.height
+                                        );
+
+                                        println!("DEBUG: Normalized to decimal: x={}, y={}, w={}, h={}", norm_x, norm_y, norm_w, norm_h);
+
+                                        // Note: We pass normalized decimal values here
+                                        // They will be converted to absolute PDF coordinates in render_signatures_on_pdf
+                                        // using actual page dimensions (e.g., 612x792 for Letter)
+                                        (norm_x, norm_y, norm_w, norm_h)
+                                    };
+                                    
                                     all_signatures.push((
                                         field_name.to_string(),
                                         template_field.field_type.clone(),
                                         signature_value.to_string(),
-                                        position.x,
-                                        position.y,
-                                        position.width,
-                                        position.height,
+                                        final_x,
+                                        final_y,
+                                        final_w,
+                                        final_h,
                                         position.page,
                                         sig.clone(),
                                     ));
