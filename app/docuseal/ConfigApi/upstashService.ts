@@ -172,6 +172,14 @@ const upstashService = {
         const url = '/api/auth/users';
         return await axiosClient.post(url, data)
     },
+    updateTeam : async (id: number, data: any): Promise<any> => {
+        const url = `/api/admin/members/${id}`;
+        return await axiosClient.put(url, data)
+    },
+    deleteTeam : async (id: number): Promise<any> => {
+        const url = `/api/admin/members/${id}`;
+        return await axiosClient.delete(url)
+    },
     activateAccount : async (data: any): Promise<any> => {
         const url = '/api/auth/activate';
         return await axiosClient.post(url, data)

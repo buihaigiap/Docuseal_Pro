@@ -66,13 +66,13 @@ const TemplateEditPage = () => {
     email: string;
     template_name?: string;
     status: string;
-    signed_at?: string
+    signed_at?: string;
+    global_settings?: any;
   } | null>(null);
   const [pendingUploads, setPendingUploads] = useState<Record<number, File>>({});
   const [fileUploading, setFileUploading] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string>('');
   const [customReason, setCustomReason] = useState<string>('');
-  const { globalSettings } = useBasicSettings();
   const [reasons, setReasons] = useState<Record<number, string>>({});
   const [declineModalOpen, setDeclineModalOpen] = useState(false);
   const [declineReason, setDeclineReason] = useState<string>('');
@@ -115,19 +115,22 @@ const TemplateEditPage = () => {
         if (data.data.information) {
           // Fetch full submitter info to get status
           const submitterData = await upstashService.getSubmitterInfo(token);
+          console.log('submitterData', submitterData);
           if (submitterData.success) {
             setSubmitterInfo({
               id: data.data.information.id,
               email: data.data.information.email,
               template_name: submitterData.data.template_name,
               status: submitterData.data.status,
-              signed_at: submitterData.data.signed_at
+              signed_at: submitterData.data.signed_at, 
+              global_settings: submitterData.data?.global_settings
             });
           } else {
             setSubmitterInfo({
               id: data.data.information.id,
               email: data.data.information.email,
-              status: 'pending'
+              status: 'pending',
+              global_settings: submitterData.data?.global_settings
             });
           }
         }
@@ -172,7 +175,7 @@ const TemplateEditPage = () => {
 
   // Initialize texts with default signatures/initials when fields and user are available
   useEffect(() => {
-    if (fields.length > 0 && user && globalSettings?.remember_and_pre_fill_signatures) {
+    if (fields.length > 0 && user && submitterInfo?.global_settings?.remember_and_pre_fill_signatures) {
       const initialTexts: Record<number, string> = {};
       fields.forEach(field => {
         if ((field.field_type === 'signature' || field.field_type === 'initials') && !texts[field.id]) {
@@ -186,11 +189,11 @@ const TemplateEditPage = () => {
         setTexts(prev => ({ ...prev, ...initialTexts }));
       }
     }
-  }, [fields, user, globalSettings?.remember_and_pre_fill_signatures]);
+  }, [fields, user, submitterInfo?.global_settings?.remember_and_pre_fill_signatures]);
 
   // Update reasons state when selected reason changes
   useEffect(() => {
-    if (globalSettings?.require_signing_reason) {
+    if (submitterInfo?.global_settings?.require_signing_reason) {
       const reason = selectedReason === 'Other' ? customReason : selectedReason;
       const newReasons: Record<number, string> = {};
       fields.forEach(field => {
@@ -200,7 +203,7 @@ const TemplateEditPage = () => {
       });
       setReasons(newReasons);
     }
-  }, [selectedReason, customReason, fields, globalSettings?.require_signing_reason]);
+  }, [selectedReason, customReason, fields, submitterInfo?.global_settings?.require_signing_reason]);
 
   const onFieldClick = (field: TemplateField) => {
     const globalIndex = fields.findIndex(f => f.id === field.id);
@@ -329,7 +332,7 @@ const TemplateEditPage = () => {
       const signatures = fields.map(field => ({
         field_id: field.id,
         signature_value: finalTexts[field.id] || '',
-        reason: globalSettings?.require_signing_reason ? reason : undefined
+        reason: submitterInfo?.global_settings?.require_signing_reason ? reason : undefined
       }));
 
       // Generate or retrieve session ID
@@ -406,7 +409,7 @@ const TemplateEditPage = () => {
       const signatures = fields.map(field => ({
         field_id: field.id,
         signature_value: finalTexts[field.id] || '', // Preserve existing values
-        reason: globalSettings?.require_signing_reason && (field.field_type === 'signature' || field.field_type === 'initials') ? reason : undefined
+        reason: submitterInfo?.global_settings?.require_signing_reason && (field.field_type === 'signature' || field.field_type === 'initials') ? reason : undefined
       }));
 
       // Generate or retrieve session ID
@@ -467,7 +470,7 @@ const TemplateEditPage = () => {
         signedDate={signedDate}
         templateName={submitterInfo?.template_name}
         token={token}
-        allowResubmit={globalSettings?.allow_to_resubmit_completed_forms || false}
+        allowResubmit={submitterInfo?.global_settings?.allow_to_resubmit_completed_forms || false}
       />
     );
   }
@@ -481,7 +484,7 @@ const TemplateEditPage = () => {
     <div >
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{templateInfo?.name}</h1>
-        {globalSettings?.allow_to_decline_documents && (
+        {submitterInfo?.global_settings?.allow_to_decline_documents && (
           <CreateTemplateButton
             text="Decline"
             onClick={handleDecline}
@@ -503,7 +506,7 @@ const TemplateEditPage = () => {
         submitterEmail={submitterInfo?.email}
         reasons={reasons}
         clearedFields={clearedFields}
-        globalSettings={globalSettings}
+        globalSettings={submitterInfo?.global_settings}
       />
 
       {/* Form Modal */}
@@ -572,7 +575,7 @@ const TemplateEditPage = () => {
                 <SignaturePad
                   onSave={(dataUrl) => handleTextChange(currentField.id, dataUrl)}
                   onClear={() => handleTextChange(currentField.id, '')}
-                  initialData={texts[currentField.id] || (!clearedFields.has(currentField.id) && globalSettings?.remember_and_pre_fill_signatures && (currentField.field_type === 'signature' ? user?.signature : user?.initials))}
+                  initialData={texts[currentField.id] || (!clearedFields.has(currentField.id) && submitterInfo?.global_settings?.remember_and_pre_fill_signatures && (currentField.field_type === 'signature' ? user?.signature : user?.initials))}
                   fieldType={currentField.field_type}
                   onFileSelected={(file) => {
                     if (file) {
@@ -776,7 +779,7 @@ const TemplateEditPage = () => {
             </div>
           )}
 
-          {globalSettings?.require_signing_reason && (currentField.field_type === 'signature' || currentField.field_type === 'initials') && (
+          {submitterInfo?.global_settings?.require_signing_reason && (currentField.field_type === 'signature' || currentField.field_type === 'initials') && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
               <FormControl fullWidth>
                 <InputLabel>Signing Reason</InputLabel>
@@ -889,7 +892,6 @@ const TemplateEditPage = () => {
         }))}
         templateName={templateInfo?.name || 'document'}
         submitterInfo={submitterInfo}
-        globalSettings={globalSettings}
         token={token}
       />
 

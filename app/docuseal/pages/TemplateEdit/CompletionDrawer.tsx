@@ -19,8 +19,7 @@ interface CompletionDrawerProps {
   pdfUrl: string;
   signatures: any[];
   templateName: string;
-  submitterInfo?: { id: number; email: string } | null;
-  globalSettings?: any;
+  submitterInfo?: any;
   token?: string;
 }
 
@@ -30,14 +29,13 @@ const CompletionDrawer: React.FC<CompletionDrawerProps> = ({
   signatures,
   templateName,
   submitterInfo,
-  globalSettings,
   token
 }) => {
   const [isDownloading, setIsDownloading] = React.useState(false);
   const [isSendingEmail, setIsSendingEmail] = React.useState(false);
 
   React.useEffect(() => {
-    if (globalSettings?.enable_confetti && open) {
+    if (submitterInfo?.global_settings?.enable_confetti && open) {
       confetti({
         particleCount: 100,
         spread: 70,
@@ -54,7 +52,7 @@ const CompletionDrawer: React.FC<CompletionDrawerProps> = ({
         signatures,
         templateName,
         submitterInfo,
-        globalSettings
+        submitterInfo?.global_settings
       );
       toast.success('Document downloaded successfully');
     } catch (error) {
@@ -108,16 +106,16 @@ const CompletionDrawer: React.FC<CompletionDrawerProps> = ({
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <BadgeCheck color="green" />
           <Typography variant="h6" component="h2" sx={{ fontWeight: 600 }}>
-            {globalSettings?.completion_title || 'Signed successfully'}
+            {submitterInfo?.global_settings?.completion_title || 'Signed successfully'}
           </Typography>
         </Box>
       </Box>
 
       {/* Body */}
-      {globalSettings?.completion_body !== "" && (
+      {submitterInfo?.global_settings?.completion_body !== "" && (
         <Box>
           <Typography variant="body1" sx={{ color: 'white', lineHeight: 1.6 }}>
-            {globalSettings?.completion_body}
+            {submitterInfo?.global_settings?.completion_body}
           </Typography>
         </Box>
       )}
@@ -151,11 +149,11 @@ const CompletionDrawer: React.FC<CompletionDrawerProps> = ({
         </Button>
 
         {/* Redirect Button */}
-        {globalSettings?.redirect_title !== "" && (
+        {submitterInfo?.global_settings?.redirect_title !== "" && (
           <CreateTemplateButton
-            text={globalSettings?.redirect_title}
+            text={submitterInfo?.global_settings?.redirect_title}
             onClick={() => {
-              window.open(globalSettings?.redirect_url, "_blank");
+              window.open(submitterInfo?.global_settings?.redirect_url, "_blank");
             }}
           />
         )}

@@ -71,6 +71,7 @@ pub async fn get_submitters(
                     template_name: None,
                     decline_reason: db_submitter.decline_reason,
                     can_download: None,
+                    global_settings: None,
                 };
                 all_submitters.push(submitter);
             }
@@ -136,6 +137,7 @@ pub async fn get_submitter(
                 template_name: None,
                 decline_reason: db_submitter.decline_reason,
                 can_download: None,
+                global_settings: None,
             };
             ApiResponse::success(submitter, "Submitter retrieved successfully".to_string())
         }
@@ -277,6 +279,7 @@ pub async fn update_submitter(
                         template_name: None,
                         decline_reason: db_submitter.decline_reason,
                         can_download: None,
+                        global_settings: None,
                     };
                     ApiResponse::success(submitter, "Submitter updated successfully".to_string())
                 }
@@ -385,6 +388,7 @@ pub async fn update_public_submitter(
                         template_name: None,
                         decline_reason: updated_submitter.decline_reason,
                         can_download: None,
+                        global_settings: None,
                     };
                     ApiResponse::success(submitter, "Submitter updated successfully".to_string())
                 }
@@ -430,6 +434,51 @@ pub async fn get_public_submitter(
                 .ok()
                 .flatten();
             
+            // Get global settings for the response
+            let global_settings = if let Some(settings) = &user_settings {
+                Some(serde_json::json!({
+                    "force_2fa_with_authenticator_app": settings.force_2fa_with_authenticator_app,
+                    "add_signature_id_to_the_documents": settings.add_signature_id_to_the_documents,
+                    "require_signing_reason": settings.require_signing_reason,
+                    "allow_typed_text_signatures": settings.allow_typed_text_signatures,
+                    "allow_to_resubmit_completed_forms": settings.allow_to_resubmit_completed_forms,
+                    "allow_to_decline_documents": settings.allow_to_decline_documents,
+                    "remember_and_pre_fill_signatures": settings.remember_and_pre_fill_signatures,
+                    "require_authentication_for_file_download_links": settings.require_authentication_for_file_download_links,
+                    "combine_completed_documents_and_audit_log": settings.combine_completed_documents_and_audit_log,
+                    "expirable_file_download_links": settings.expirable_file_download_links,
+                    "enable_confetti": settings.enable_confetti,
+                    "completion_title": settings.completion_title,
+                    "completion_body": settings.completion_body,
+                    "redirect_title": settings.redirect_title,
+                    "redirect_url": settings.redirect_url
+                }))
+            } else {
+                // Create default settings if none exist
+                match GlobalSettingsQueries::create_user_settings(pool, db_submitter.user_id as i32).await {
+                    Ok(settings) => {
+                        Some(serde_json::json!({
+                            "force_2fa_with_authenticator_app": settings.force_2fa_with_authenticator_app,
+                            "add_signature_id_to_the_documents": settings.add_signature_id_to_the_documents,
+                            "require_signing_reason": settings.require_signing_reason,
+                            "allow_typed_text_signatures": settings.allow_typed_text_signatures,
+                            "allow_to_resubmit_completed_forms": settings.allow_to_resubmit_completed_forms,
+                            "allow_to_decline_documents": settings.allow_to_decline_documents,
+                            "remember_and_pre_fill_signatures": settings.remember_and_pre_fill_signatures,
+                            "require_authentication_for_file_download_links": settings.require_authentication_for_file_download_links,
+                            "combine_completed_documents_and_audit_log": settings.combine_completed_documents_and_audit_log,
+                            "expirable_file_download_links": settings.expirable_file_download_links,
+                            "enable_confetti": settings.enable_confetti,
+                            "completion_title": settings.completion_title,
+                            "completion_body": settings.completion_body,
+                            "redirect_title": settings.redirect_title,
+                            "redirect_url": settings.redirect_url
+                        }))
+                    }
+                    Err(_) => None,
+                }
+            };
+            
             // Calculate can_download based on expirable_file_download_links setting
             let can_download = if let Some(settings) = user_settings {
                 if settings.expirable_file_download_links {
@@ -472,6 +521,7 @@ pub async fn get_public_submitter(
                 template_name,
                 decline_reason: db_submitter.decline_reason,
                 can_download,
+                global_settings,
             };
             ApiResponse::success(submitter, "Submitter retrieved successfully".to_string())
         }
@@ -581,6 +631,7 @@ pub async fn submit_bulk_signatures(
         template_name: None,
         decline_reason: updated_submitter.decline_reason,
         can_download: None,
+        global_settings: None,
     };
     ApiResponse::success(submitter, "Bulk signatures submitted successfully".to_string())
 }
@@ -695,6 +746,7 @@ async fn handle_decline_action(
                 template_name: None,
                 decline_reason: updated_submitter.decline_reason,
                 can_download: None,
+                global_settings: None,
             };
             ApiResponse::success(submitter, "Document declined successfully".to_string())
         }
@@ -2686,6 +2738,7 @@ pub async fn resubmit_submitter(
                                 template_name: None,
                                 decline_reason: updated_submitter.decline_reason,
                                 can_download: None,
+                                global_settings: None,
                             };
                             ApiResponse::success(submitter, "Submitter resubmitted successfully".to_string())
                         }

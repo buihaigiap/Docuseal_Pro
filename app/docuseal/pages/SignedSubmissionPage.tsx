@@ -11,7 +11,7 @@ const SignedSubmissionPage = () => {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
   const [submitterInfo, setSubmitterInfo] = useState<{ id: number; email: string } | null>(null);
-  
+  console.log('datassssssssssss', data);
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -22,7 +22,6 @@ const SignedSubmissionPage = () => {
           upstashService.getSubmissionFields(token)
         ]);
 
-        console.log('submitterResult', submitterResult);
         if (submitterResult.success) {
           setData(prevData => ({ ...prevData, submitter: submitterResult.data }));
         }
@@ -92,6 +91,7 @@ const SignedSubmissionPage = () => {
             fields={data?.bulk_signatures?.map(sig => ({ ...sig.field_info, signature_value: sig.signature_value, reason: sig.reason }))}
             submitterId={submitterInfo?.id}
             submitterEmail={submitterInfo?.email}
+            globalSettings={data?.submitter?.global_settings}
             // scale={1.5}
           />
         </div>
@@ -146,6 +146,7 @@ const SignedSubmissionPage = () => {
                           submitterId={submitterInfo?.id}
                           submitterEmail={submitterInfo?.email}
                           reason={sig.reason}
+                          globalSettings={data?.submitter?.global_settings}
                         />
                       </div>
                     ) : (

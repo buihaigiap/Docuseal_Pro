@@ -156,6 +156,7 @@ const SignPage = () => {
         <DocumentViewer
           fields={submitterInfo.template.fields || []}
           onFieldClick={openFieldModal}
+          globalSettings={globalSettings}
         />
       </Box>
       <Paper sx={{ 

@@ -5,9 +5,36 @@ import {
 import { useTranslation } from 'react-i18next';
 import BasicInformation from './BasicInformation';
 import PreferencesSection from './PreferencesSection';
+import { useBasicSettings } from '../../hooks/useBasicSettings';
 
 const GeneralSettings = () => {
   const { t } = useTranslation();
+  const { globalSettings, loading, refetch } = useBasicSettings();
+
+  // Extract preferences from global settings
+  const preferences = globalSettings ? {
+    force2fa: globalSettings.force_2fa_with_authenticator_app || false,
+    addSignatureId: globalSettings.add_signature_id_to_the_documents || false,
+    requireSigningReason: globalSettings.require_signing_reason || false,
+    allowTypedTextSignatures: globalSettings.allow_typed_text_signatures || false,
+    allowResubmitCompletedForms: globalSettings.allow_to_resubmit_completed_forms || false,
+    allowDeclineDocuments: globalSettings.allow_to_decline_documents || false,
+    rememberPrefillSignatures: globalSettings.remember_and_pre_fill_signatures || false,
+    requireAuthForDownload: globalSettings.require_authentication_for_file_download_links || false,
+    combineCompletedAudit: globalSettings.combine_completed_documents_and_audit_log || false,
+    expirableDownloadLinks: globalSettings.expirable_file_download_links || false
+  } : {
+    force2fa: false,
+    addSignatureId: false,
+    requireSigningReason: false,
+    allowTypedTextSignatures: false,
+    allowResubmitCompletedForms: false,
+    allowDeclineDocuments: false,
+    rememberPrefillSignatures: false,
+    requireAuthForDownload: false,
+    combineCompletedAudit: false,
+    expirableDownloadLinks: false
+  };
 
   return (
     <Box sx={{ p: 3 }}>
@@ -22,18 +49,8 @@ const GeneralSettings = () => {
       />
 
       <PreferencesSection
-        initialPreferences={{
-          force2fa: false,
-          addSignatureId: false,
-          requireSigningReason: false,
-          allowTypedTextSignatures: false,
-          allowResubmitCompletedForms: false,
-          allowDeclineDocuments: false,
-          rememberPrefillSignatures: false,
-          requireAuthForDownload: false,
-          combineCompletedAudit: false,
-          expirableDownloadLinks: false
-        }}
+        initialPreferences={preferences}
+        onSettingsUpdate={refetch}
       />
     </Box>
   );

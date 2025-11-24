@@ -147,6 +147,7 @@ pub async fn get_template_full_info(
                             template_name: None,
                             decline_reason: db_sub.decline_reason,
                             can_download: None,
+                            global_settings: None,
                         }
                     }).collect::<Vec<_>>();
 

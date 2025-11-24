@@ -3,6 +3,7 @@ import { Typography, Box, Button, Table, TableBody, TableCell, TableContainer, T
 import CreateTemplateButton from '@/components/CreateTemplateButton';
 import upstashService from '../../../ConfigApi/upstashService';
 import toast from 'react-hot-toast';
+import { PenLine, Trash } from 'lucide-react';
 
 const UsersSettings = () => {
   const [open, setOpen] = useState(false);
@@ -10,6 +11,7 @@ const UsersSettings = () => {
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState([]);
   const [fetchLoading, setFetchLoading] = useState(true);
+  const [editingUser, setEditingUser] = useState(null);
   const roles = ['admin', 'editor', 'member', 'agent', 'viewer'];
 
   useEffect(() => {
@@ -26,7 +28,7 @@ const UsersSettings = () => {
     fetchUsers();
   }, []);
 
-  const tableColumns = ['Name', 'Email', 'Role', 'Status'];
+  const tableColumns = ['Name', 'Email', 'Role', 'Status', 'Actions'];
   const tableKeys = ['name', 'email', 'role', 'status'];
 
   const handleClickOpen = () => {
@@ -36,6 +38,33 @@ const UsersSettings = () => {
   const handleClose = () => {
     setOpen(false);
     setFormData({ name: '', email: '', role: '' });
+    setEditingUser(null);
+  };
+
+  const handleEdit = (user: any) => {
+    setFormData({ name: user.name, email: user.email, role: user.role });
+    setEditingUser(user);
+    setOpen(true);
+  };
+
+  const handleDelete = async (user: any) => {
+    if (!window.confirm(`Are you sure you want to delete ${user.name}?`)) return;
+    try {
+      const response = await upstashService.deleteTeam(user.id);
+      if (response.success) {
+        toast.success('User deleted successfully');
+        // Refetch users
+        const fetchResponse = await upstashService.getUserAccounts();
+        if (fetchResponse.success) {
+          setUsers(fetchResponse.data);
+        }
+      } else {
+        toast.error(response.message || 'Failed to delete user');
+      }
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      toast.error('Failed to delete user');
+    }
   };
 
   const handleChange = (e: any) => {
@@ -45,25 +74,32 @@ const UsersSettings = () => {
   const handleSubmit = async () => {
     setLoading(true);
     try {
-      const response = await upstashService.addTeam({
-        email: formData.email,
-        name: formData.name,
-        role: formData.role
-      });
+      let response;
+      if (editingUser) {
+        response = await upstashService.updateTeam(editingUser.id, {
+          name: formData.name,
+          email: formData.email,
+          role: formData.role
+        });
+      } else {
+        response = await upstashService.addTeam({
+          email: formData.email,
+          name: formData.name,
+          role: formData.role
+        });
+      }
       if (response.success) {
-        toast.success('User added successfully');
+        const emailChanged = editingUser && editingUser.email !== formData.email;
+        toast.success(editingUser ? (emailChanged ? 'User updated and invitation email resent' : 'User updated successfully') : 'User added successfully');
         // Refetch users
         const fetchResponse = await upstashService.getUserAccounts();
         if (fetchResponse.success) {
           setUsers(fetchResponse.data);
         }
         handleClose();
-      } else {
-        toast.error(response.message || 'Failed to add user');
-      }
+      } 
     } catch (error) {
-      console.error('Error adding user:', error);
-      toast.error('Failed to add user');
+      toast.error(error?.message );
     } finally {
       setLoading(false);
     }
@@ -119,6 +155,18 @@ const UsersSettings = () => {
                       )}
                     </TableCell>
                   ))}
+                  <TableCell sx={{ color: 'white' }}>
+                    {user.status === 'pending' && user.id && (
+                      <>
+                        <Button onClick={() => handleEdit(user)} sx={{ minWidth: 'auto', p: 1  , color: 'white' }}>
+                          <PenLine size={16} />
+                        </Button>
+                        <Button onClick={() => handleDelete(user)} sx={{ minWidth: 'auto', p: 1 , color: 'white' }}>
+                          <Trash size={16} />
+                        </Button>
+                      </>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -127,7 +175,7 @@ const UsersSettings = () => {
       </TableContainer>
 
       <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New User</DialogTitle>
+        <DialogTitle>{editingUser ? 'Edit User' : 'Add New User'}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
@@ -155,7 +203,7 @@ const UsersSettings = () => {
           <FormControl fullWidth margin="dense" sx={{ mb: 2 }}>
             <InputLabel sx={{ color: 'white' }}>Role</InputLabel>
             <Select
-              name="role"
+              label="role"
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
               sx={{ color: 'white', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'white' } }}
@@ -199,7 +247,7 @@ const UsersSettings = () => {
             </Button>
             <CreateTemplateButton
                  onClick={handleSubmit}
-                text="Submit"
+                text={editingUser ? "Update" : "Submit"}
                 loading={loading}
             />
         </DialogActions>

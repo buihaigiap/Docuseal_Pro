@@ -56,6 +56,8 @@ pub fn create_router() -> Router<AppState> {
         .route("/me", get(submitters::get_me))
         .route("/users", get(get_users_handler))
         .route("/admin/members", get(get_admin_team_members_handler))
+        .route("/admin/members/:id", put(update_user_invitation_handler))
+        .route("/admin/members/:id", delete(delete_user_invitation_handler))
         .route("/auth/users", post(invite_user_handler))
         .route("/auth/change-password", put(change_password_handler))
         .route("/auth/profile", put(update_user_profile_handler))
@@ -940,6 +942,254 @@ pub async fn invite_user_handler(
     )
 }
 
+// Update user invitation request
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct UpdateUserInvitationRequest {
+    pub name: String,
+    pub email: String,
+    pub role: Role,
+}
+
+// Update user invitation (Admin only)
+#[utoipa::path(
+    put,
+    path = "/api/admin/members/{id}",
+    params(
+        ("id" = i64, Path, description = "Invitation ID")
+    ),
+    request_body = UpdateUserInvitationRequest,
+    responses(
+        (status = 200, description = "Invitation updated successfully"),
+        (status = 400, description = "Invalid request"),
+        (status = 404, description = "Invitation not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn update_user_invitation_handler(
+    State(state): State<AppState>,
+    axum::Extension(user_id): axum::Extension<i64>,
+    axum::extract::Path(invitation_id): axum::extract::Path<i64>,
+    Json(payload): Json<UpdateUserInvitationRequest>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let pool = &state.lock().await.db_pool;
+
+    // Check if requesting user is admin
+    match UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(requester)) => {
+            let role_str = requester.role.to_lowercase();
+            if role_str != "admin" {
+                return ApiResponse::unauthorized("Only admins can update invitations".to_string());
+            }
+        }
+        _ => return ApiResponse::unauthorized("Invalid user".to_string()),
+    }
+
+    // Check if invitation exists and is not used
+    let invitation = match sqlx::query_as::<_, crate::database::models::DbUserInvitation>(
+        "SELECT * FROM user_invitations WHERE id = $1"
+    )
+    .bind(invitation_id)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(Some(inv)) => {
+            if inv.is_used {
+                return ApiResponse::bad_request("Cannot update used invitation".to_string());
+            }
+            if inv.invited_by_user_id != Some(user_id) {
+                return ApiResponse::unauthorized("You can only update your own invitations".to_string());
+            }
+            inv
+        }
+        Ok(None) => return ApiResponse::not_found("Invitation not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Database error: {}", e)),
+    };
+
+    // Check if email changed
+    let email_changed = invitation.email != payload.email;
+
+    // If email changed, check if new email already exists
+    if email_changed {
+        if let Ok(Some(_)) = UserQueries::get_user_by_email(pool, &payload.email).await {
+            return ApiResponse::bad_request("User with this email already exists".to_string());
+        }
+        // Check if another invitation exists for this email
+        match sqlx::query("SELECT id FROM user_invitations WHERE email = $1 AND is_used = FALSE AND id != $2")
+            .bind(&payload.email)
+            .bind(invitation_id)
+            .fetch_optional(pool)
+            .await
+        {
+            Ok(Some(_)) => return ApiResponse::bad_request("Invitation already sent to this email".to_string()),
+            Ok(None) => {},
+            Err(e) => return ApiResponse::internal_error(format!("Database error: {}", e)),
+        }
+    }
+
+    // Update the invitation
+    match sqlx::query(
+        "UPDATE user_invitations SET name = $1, email = $2, role = $3 WHERE id = $4"
+    )
+    .bind(&payload.name)
+    .bind(&payload.email)
+    .bind(&payload.role)
+    .bind(invitation_id)
+    .execute(pool)
+    .await
+    {
+        Ok(_) => {
+            // If email changed, send new invitation email
+            if email_changed {
+                // Generate new JWT token
+                let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+                
+                // Create claims with updated invitation data
+                use chrono::{Duration, Utc};
+                use serde::{Serialize, Deserialize};
+                
+                #[derive(Debug, Serialize, Deserialize)]
+                struct InvitationClaims {
+                    pub invitation_id: i64,
+                    pub name: String,
+                    pub email: String,
+                    pub role: String,
+                    pub exp: usize,
+                }
+                
+                let claims = InvitationClaims {
+                    invitation_id,
+                    name: payload.name.clone(),
+                    email: payload.email.clone(),
+                    role: payload.role.to_string(),
+                    exp: (Utc::now() + Duration::hours(24)).timestamp() as usize,
+                };
+                
+                let token = match encode(&Header::default(), &claims, &EncodingKey::from_secret(jwt_secret.as_ref())) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("Failed to create JWT token: {}", e);
+                        return ApiResponse::internal_error("Failed to create invitation token".to_string());
+                    }
+                };
+
+                // Update expires_at
+                match sqlx::query("UPDATE user_invitations SET expires_at = $1 WHERE id = $2")
+                    .bind(Utc::now() + Duration::hours(24))
+                    .bind(invitation_id)
+                    .execute(pool)
+                    .await
+                {
+                    Ok(_) => {},
+                    Err(e) => return ApiResponse::internal_error(format!("Database error: {}", e)),
+                }
+
+                // Send invitation email
+                let email_service = match EmailService::new() {
+                    Ok(service) => service,
+                    Err(e) => {
+                        eprintln!("Failed to initialize email service: {}", e);
+                        return ApiResponse::internal_error("Email service unavailable".to_string());
+                    }
+                };
+
+                let activation_link = format!(
+                    "{}/activate?token={}&email={}&name={}",
+                    std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string()),
+                    token,
+                    urlencoding::encode(&payload.email),
+                    urlencoding::encode(&payload.name)
+                );
+
+                if let Err(e) = email_service.send_user_activation_email(&payload.email, &payload.name, &activation_link).await {
+                    eprintln!("Failed to send invitation email: {}", e);
+                    // Don't fail - invitation is updated
+                }
+            }
+
+            ApiResponse::success(
+                serde_json::json!({
+                    "message": "Invitation updated successfully",
+                    "id": invitation_id,
+                    "name": payload.name,
+                    "email": payload.email,
+                    "role": payload.role,
+                    "email_resent": email_changed
+                }),
+                "Invitation updated successfully".to_string()
+            )
+        },
+        Err(e) => ApiResponse::internal_error(format!("Database error: {}", e)),
+    }
+}
+
+// Delete user invitation (Admin only)
+#[utoipa::path(
+    delete,
+    path = "/api/admin/members/{id}",
+    params(
+        ("id" = i64, Path, description = "Invitation ID")
+    ),
+    responses(
+        (status = 200, description = "Invitation deleted successfully"),
+        (status = 404, description = "Invitation not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn delete_user_invitation_handler(
+    State(state): State<AppState>,
+    axum::Extension(user_id): axum::Extension<i64>,
+    axum::extract::Path(invitation_id): axum::extract::Path<i64>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let pool = &state.lock().await.db_pool;
+
+    // Check if requesting user is admin
+    match UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(requester)) => {
+            let role_str = requester.role.to_lowercase();
+            if role_str != "admin" {
+                return ApiResponse::unauthorized("Only admins can delete invitations".to_string());
+            }
+        }
+        _ => return ApiResponse::unauthorized("Invalid user".to_string()),
+    }
+
+    // Check if invitation exists and is not used
+    match sqlx::query_as::<_, crate::database::models::DbUserInvitation>(
+        "SELECT * FROM user_invitations WHERE id = $1"
+    )
+    .bind(invitation_id)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(Some(invitation)) => {
+            if invitation.is_used {
+                return ApiResponse::bad_request("Cannot delete used invitation".to_string());
+            }
+            if invitation.invited_by_user_id != Some(user_id) {
+                return ApiResponse::unauthorized("You can only delete your own invitations".to_string());
+            }
+        }
+        Ok(None) => return ApiResponse::not_found("Invitation not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Database error: {}", e)),
+    }
+
+    // Delete the invitation
+    match sqlx::query("DELETE FROM user_invitations WHERE id = $1")
+    .bind(invitation_id)
+    .execute(pool)
+    .await
+    {
+        Ok(_) => ApiResponse::success(
+            serde_json::json!({
+                "message": "Invitation deleted successfully",
+                "id": invitation_id
+            }),
+            "Invitation deleted successfully".to_string()
+        ),
+        Err(e) => ApiResponse::internal_error(format!("Database error: {}", e)),
+    }
+}
+
 // Get all users (Admin only)
 #[utoipa::path(
     get,
@@ -1027,7 +1277,7 @@ pub async fn get_admin_team_members_handler(
                     "pending"
                 };
                 team_members.push(crate::models::user::TeamMember {
-                    id: None, // For now, not setting id
+                    id: Some(inv.id),
                     name: inv.name,
                     email: inv.email,
                     role: inv.role,

@@ -33,6 +33,7 @@ interface FieldRendererProps {
   submitterId?: number;
   submitterEmail?: string;
   reason?: string;
+  globalSettings ?: any;
 }
 const FieldRenderer: React.FC<FieldRendererProps> = ({
   field,
@@ -46,7 +47,7 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
   defaultInitials,
   submitterId,
   submitterEmail,
-  reason
+  reason,globalSettings
 }) => {
   const renderFieldContent = () => {
     // Nếu có children (như editing UI), ưu tiên render children
@@ -78,6 +79,7 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
               submitterId={submitterId}
               submitterEmail={submitterEmail}
               reason={reason}
+              globalSettings ={globalSettings}
             />
           );
 

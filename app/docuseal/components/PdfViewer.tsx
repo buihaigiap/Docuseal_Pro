@@ -144,6 +144,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
                         submitterId={submitterId}
                         submitterEmail={submitterEmail}
                         reason={(f as any).reason}
+                        globalSettings={globalSettings}
                       />
                 ) : (f as any).field_type === 'checkbox' ? (
                   (f as any).signature_value === 'true' ? (
@@ -198,6 +199,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
                         data={texts[f.id]} 
                         width={normalizedPos.width * 600} 
                         height={normalizedPos.height * 800}
+                        globalSettings={globalSettings}
                       />
                 ) : (f as any).field_type === 'multiple' ? (
                   <div className="w-full h-full flex items-center text-sm font-semibold">

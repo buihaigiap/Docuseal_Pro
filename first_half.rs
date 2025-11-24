@@ -59,6 +59,7 @@ pub async fn get_submitters(
                     created_at: db_submitter.created_at,
                     updated_at: db_submitter.updated_at,
                     template_name: None,
+                    global_settings: None,
                 };
                 all_submitters.push(submitter);
             }
@@ -122,6 +123,7 @@ pub async fn get_submitter(
                 created_at: db_submitter.created_at,
                 updated_at: db_submitter.updated_at,
                 template_name: None,
+                global_settings: None,
             };
             ApiResponse::success(submitter, "Submitter retrieved successfully".to_string())
         }
@@ -261,6 +263,7 @@ pub async fn update_submitter(
                         created_at: db_submitter.created_at,
                         updated_at: db_submitter.updated_at,
                         template_name: None,
+                        global_settings: None,
                     };
                     ApiResponse::success(submitter, "Submitter updated successfully".to_string())
                 }
@@ -367,6 +370,7 @@ pub async fn update_public_submitter(
                         created_at: updated_submitter.created_at,
                         updated_at: updated_submitter.updated_at,
                         template_name: None,
+                        global_settings: None,
                     };
                     ApiResponse::success(submitter, "Submitter updated successfully".to_string())
                 }
@@ -401,6 +405,57 @@ pub async fn get_public_submitter(
             let reminder_config = db_submitter.reminder_config.as_ref()
                 .and_then(|v| serde_json::from_value(v.clone()).ok());
             
+            // Get user settings for global settings
+            let global_settings = match GlobalSettingsQueries::get_user_settings(pool, db_submitter.user_id as i32).await {
+                Ok(Some(settings)) => {
+                    // Convert DbGlobalSettings to serde_json::Value
+                    Some(serde_json::json!({
+                        "force_2fa_with_authenticator_app": settings.force_2fa_with_authenticator_app,
+                        "add_signature_id_to_the_documents": settings.add_signature_id_to_the_documents,
+                        "require_signing_reason": settings.require_signing_reason,
+                        "allow_typed_text_signatures": settings.allow_typed_text_signatures,
+                        "allow_to_resubmit_completed_forms": settings.allow_to_resubmit_completed_forms,
+                        "allow_to_decline_documents": settings.allow_to_decline_documents,
+                        "remember_and_pre_fill_signatures": settings.remember_and_pre_fill_signatures,
+                        "require_authentication_for_file_download_links": settings.require_authentication_for_file_download_links,
+                        "combine_completed_documents_and_audit_log": settings.combine_completed_documents_and_audit_log,
+                        "expirable_file_download_links": settings.expirable_file_download_links,
+                        "enable_confetti": settings.enable_confetti,
+                        "completion_title": settings.completion_title,
+                        "completion_body": settings.completion_body,
+                        "redirect_title": settings.redirect_title,
+                        "redirect_url": settings.redirect_url
+                    }))
+                }
+                Ok(None) => {
+                    // Create default settings if none exist
+                    match GlobalSettingsQueries::create_user_settings(pool, db_submitter.user_id as i32).await {
+                        Ok(settings) => {
+                            Some(serde_json::json!({
+                                "force_2fa_with_authenticator_app": settings.force_2fa_with_authenticator_app,
+                                "add_signature_id_to_the_documents": settings.add_signature_id_to_the_documents,
+                                "require_signing_reason": settings.require_signing_reason,
+                                "allow_typed_text_signatures": settings.allow_typed_text_signatures,
+                                "allow_to_resubmit_completed_forms": settings.allow_to_resubmit_completed_forms,
+                                "allow_to_decline_documents": settings.allow_to_decline_documents,
+                                "remember_and_pre_fill_signatures": settings.remember_and_pre_fill_signatures,
+                                "require_authentication_for_file_download_links": settings.require_authentication_for_file_download_links,
+                                "combine_completed_documents_and_audit_log": settings.combine_completed_documents_and_audit_log,
+                                "expirable_file_download_links": settings.expirable_file_download_links,
+                                "enable_confetti": settings.enable_confetti,
+                                "completion_title": settings.completion_title,
+                                "completion_body": settings.completion_body,
+                                "redirect_title": settings.redirect_title,
+                                "redirect_url": settings.redirect_url
+                            }))
+                        }
+                        Err(_) => None,
+                    }
+                }
+                Err(_) => None,
+            };
+            println!("DEBUG: Final global_settings: {:?}", global_settings);
+            
             // Get template name
             let template_name = match TemplateQueries::get_template_by_id(pool, db_submitter.template_id).await {
                 Ok(Some(template)) => Some(template.name),
@@ -423,6 +478,7 @@ pub async fn get_public_submitter(
                 created_at: db_submitter.created_at,
                 updated_at: db_submitter.updated_at,
                 template_name,
+                global_settings,
             };
             ApiResponse::success(submitter, "Submitter retrieved successfully".to_string())
         }
@@ -570,6 +626,7 @@ pub async fn submit_bulk_signatures(
                         created_at: updated_submitter.created_at,
                         updated_at: updated_submitter.updated_at,
                         template_name: None,
+                        global_settings: None,
                     };
                     ApiResponse::success(submitter, "Bulk signatures submitted successfully".to_string())
                 }

@@ -12,6 +12,7 @@ interface SignatureRendererProps {
   submitterId?: number;
   submitterEmail?: string;
   reason?: string; // Signing reason to display
+  globalSettings?: any;
 }
 
 const SignatureRenderer: React.FC<SignatureRendererProps> = ({
@@ -23,10 +24,8 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
   additionalText,
   submitterId,
   submitterEmail,
-  reason
+  reason, globalSettings
 }) => {
-  const { globalSettings } = useBasicSettings();
-
   // 1. Parse Data Type
   const { type, content, vectorBounds } = useMemo(() => {
     if (!data) return { type: 'EMPTY', content: null };

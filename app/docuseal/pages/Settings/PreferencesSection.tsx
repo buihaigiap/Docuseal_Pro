@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Typography,
   Box,
@@ -34,10 +34,16 @@ interface PreferencesSectionProps {
     combineCompletedAudit: boolean;
     expirableDownloadLinks: boolean;
   };
+  onSettingsUpdate?: () => void;
 }
 
-export default function PreferencesSection({ initialPreferences }: PreferencesSectionProps) {
+export default function PreferencesSection({ initialPreferences, onSettingsUpdate }: PreferencesSectionProps) {
   const [preferences, setPreferences] = useState(initialPreferences);
+
+  // Sync local state with initialPreferences when they change
+  useEffect(() => {
+    setPreferences(initialPreferences);
+  }, [initialPreferences]);
 
   const handlePreferenceChange = async (key: string, newValue: boolean, label: string) => {
     // Update local state immediately for better UX
@@ -75,6 +81,10 @@ export default function PreferencesSection({ initialPreferences }: PreferencesSe
       });
 
       toast.success(`${label} updated`);
+      // Refetch settings to update the global state
+      if (onSettingsUpdate) {
+        onSettingsUpdate();
+      }
     } catch (err) {
       console.error('Failed to update user setting:', err);
       toast.error(`Failed to update ${label}`);

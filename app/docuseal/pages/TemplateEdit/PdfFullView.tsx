@@ -112,6 +112,7 @@ const PdfFullView: React.FC<PdfFullViewProps> = ({
                   submitterId={submitterId}
                   submitterEmail={submitterEmail}
                   reason={reasons?.[field.id]}
+                  globalSettings={globalSettings}
                 />
               </div>
             );

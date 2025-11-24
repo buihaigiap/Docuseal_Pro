@@ -160,6 +160,7 @@ pub async fn create_submission(
                             template_name: None,
                             decline_reason: db_submitter.decline_reason,
                             can_download: None,
+                            global_settings: None,
                         };
                         created_submitters.push(submitter_api.clone());
 
