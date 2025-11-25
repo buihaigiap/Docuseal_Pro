@@ -47,6 +47,7 @@ use crate::routes::stripe_webhook;
 use crate::routes::reminder_settings;
 use crate::routes::global_settings;
 use crate::routes::email_templates;
+use crate::routes::team;
 use crate::common::jwt::{generate_jwt, auth_middleware};
 
 pub fn create_router() -> Router<AppState> {
@@ -75,12 +76,14 @@ pub fn create_router() -> Router<AppState> {
         .merge(reminder_settings::create_router())
         .merge(global_settings::create_router())
         .merge(email_templates::create_router())
+        .merge(team::create_router())
         .layer(middleware::from_fn(auth_middleware));
 
     let public_routes = Router::new()
         .route("/auth/register", post(register_handler))
         .route("/auth/login", post(login_handler))
         .route("/auth/activate", post(activate_user))
+        .route("/auth/set-password", post(set_password_handler))
         .route("/auth/forgot-password", post(forgot_password_handler))
         .route("/auth/verify-reset-code", post(verify_reset_code_handler))
         .route("/auth/reset-password", post(reset_password_handler))
@@ -145,6 +148,7 @@ pub async fn register_handler(
         role: Role::Admin, // Default role for new users
         is_active: true, // Self-registered users are active immediately
         activation_token: None, // No activation needed for self-registration
+        account_id: None, // Will create own account later or join invited account
     };
 
     match UserQueries::create_user(pool, create_user).await {
@@ -176,12 +180,24 @@ pub async fn register_handler(
 pub async fn login_handler(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> (StatusCode, Json<serde_json::Value>) {
     let pool = &state.lock().await.db_pool;
 
     // Get user from database
     match UserQueries::get_user_by_email(pool, &payload.email).await {
         Ok(Some(db_user)) => {
+            // Check if user is archived
+            if db_user.archived_at.is_some() {
+                let response = serde_json::json!({
+                    "success": false,
+                    "status_code": 403,
+                    "message": "Forbidden",
+                    "data": null,
+                    "error": "This account has been archived and cannot log in. Please contact your administrator."
+                });
+                return (StatusCode::FORBIDDEN, Json(response));
+            }
+
             // Verify password using bcrypt
             match verify(&payload.password, &db_user.password_hash) {
                 Ok(true) => {
@@ -201,7 +217,7 @@ pub async fn login_handler(
                                 "data": login_response,
                                 "error": null
                             });
-                            Ok(Json(response))
+                            (StatusCode::OK, Json(response))
                         }
                         Err(_) => {
                             let response = serde_json::json!({
@@ -211,7 +227,7 @@ pub async fn login_handler(
                                 "data": null,
                                 "error": "Failed to generate token"
                             });
-                            Ok(Json(response))
+                            (StatusCode::INTERNAL_SERVER_ERROR, Json(response))
                         }
                     }
                 }
@@ -223,7 +239,7 @@ pub async fn login_handler(
                         "data": null,
                         "error": "Invalid credentials"
                     });
-                    Ok(Json(response))
+                    (StatusCode::UNAUTHORIZED, Json(response))
                 }
                 Err(_) => {
                     let response = serde_json::json!({
@@ -233,7 +249,7 @@ pub async fn login_handler(
                         "data": null,
                         "error": "Password verification failed"
                     });
-                    Ok(Json(response))
+                    (StatusCode::INTERNAL_SERVER_ERROR, Json(response))
                 }
             }
         }
@@ -245,7 +261,7 @@ pub async fn login_handler(
                 "data": null,
                 "error": "User not found"
             });
-            Ok(Json(response))
+            (StatusCode::UNAUTHORIZED, Json(response))
         }
         Err(e) => {
             let response = serde_json::json!({
@@ -255,7 +271,85 @@ pub async fn login_handler(
                 "data": null,
                 "error": "Database error"
             });
-            Ok(Json(response))
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(response))
+        }
+    }
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct SetPasswordRequest {
+    pub token: String, // activation_token from email link
+    pub password: String, // new password to set
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/auth/set-password",
+    tag = "auth",
+    request_body = SetPasswordRequest,
+    responses(
+        (status = 200, description = "Password set successfully, user activated"),
+        (status = 400, description = "Invalid token or user already activated"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn set_password_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<SetPasswordRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let pool = &state.lock().await.db_pool;
+
+    // Find user by activation_token
+    let user = match sqlx::query_as::<_, crate::database::models::DbUser>(
+        r#"
+        SELECT * FROM users 
+        WHERE activation_token = $1 AND is_active = FALSE
+        "#
+    )
+    .bind(&payload.token)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return Ok(Json(serde_json::json!({
+                "error": "Invalid token or user already activated"
+            })));
+        }
+        Err(e) => {
+            eprintln!("Database error: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    // Hash new password
+    let password_hash = match hash(&payload.password, DEFAULT_COST) {
+        Ok(hash) => hash,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    // Update user: set password, activate, clear token
+    match sqlx::query(
+        r#"
+        UPDATE users 
+        SET password_hash = $1, is_active = TRUE, activation_token = NULL, updated_at = NOW()
+        WHERE id = $2
+        "#
+    )
+    .bind(&password_hash)
+    .bind(user.id)
+    .execute(pool)
+    .await
+    {
+        Ok(_) => {
+            Ok(Json(serde_json::json!({
+                "message": "Password set successfully. You can now login.",
+                "email": user.email
+            })))
+        }
+        Err(e) => {
+            eprintln!("Failed to update user password: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
@@ -364,6 +458,7 @@ pub async fn activate_user(
         role: invitation.role,
         is_active: true, // User is active after activation
         activation_token: None,
+        account_id: invitation.account_id, // Use account from invitation
     };
 
     match UserQueries::create_user(pool, create_user).await {

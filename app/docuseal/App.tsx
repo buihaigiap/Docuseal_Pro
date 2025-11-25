@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/Auth/LoginPage';
 import RegisterPage from './pages/Auth/RegisterPage';
 import ForgotPasswordForm from './pages/Auth/ForgotPasswordForm';
+import SetPasswordPage from './pages/Auth/SetPasswordPage';
 import DashboardPage from './pages/DashboardPage/DashboardPage';
 import TemplateDetailPage from './pages/Pricing/TemplateDetailPage';
 import TemplateEditorPage from './pages/TemplateEditorPage';
@@ -46,6 +47,7 @@ function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordForm />} />
+            <Route path="/set-password" element={<SetPasswordPage />} />
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/sign/:token" element={<SignPage />} />
             <Route path="/signed-submission/:token" element={<SignedSubmissionPage />} />

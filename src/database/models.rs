@@ -42,6 +42,8 @@ pub struct CreateUserInvitation {
     pub name: String,
     pub role: Role,
     pub invited_by_user_id: Option<i64>,
+    pub account_id: Option<i64>,
+    pub token: Option<String>,
 }
 
 // OAuth token model for Google Drive integration
@@ -69,6 +71,38 @@ pub struct CreateOAuthToken {
 use sqlx::FromRow;
 use crate::models::role::Role;
 
+// Database-specific account model
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DbAccount {
+    pub id: i64,
+    pub name: String,
+    pub slug: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// Create account request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateAccount {
+    pub name: String,
+    pub slug: String,
+}
+
+// Update account request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateAccount {
+    pub name: Option<String>,
+}
+
+// Database-specific account linked account model
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DbAccountLinkedAccount {
+    pub id: i64,
+    pub account_id: i64,
+    pub linked_account_id: i64,
+    pub created_at: DateTime<Utc>,
+}
+
 // Database-specific user model
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DbUser {
@@ -79,6 +113,8 @@ pub struct DbUser {
     pub role: Role,
     pub is_active: bool,
     pub activation_token: Option<String>,
+    pub account_id: Option<i64>,
+    pub archived_at: Option<DateTime<Utc>>,
     pub subscription_status: String, // free, premium
     pub subscription_expires_at: Option<DateTime<Utc>>,
     pub free_usage_count: i32,
@@ -99,6 +135,7 @@ pub struct CreateUser {
     pub role: Role,
     pub is_active: bool,
     pub activation_token: Option<String>,
+    pub account_id: Option<i64>,
 }
 
 // User invitation model (secure invitation flow)
@@ -109,6 +146,8 @@ pub struct DbUserInvitation {
     pub name: String,
     pub role: Role,
     pub invited_by_user_id: Option<i64>,
+    pub account_id: Option<i64>,
+    pub token: Option<String>,
     pub is_used: bool,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
@@ -152,6 +191,7 @@ pub struct DbTemplateFolder {
     pub id: i64,
     pub name: String,
     pub user_id: i64,
+    pub account_id: Option<i64>,
     pub parent_folder_id: Option<i64>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -162,6 +202,7 @@ pub struct DbTemplateFolder {
 pub struct CreateTemplateFolder {
     pub name: String,
     pub user_id: i64,
+    pub account_id: Option<i64>,
     pub parent_folder_id: Option<i64>,
 }
 
@@ -172,6 +213,7 @@ pub struct DbTemplate {
     pub name: String,
     pub slug: String,
     pub user_id: i64,
+    pub account_id: Option<i64>,
     pub folder_id: Option<i64>,
     pub documents: Option<serde_json::Value>, // JSONB field
     pub created_at: DateTime<Utc>,
@@ -184,6 +226,7 @@ pub struct CreateTemplate {
     pub name: String,
     pub slug: String,
     pub user_id: i64,
+    pub account_id: Option<i64>,
     pub folder_id: Option<i64>,
     pub documents: Option<serde_json::Value>,
 }
@@ -310,6 +353,7 @@ pub struct CreatePaymentRecord {
 pub struct DbGlobalSettings {
     pub id: i32,
     pub user_id: Option<i32>,
+    pub account_id: Option<i64>, // New: for team-wide settings
     pub company_name: Option<String>,
     pub timezone: Option<String>,
     pub locale: Option<String>,

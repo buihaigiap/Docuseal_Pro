@@ -546,6 +546,165 @@ impl EmailService {
         Ok(())
     }
 
+    pub async fn send_team_invitation_email(
+        &self,
+        to_email: &str,
+        to_name: &str,
+        invited_by: &str,
+        account_name: &str,
+        invitation_link: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        if self.test_mode {
+            println!("TEST MODE: Would send team invitation email to {} ({}) with link: {}", to_email, to_name, invitation_link);
+            return Ok(());
+        }
+
+        let subject = format!("{} invited you to join their team on DocuSeal Pro", invited_by);
+
+        let html_body = format!(
+            r#"
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Team Invitation</title>
+            <style>
+                body {{
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    line-height: 1.6;
+                    color: #333;
+                    max-width: 600px;
+                    margin: 0 auto;
+                    background-color: #f8f9fa;
+                    padding: 20px;
+                }}
+                .container {{
+                    background: white;
+                    padding: 30px;
+                    border-radius: 10px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                }}
+                .header {{
+                    text-align: center;
+                    margin-bottom: 30px;
+                }}
+                .header h1 {{
+                    color: #4F46E5;
+                    margin-bottom: 10px;
+                }}
+                .content {{
+                    margin-bottom: 30px;
+                }}
+                .button {{
+                    display: inline-block;
+                    padding: 12px 24px;
+                    background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 5px;
+                    font-weight: bold;
+                }}
+                .info-box {{
+                    background-color: #f0f9ff;
+                    border-left: 4px solid #4F46E5;
+                    padding: 15px;
+                    margin: 20px 0;
+                }}
+                .footer {{
+                    margin-top: 30px;
+                    padding-top: 20px;
+                    border-top: 1px solid #eee;
+                    font-size: 12px;
+                    color: #666;
+                    text-align: center;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>You've Been Invited!</h1>
+                </div>
+                <div class="content">
+                    <p>Hello <strong>{}</strong>,</p>
+                    <p><strong>{}</strong> has invited you to join their team on DocuSeal Pro.</p>
+                    
+                    <div class="info-box">
+                        <p><strong>Account:</strong> {}</p>
+                        <p><strong>Invited by:</strong> {}</p>
+                    </div>
+                    
+                    <p>As a team member, you'll be able to:</p>
+                    <ul>
+                        <li>Create and manage templates</li>
+                        <li>Send documents for signature</li>
+                        <li>Track submission status</li>
+                        <li>Collaborate with other team members</li>
+                    </ul>
+                    
+                    <p style="text-align: center; margin: 30px 0;">
+                        <a href="{}" class="button">Accept Invitation</a>
+                    </p>
+                    
+                    <p>If the button doesn't work, you can copy and paste the following link into your browser:</p>
+                    <p style="word-break: break-all;"><a href="{}">{}</a></p>
+                    
+                    <p style="color: #666; font-size: 14px;">This invitation will expire in 7 days.</p>
+                </div>
+                <div class="footer">
+                    <p>This email was sent automatically from DocuSeal Pro.</p>
+                    <p>If you didn't expect this invitation, you can safely ignore this email.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+            "#,
+            to_name, invited_by, account_name, invited_by, 
+            invitation_link, invitation_link, invitation_link
+        );
+
+        let text_body = format!(
+            "Hello {},\n\n{} has invited you to join their team '{}' on DocuSeal Pro.\n\nAccept invitation: {}\n\nThis invitation expires in 7 days.\n\nDocuSeal Pro",
+            to_name, invited_by, account_name, invitation_link
+        );
+
+        let email = Message::builder()
+            .from(format!("{} <{}>", self.from_name, self.from_email).parse()?)
+            .to(format!("{} <{}>", to_name, to_email).parse()?)
+            .subject(subject)
+            .multipart(
+                lettre::message::MultiPart::alternative()
+                    .singlepart(
+                        lettre::message::SinglePart::builder()
+                            .header(lettre::message::header::ContentType::TEXT_PLAIN)
+                            .body(text_body),
+                    )
+                    .singlepart(
+                        lettre::message::SinglePart::builder()
+                            .header(lettre::message::header::ContentType::TEXT_HTML)
+                            .body(html_body),
+                    ),
+            )?;
+
+        let creds = Credentials::new(self.smtp_username.clone(), self.smtp_password.clone());
+
+        let mailer = if self.use_tls {
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&self.smtp_host)?
+                .credentials(creds)
+                .build()
+        } else {
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&self.smtp_host)?
+                .credentials(creds)
+                .build()
+        };
+
+        mailer.send(email).await?;
+        println!("Team invitation email sent successfully to: {}", to_email);
+
+        Ok(())
+    }
+
     pub async fn send_signature_completed(
         &self,
         to_email: &str,

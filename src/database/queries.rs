@@ -1,10 +1,11 @@
 use sqlx::{PgPool, Row};
 use chrono::{Utc, DateTime};
 
-use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan, DbTemplateFolder, CreateTemplateFolder, DbSubmissionField, CreateSubmissionField, DbGlobalSettings, UpdateGlobalSettings, DbEmailTemplate, UpdateEmailTemplate};
+use super::models::{DbUser, CreateUser, DbTemplate, CreateTemplate, DbTemplateField, CreateTemplateField, CreateSubmitter, DbSubmitter, DbPaymentRecord, CreatePaymentRecord, DbSignatureData, DbSubscriptionPlan, DbTemplateFolder, CreateTemplateFolder, DbSubmissionField, CreateSubmissionField, DbGlobalSettings, UpdateGlobalSettings, DbEmailTemplate, UpdateEmailTemplate, DbAccount, CreateAccount, UpdateAccount, DbAccountLinkedAccount};
 use crate::models::signature::SignatureInfo;
 
 // Structured query implementations for better organization
+pub struct AccountQueries;
 pub struct UserQueries;
 pub struct TemplateQueries;
 pub struct TemplateFolderQueries;
@@ -14,10 +15,314 @@ pub struct SubmissionFieldQueries;
 pub struct GlobalSettingsQueries;
 pub struct EmailTemplateQueries;
 
+impl AccountQueries {
+    /// Create a new account
+    pub async fn create_account(pool: &PgPool, account_data: CreateAccount) -> Result<DbAccount, sqlx::Error> {
+        let now = Utc::now();
+        
+        let row = sqlx::query(
+            r#"
+            INSERT INTO accounts (name, slug, created_at, updated_at)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, name, slug, created_at, updated_at
+            "#
+        )
+        .bind(&account_data.name)
+        .bind(&account_data.slug)
+        .bind(now)
+        .bind(now)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(DbAccount {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            slug: row.try_get("slug")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+
+    /// Get account by ID
+    pub async fn get_account_by_id(pool: &PgPool, id: i64) -> Result<Option<DbAccount>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT id, name, slug, created_at, updated_at FROM accounts WHERE id = $1"
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(DbAccount {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                slug: row.try_get("slug")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    /// Get account by slug
+    pub async fn get_account_by_slug(pool: &PgPool, slug: &str) -> Result<Option<DbAccount>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT id, name, slug, created_at, updated_at FROM accounts WHERE slug = $1"
+        )
+        .bind(slug)
+        .fetch_optional(pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(DbAccount {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                slug: row.try_get("slug")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    /// Update account
+    pub async fn update_account(pool: &PgPool, id: i64, update_data: UpdateAccount) -> Result<DbAccount, sqlx::Error> {
+        let account = Self::get_account_by_id(pool, id).await?
+            .ok_or_else(|| sqlx::Error::RowNotFound)?;
+
+        let name = update_data.name.unwrap_or(account.name);
+
+        let row = sqlx::query(
+            r#"
+            UPDATE accounts 
+            SET name = $1, updated_at = $2
+            WHERE id = $3
+            RETURNING id, name, slug, created_at, updated_at
+            "#
+        )
+        .bind(&name)
+        .bind(Utc::now())
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(DbAccount {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            slug: row.try_get("slug")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+
+    /// Get all users for an account (excluding archived unless specified)
+    pub async fn get_account_users(pool: &PgPool, account_id: i64, include_archived: bool) -> Result<Vec<DbUser>, sqlx::Error> {
+        let query = if include_archived {
+            "SELECT id, name, email, password_hash, role, is_active, activation_token, account_id, archived_at, subscription_status, subscription_expires_at, free_usage_count, signature, initials, two_factor_secret, two_factor_enabled, created_at, updated_at FROM users WHERE account_id = $1 ORDER BY created_at DESC"
+        } else {
+            "SELECT id, name, email, password_hash, role, is_active, activation_token, account_id, archived_at, subscription_status, subscription_expires_at, free_usage_count, signature, initials, two_factor_secret, two_factor_enabled, created_at, updated_at FROM users WHERE account_id = $1 AND archived_at IS NULL ORDER BY created_at DESC"
+        };
+
+        let rows = sqlx::query(query)
+            .bind(account_id)
+            .fetch_all(pool)
+            .await?;
+
+        let mut users = Vec::new();
+        for row in rows {
+            users.push(DbUser {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                email: row.try_get("email")?,
+                password_hash: row.try_get("password_hash")?,
+                role: row.try_get("role")?,
+                is_active: row.try_get("is_active")?,
+                activation_token: row.try_get("activation_token")?,
+                account_id: row.try_get("account_id")?,
+                archived_at: row.try_get("archived_at")?,
+                subscription_status: row.try_get("subscription_status")?,
+                subscription_expires_at: row.try_get("subscription_expires_at")?,
+                free_usage_count: row.try_get("free_usage_count")?,
+                signature: row.try_get("signature")?,
+                initials: row.try_get("initials")?,
+                two_factor_secret: row.try_get("two_factor_secret")?,
+                two_factor_enabled: row.try_get("two_factor_enabled")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            });
+        }
+
+        Ok(users)
+    }
+
+    /// Archive a user (soft delete)
+    pub async fn archive_user(pool: &PgPool, user_id: i64, account_id: i64) -> Result<DbUser, sqlx::Error> {
+        // Check this is not the last active user in the account
+        let active_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM users WHERE account_id = $1 AND archived_at IS NULL"
+        )
+        .bind(account_id)
+        .fetch_one(pool)
+        .await?;
+
+        if active_count <= 1 {
+            return Err(sqlx::Error::Protocol("Cannot archive the last user in an account".to_string()));
+        }
+
+        let row = sqlx::query(
+            r#"
+            UPDATE users 
+            SET archived_at = $1, updated_at = $2
+            WHERE id = $3 AND account_id = $4
+            RETURNING id, name, email, password_hash, role, is_active, activation_token, account_id, archived_at, subscription_status, subscription_expires_at, free_usage_count, signature, initials, two_factor_secret, two_factor_enabled, created_at, updated_at
+            "#
+        )
+        .bind(Utc::now())
+        .bind(Utc::now())
+        .bind(user_id)
+        .bind(account_id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(DbUser {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            email: row.try_get("email")?,
+            password_hash: row.try_get("password_hash")?,
+            role: row.try_get("role")?,
+            is_active: row.try_get("is_active")?,
+            activation_token: row.try_get("activation_token")?,
+            account_id: row.try_get("account_id")?,
+            archived_at: row.try_get("archived_at")?,
+            subscription_status: row.try_get("subscription_status")?,
+            subscription_expires_at: row.try_get("subscription_expires_at")?,
+            free_usage_count: row.try_get("free_usage_count")?,
+            signature: row.try_get("signature")?,
+            initials: row.try_get("initials")?,
+            two_factor_secret: row.try_get("two_factor_secret")?,
+            two_factor_enabled: row.try_get("two_factor_enabled")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+
+    /// Unarchive a user
+    pub async fn unarchive_user(pool: &PgPool, user_id: i64, account_id: i64) -> Result<DbUser, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            UPDATE users 
+            SET archived_at = NULL, updated_at = $1
+            WHERE id = $2 AND account_id = $3
+            RETURNING id, name, email, password_hash, role, is_active, activation_token, account_id, archived_at, subscription_status, subscription_expires_at, free_usage_count, signature, initials, two_factor_secret, two_factor_enabled, created_at, updated_at
+            "#
+        )
+        .bind(Utc::now())
+        .bind(user_id)
+        .bind(account_id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(DbUser {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            email: row.try_get("email")?,
+            password_hash: row.try_get("password_hash")?,
+            role: row.try_get("role")?,
+            is_active: row.try_get("is_active")?,
+            activation_token: row.try_get("activation_token")?,
+            account_id: row.try_get("account_id")?,
+            archived_at: row.try_get("archived_at")?,
+            subscription_status: row.try_get("subscription_status")?,
+            subscription_expires_at: row.try_get("subscription_expires_at")?,
+            free_usage_count: row.try_get("free_usage_count")?,
+            signature: row.try_get("signature")?,
+            initials: row.try_get("initials")?,
+            two_factor_secret: row.try_get("two_factor_secret")?,
+            two_factor_enabled: row.try_get("two_factor_enabled")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+
+    /// Delete a user permanently
+    pub async fn delete_user(pool: &PgPool, user_id: i64, account_id: i64) -> Result<(), sqlx::Error> {
+        // Check this is not the last user in the account
+        let active_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM users WHERE account_id = $1"
+        )
+        .bind(account_id)
+        .fetch_one(pool)
+        .await?;
+
+        if active_count <= 1 {
+            return Err(sqlx::Error::Protocol("Cannot delete the last user in an account".to_string()));
+        }
+
+        sqlx::query("DELETE FROM users WHERE id = $1 AND account_id = $2")
+            .bind(user_id)
+            .bind(account_id)
+            .execute(pool)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Link two accounts (for testing)
+    pub async fn link_accounts(pool: &PgPool, account_id: i64, linked_account_id: i64) -> Result<DbAccountLinkedAccount, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO account_linked_accounts (account_id, linked_account_id, created_at)
+            VALUES ($1, $2, $3)
+            RETURNING id, account_id, linked_account_id, created_at
+            "#
+        )
+        .bind(account_id)
+        .bind(linked_account_id)
+        .bind(Utc::now())
+        .fetch_one(pool)
+        .await?;
+
+        Ok(DbAccountLinkedAccount {
+            id: row.try_get("id")?,
+            account_id: row.try_get("account_id")?,
+            linked_account_id: row.try_get("linked_account_id")?,
+            created_at: row.try_get("created_at")?,
+        })
+    }
+
+    /// Get linked accounts
+    pub async fn get_linked_accounts(pool: &PgPool, account_id: i64) -> Result<Vec<DbAccount>, sqlx::Error> {
+        let rows = sqlx::query(
+            r#"
+            SELECT a.id, a.name, a.slug, a.created_at, a.updated_at
+            FROM accounts a
+            INNER JOIN account_linked_accounts ala ON a.id = ala.linked_account_id
+            WHERE ala.account_id = $1
+            "#
+        )
+        .bind(account_id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut accounts = Vec::new();
+        for row in rows {
+            accounts.push(DbAccount {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                slug: row.try_get("slug")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            });
+        }
+
+        Ok(accounts)
+    }
+}
+
 impl UserQueries {
     pub async fn get_user_by_id(pool: &PgPool, id: i64) -> Result<Option<DbUser>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, email, password_hash, role, is_active, activation_token, subscription_status, subscription_expires_at, free_usage_count, signature, initials, two_factor_secret, two_factor_enabled, created_at, updated_at FROM users WHERE id = $1"
+            "SELECT id, name, email, password_hash, role, is_active, activation_token, account_id, archived_at, subscription_status, subscription_expires_at, free_usage_count, signature, initials, two_factor_secret, two_factor_enabled, created_at, updated_at FROM users WHERE id = $1"
         )
         .bind(id)
         .fetch_optional(pool)
@@ -32,6 +337,8 @@ impl UserQueries {
                 role: row.try_get("role")?,
                 is_active: row.try_get("is_active")?,
                 activation_token: row.try_get("activation_token")?,
+                account_id: row.try_get("account_id")?,
+                archived_at: row.try_get("archived_at")?,
                 subscription_status: row.try_get("subscription_status")?,
                 subscription_expires_at: row.try_get("subscription_expires_at")?,
                 free_usage_count: row.try_get("free_usage_count")?,
@@ -51,9 +358,9 @@ impl UserQueries {
 
         let row = sqlx::query(
             r#"
-            INSERT INTO users (name, email, password_hash, role, is_active, activation_token, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING id, name, email, password_hash, role, is_active, activation_token, subscription_status, 
+            INSERT INTO users (name, email, password_hash, role, is_active, activation_token, account_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id, name, email, password_hash, role, is_active, activation_token, account_id, archived_at, subscription_status, 
                      subscription_expires_at, free_usage_count, signature, initials, two_factor_secret, 
                      two_factor_enabled, created_at, updated_at
             "#
@@ -64,6 +371,7 @@ impl UserQueries {
         .bind(&user_data.role)
         .bind(user_data.is_active)
         .bind(&user_data.activation_token)
+        .bind(&user_data.account_id)
         .bind(now)
         .bind(now)
         .fetch_one(pool)
@@ -77,6 +385,8 @@ impl UserQueries {
             role: row.try_get("role")?,
             is_active: row.try_get("is_active")?,
             activation_token: row.try_get("activation_token")?,
+            account_id: row.try_get("account_id")?,
+            archived_at: row.try_get("archived_at")?,
             subscription_status: row.try_get("subscription_status")?,
             subscription_expires_at: row.try_get("subscription_expires_at")?,
             free_usage_count: row.try_get("free_usage_count")?,
@@ -91,7 +401,7 @@ impl UserQueries {
 
     pub async fn get_user_by_email(pool: &PgPool, email: &str) -> Result<Option<DbUser>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, email, password_hash, role, is_active, activation_token, subscription_status, subscription_expires_at, free_usage_count, signature, initials, two_factor_secret, two_factor_enabled, created_at, updated_at FROM users WHERE email = $1"
+            "SELECT id, name, email, password_hash, role, is_active, activation_token, account_id, archived_at, subscription_status, subscription_expires_at, free_usage_count, signature, initials, two_factor_secret, two_factor_enabled, created_at, updated_at FROM users WHERE email = $1"
         )
         .bind(email)
         .fetch_optional(pool)
@@ -106,6 +416,8 @@ impl UserQueries {
                 role: row.try_get("role")?,
                 is_active: row.try_get("is_active")?,
                 activation_token: row.try_get("activation_token")?,
+                account_id: row.try_get("account_id")?,
+                archived_at: row.try_get("archived_at")?,
                 subscription_status: row.try_get("subscription_status")?,
                 subscription_expires_at: row.try_get("subscription_expires_at")?,
                 free_usage_count: row.try_get("free_usage_count")?,
@@ -195,7 +507,6 @@ impl UserQueries {
 
         Ok(())
     }
-
 }
 
 impl TemplateQueries {
@@ -204,14 +515,15 @@ impl TemplateQueries {
 
         let row = sqlx::query(
             r#"
-            INSERT INTO templates (name, slug, user_id, folder_id, documents, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id, name, slug, user_id, folder_id, documents, created_at, updated_at
+            INSERT INTO templates (name, slug, user_id, account_id, folder_id, documents, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at
             "#
         )
         .bind(&template_data.name)
         .bind(&template_data.slug)
         .bind(&template_data.user_id)
+        .bind(&template_data.account_id)
         .bind(&template_data.folder_id)
         .bind(&template_data.documents)
         .bind(now)
@@ -224,17 +536,18 @@ impl TemplateQueries {
             name: row.get(1),
             slug: row.get(2),
             user_id: row.get(3),
-            folder_id: row.get(4),
+            account_id: row.get(4),
+            folder_id: row.get(5),
             // fields: None, // Removed - now stored in template_fields table
-            documents: row.get(5),
-            created_at: row.get(6),
-            updated_at: row.get(7),
+            documents: row.get(6),
+            created_at: row.get(7),
+            updated_at: row.get(8),
         })
     }
 
     pub async fn get_template_by_id(pool: &PgPool, id: i64) -> Result<Option<DbTemplate>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at FROM templates WHERE id = $1"
+            "SELECT id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at FROM templates WHERE id = $1"
         )
         .bind(id)
         .fetch_optional(pool)
@@ -246,6 +559,7 @@ impl TemplateQueries {
                 name: row.try_get("name")?,
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 folder_id: row.try_get("folder_id")?,
                 // fields: None, // Removed - now stored in template_fields table
                 documents: row.try_get("documents")?,
@@ -258,7 +572,7 @@ impl TemplateQueries {
 
     pub async fn get_template_by_slug(pool: &PgPool, slug: &str) -> Result<Option<DbTemplate>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at FROM templates WHERE slug = $1"
+            "SELECT id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at FROM templates WHERE slug = $1"
         )
         .bind(slug)
         .fetch_optional(pool)
@@ -270,6 +584,7 @@ impl TemplateQueries {
                 name: row.try_get("name")?,
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 folder_id: row.try_get("folder_id")?,
                 // fields: None, // Removed - now stored in template_fields table
                 documents: row.try_get("documents")?,
@@ -281,12 +596,26 @@ impl TemplateQueries {
     }
 
     pub async fn get_all_templates(pool: &PgPool, user_id: i64) -> Result<Vec<DbTemplate>, sqlx::Error> {
-        let rows = sqlx::query(
-            "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at FROM templates WHERE user_id = $1 AND folder_id IS NULL ORDER BY created_at DESC "
-        )
-        .bind(user_id)
-        .fetch_all(pool)
-        .await?;
+        // Get user's account_id first
+        let account_id_result = sqlx::query("SELECT account_id FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
+        
+        let account_id: Option<i64> = account_id_result.try_get("account_id")?;
+        
+        let query_str = if let Some(acc_id) = account_id {
+            // User has account - show all templates in the account
+            "SELECT id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at FROM templates WHERE account_id = $1 AND folder_id IS NULL ORDER BY created_at DESC"
+        } else {
+            // User doesn't have account - show only their templates
+            "SELECT id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at FROM templates WHERE user_id = $1 AND folder_id IS NULL ORDER BY created_at DESC"
+        };
+        
+        let rows = sqlx::query(query_str)
+            .bind(account_id.unwrap_or(user_id))
+            .fetch_all(pool)
+            .await?;
 
         let mut templates = Vec::new();
         for row in rows {
@@ -295,6 +624,7 @@ impl TemplateQueries {
                 name: row.try_get("name")?,
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 folder_id: row.try_get("folder_id")?,
                 // fields: None, // Removed - now stored in template_fields table
                 documents: row.try_get("documents")?,
@@ -307,86 +637,38 @@ impl TemplateQueries {
 
     // Get templates accessible by team (invited users can see inviter's templates)
     pub async fn get_team_templates(pool: &PgPool, user_id: i64) -> Result<Vec<DbTemplate>, sqlx::Error> {
-        // Get the user's invitation info to find their team
-        let team_query = sqlx::query(
-            r#"
-            SELECT invited_by_user_id FROM user_invitations 
-            WHERE email = (SELECT email FROM users WHERE id = $1) AND is_used = TRUE
-            "#
-        )
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?;
-
-        // Determine team members
-        let team_member_ids = if let Some(row) = team_query {
-            // User was invited - can see inviter's templates and own templates
-            let invited_by: Option<i64> = row.try_get("invited_by_user_id")?;
-            if let Some(inviter_id) = invited_by {
-                // Get all users invited by the same inviter (team members)
-                let team_rows = sqlx::query(
-                    r#"
-                    SELECT u.id FROM users u
-                    INNER JOIN user_invitations ui ON u.email = ui.email
-                    WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
-                    UNION
-                    SELECT $1 as id
-                    "#
-                )
-                .bind(inviter_id)
-                .fetch_all(pool)
-                .await?;
-
-                let mut ids: Vec<i64> = team_rows.iter()
-                    .filter_map(|row| row.try_get::<i64, _>("id").ok())
-                    .collect();
-                ids.push(user_id); // Include current user
-                ids
-            } else {
-                vec![user_id] // No inviter, only own templates
-            }
-        } else {
-            // User is admin/inviter - can see own templates + invited users' templates
-            let invited_rows = sqlx::query(
-                r#"
-                SELECT u.id FROM users u
-                INNER JOIN user_invitations ui ON u.email = ui.email
-                WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
-                "#
-            )
+        // Get user's account_id
+        let account_id_result = sqlx::query("SELECT account_id FROM users WHERE id = $1")
             .bind(user_id)
-            .fetch_all(pool)
+            .fetch_one(pool)
             .await?;
+        let account_id: Option<i64> = account_id_result.try_get("account_id")?;
 
-            let mut ids: Vec<i64> = invited_rows.iter()
-                .filter_map(|row| row.try_get::<i64, _>("id").ok())
-                .collect();
-            ids.push(user_id); // Include current user (admin)
-            ids
+        // If user has account_id, get all templates in that account
+        // Otherwise, only get user's own templates
+        let query_str = if account_id.is_some() {
+            "SELECT id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at 
+             FROM templates 
+             WHERE account_id = $1 AND folder_id IS NULL 
+             ORDER BY created_at DESC"
+        } else {
+            "SELECT id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at 
+             FROM templates 
+             WHERE user_id = $1 AND folder_id IS NULL 
+             ORDER BY created_at DESC"
         };
 
-        // Get templates for all team members
-        if team_member_ids.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let placeholders: Vec<String> = (1..=team_member_ids.len())
-            .map(|i| format!("${}", i))
-            .collect();
-        let query_str = format!(
-            "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at 
-             FROM templates 
-             WHERE user_id IN ({}) AND folder_id IS NULL 
-             ORDER BY created_at DESC",
-            placeholders.join(", ")
-        );
-
-        let mut query = sqlx::query(&query_str);
-        for id in team_member_ids {
-            query = query.bind(id);
-        }
-
-        let rows = query.fetch_all(pool).await?;
+        let rows = if let Some(acc_id) = account_id {
+            sqlx::query(query_str)
+                .bind(acc_id)
+                .fetch_all(pool)
+                .await?
+        } else {
+            sqlx::query(query_str)
+                .bind(user_id)
+                .fetch_all(pool)
+                .await?
+        };
 
         let mut templates = Vec::new();
         for row in rows {
@@ -395,6 +677,7 @@ impl TemplateQueries {
                 name: row.try_get("name")?,
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 folder_id: row.try_get("folder_id")?,
                 // fields: None, // Removed - now stored in template_fields table
                 documents: row.try_get("documents")?,
@@ -413,7 +696,7 @@ impl TemplateQueries {
             UPDATE templates
             SET name = COALESCE($2, name), updated_at = $3
             WHERE id = $1
-            RETURNING id, name, slug, user_id, folder_id, documents, created_at, updated_at
+            RETURNING id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at
             "#
         )
         .bind(id)
@@ -428,6 +711,7 @@ impl TemplateQueries {
                 name: row.try_get("name")?,
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 folder_id: row.try_get("folder_id")?,
                 // fields: None, // Removed - now stored in template_fields table
                 documents: row.try_get("documents")?,
@@ -455,6 +739,7 @@ impl TemplateQueries {
                 name: new_name.to_string(),
                 slug: new_slug.to_string(),
                 user_id: user_id,
+                account_id: original.account_id, // Use same account
                 folder_id: original.folder_id,
                 // fields: None, // Removed - will be cloned separately via TemplateFieldQueries
                 documents: original.documents,
@@ -473,13 +758,14 @@ impl TemplateFolderQueries {
 
         let row = sqlx::query(
             r#"
-            INSERT INTO template_folders (name, user_id, parent_folder_id, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, name, user_id, parent_folder_id, created_at, updated_at
+            INSERT INTO template_folders (name, user_id, account_id, parent_folder_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, name, user_id, account_id, parent_folder_id, created_at, updated_at
             "#
         )
         .bind(&folder_data.name)
         .bind(folder_data.user_id)
+        .bind(folder_data.account_id)
         .bind(folder_data.parent_folder_id)
         .bind(now)
         .bind(now)
@@ -490,6 +776,7 @@ impl TemplateFolderQueries {
             id: row.try_get("id")?,
             name: row.try_get("name")?,
             user_id: row.try_get("user_id")?,
+            account_id: row.try_get("account_id")?,
             parent_folder_id: row.try_get("parent_folder_id")?,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
@@ -498,7 +785,7 @@ impl TemplateFolderQueries {
 
     pub async fn get_folder_by_id(pool: &PgPool, id: i64) -> Result<Option<DbTemplateFolder>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT id, name, user_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE id = $1"
+            "SELECT id, name, user_id, account_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE id = $1"
         )
         .bind(id)
         .fetch_optional(pool)
@@ -509,6 +796,7 @@ impl TemplateFolderQueries {
                 id: row.try_get("id")?,
                 name: row.try_get("name")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 parent_folder_id: row.try_get("parent_folder_id")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
@@ -518,12 +806,28 @@ impl TemplateFolderQueries {
     }
 
     pub async fn get_folders_by_user(pool: &PgPool, user_id: i64) -> Result<Vec<DbTemplateFolder>, sqlx::Error> {
-        let rows = sqlx::query(
-            "SELECT id, name, user_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE user_id = $1 ORDER BY name ASC"
-        )
-        .bind(user_id)
-        .fetch_all(pool)
-        .await?;
+        // Get user's account_id
+        let account_id_result = sqlx::query("SELECT account_id FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
+        let account_id: Option<i64> = account_id_result.try_get("account_id")?;
+        
+        let rows = if let Some(acc_id) = account_id {
+            sqlx::query(
+                "SELECT id, name, user_id, account_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE account_id = $1 ORDER BY name ASC"
+            )
+            .bind(acc_id)
+            .fetch_all(pool)
+            .await?
+        } else {
+            sqlx::query(
+                "SELECT id, name, user_id, account_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE user_id = $1 ORDER BY name ASC"
+            )
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?
+        };
 
         let mut folders = Vec::new();
         for row in rows {
@@ -531,6 +835,7 @@ impl TemplateFolderQueries {
                 id: row.try_get("id")?,
                 name: row.try_get("name")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 parent_folder_id: row.try_get("parent_folder_id")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
@@ -542,7 +847,7 @@ impl TemplateFolderQueries {
     pub async fn get_folders_by_parent(pool: &PgPool, user_id: i64, parent_id: Option<i64>) -> Result<Vec<DbTemplateFolder>, sqlx::Error> {
         let rows = if let Some(parent_id) = parent_id {
             sqlx::query(
-                "SELECT id, name, user_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE user_id = $1 AND parent_folder_id = $2 ORDER BY name ASC"
+                "SELECT id, name, user_id, account_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE user_id = $1 AND parent_folder_id = $2 ORDER BY name ASC"
             )
             .bind(user_id)
             .bind(parent_id)
@@ -550,7 +855,7 @@ impl TemplateFolderQueries {
             .await?
         } else {
             sqlx::query(
-                "SELECT id, name, user_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE user_id = $1 AND parent_folder_id IS NULL ORDER BY name ASC"
+                "SELECT id, name, user_id, account_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE user_id = $1 AND parent_folder_id IS NULL ORDER BY name ASC"
             )
             .bind(user_id)
             .fetch_all(pool)
@@ -563,6 +868,7 @@ impl TemplateFolderQueries {
                 id: row.try_get("id")?,
                 name: row.try_get("name")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 parent_folder_id: row.try_get("parent_folder_id")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
@@ -572,21 +878,47 @@ impl TemplateFolderQueries {
     }
 
     pub async fn get_templates_in_folder(pool: &PgPool, user_id: i64, folder_id: Option<i64>) -> Result<Vec<DbTemplate>, sqlx::Error> {
+        // Get user's account_id
+        let account_id_result = sqlx::query("SELECT account_id FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
+        let account_id: Option<i64> = account_id_result.try_get("account_id")?;
+        
         let rows = if let Some(folder_id) = folder_id {
-            sqlx::query(
-                "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at FROM templates WHERE user_id = $1 AND folder_id = $2 ORDER BY created_at DESC"
-            )
-            .bind(user_id)
-            .bind(folder_id)
-            .fetch_all(pool)
-            .await?
+            if let Some(acc_id) = account_id {
+                sqlx::query(
+                    "SELECT id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at FROM templates WHERE account_id = $1 AND folder_id = $2 ORDER BY created_at DESC"
+                )
+                .bind(acc_id)
+                .bind(folder_id)
+                .fetch_all(pool)
+                .await?
+            } else {
+                sqlx::query(
+                    "SELECT id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at FROM templates WHERE user_id = $1 AND folder_id = $2 ORDER BY created_at DESC"
+                )
+                .bind(user_id)
+                .bind(folder_id)
+                .fetch_all(pool)
+                .await?
+            }
         } else {
-            sqlx::query(
-                "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at FROM templates WHERE user_id = $1 AND folder_id IS NULL ORDER BY created_at DESC"
-            )
-            .bind(user_id)
-            .fetch_all(pool)
-            .await?
+            if let Some(acc_id) = account_id {
+                sqlx::query(
+                    "SELECT id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at FROM templates WHERE account_id = $1 AND folder_id IS NULL ORDER BY created_at DESC"
+                )
+                .bind(acc_id)
+                .fetch_all(pool)
+                .await?
+            } else {
+                sqlx::query(
+                    "SELECT id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at FROM templates WHERE user_id = $1 AND folder_id IS NULL ORDER BY created_at DESC"
+                )
+                .bind(user_id)
+                .fetch_all(pool)
+                .await?
+            }
         };
 
         let mut templates = Vec::new();
@@ -596,6 +928,7 @@ impl TemplateFolderQueries {
                 name: row.try_get("name")?,
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 folder_id: row.try_get("folder_id")?,
                 documents: row.try_get("documents")?,
                 created_at: row.try_get("created_at")?,
@@ -615,7 +948,7 @@ impl TemplateFolderQueries {
                 parent_folder_id = COALESCE($3, parent_folder_id),
                 updated_at = $4
             WHERE id = $1
-            RETURNING id, name, user_id, parent_folder_id, created_at, updated_at
+            RETURNING id, name, user_id, account_id, parent_folder_id, created_at, updated_at
             "#
         )
         .bind(id)
@@ -630,6 +963,7 @@ impl TemplateFolderQueries {
                 id: row.try_get("id")?,
                 name: row.try_get("name")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 parent_folder_id: row.try_get("parent_folder_id")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
@@ -687,82 +1021,38 @@ impl TemplateFolderQueries {
     }
 
     pub async fn get_team_folders(pool: &PgPool, user_id: i64) -> Result<Vec<DbTemplateFolder>, sqlx::Error> {
-        // Get the user's invitation info to find their team
-        let team_query = sqlx::query(
-            r#"
-            SELECT invited_by_user_id FROM user_invitations 
-            WHERE email = (SELECT email FROM users WHERE id = $1) AND is_used = TRUE
-            "#
-        )
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?;
-
-        // Determine team members
-        let team_member_ids = if let Some(row) = team_query {
-            // User was invited - can see inviter's folders and own folders
-            let invited_by: Option<i64> = row.try_get("invited_by_user_id")?;
-            if let Some(inviter_id) = invited_by {
-                // Get all users invited by the same inviter (team members)
-                let team_rows = sqlx::query(
-                    r#"
-                    SELECT u.id FROM users u
-                    INNER JOIN user_invitations ui ON u.email = ui.email
-                    WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
-                    UNION
-                    SELECT $1 as id
-                    "#
-                )
-                .bind(inviter_id)
-                .fetch_all(pool)
-                .await?;
-
-                let mut ids: Vec<i64> = team_rows.iter()
-                    .filter_map(|row| row.try_get::<i64, _>("id").ok())
-                    .collect();
-                ids.push(inviter_id);
-                ids
-            } else {
-                vec![user_id]
-            }
-        } else {
-            // User is the inviter - can see own folders and invited users' folders
-            let invited_rows = sqlx::query(
-                r#"
-                SELECT u.id FROM users u
-                INNER JOIN user_invitations ui ON u.email = ui.email
-                WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
-                UNION
-                SELECT $1 as id
-                "#
-            )
+        // Get user's account_id
+        let account_id_result = sqlx::query("SELECT account_id FROM users WHERE id = $1")
             .bind(user_id)
-            .fetch_all(pool)
+            .fetch_one(pool)
             .await?;
+        let account_id: Option<i64> = account_id_result.try_get("account_id")?;
 
-            invited_rows.iter()
-                .filter_map(|row| row.try_get::<i64, _>("id").ok())
-                .collect()
+        // If user has account_id, get all folders in that account
+        // Otherwise, only get user's own folders
+        let query_str = if account_id.is_some() {
+            "SELECT id, name, user_id, account_id, parent_folder_id, created_at, updated_at 
+             FROM template_folders 
+             WHERE account_id = $1 
+             ORDER BY name ASC"
+        } else {
+            "SELECT id, name, user_id, account_id, parent_folder_id, created_at, updated_at 
+             FROM template_folders 
+             WHERE user_id = $1 
+             ORDER BY name ASC"
         };
 
-        // Get folders for all team members
-        let placeholders = team_member_ids.iter()
-            .enumerate()
-            .map(|(i, _)| format!("${}", i + 1))
-            .collect::<Vec<_>>()
-            .join(",");
-
-        let query_str = format!(
-            "SELECT id, name, user_id, parent_folder_id, created_at, updated_at FROM template_folders WHERE user_id IN ({}) ORDER BY name ASC",
-            placeholders
-        );
-
-        let mut query = sqlx::query(&query_str);
-        for id in &team_member_ids {
-            query = query.bind(id);
-        }
-
-        let rows = query.fetch_all(pool).await?;
+        let rows = if let Some(acc_id) = account_id {
+            sqlx::query(query_str)
+                .bind(acc_id)
+                .fetch_all(pool)
+                .await?
+        } else {
+            sqlx::query(query_str)
+                .bind(user_id)
+                .fetch_all(pool)
+                .await?
+        };
 
         let mut folders = Vec::new();
         for row in rows {
@@ -770,6 +1060,7 @@ impl TemplateFolderQueries {
                 id: row.try_get("id")?,
                 name: row.try_get("name")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 parent_folder_id: row.try_get("parent_folder_id")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
@@ -780,88 +1071,40 @@ impl TemplateFolderQueries {
 
     // Get templates in a specific folder that are accessible by team members
     pub async fn get_team_templates_in_folder(pool: &PgPool, user_id: i64, folder_id: i64) -> Result<Vec<DbTemplate>, sqlx::Error> {
-        // Get the user's invitation info to find their team
-        let team_query = sqlx::query(
-            r#"
-            SELECT invited_by_user_id FROM user_invitations 
-            WHERE email = (SELECT email FROM users WHERE id = $1) AND is_used = TRUE
-            "#
-        )
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?;
-
-        // Determine team members
-        let team_member_ids = if let Some(row) = team_query {
-            // User was invited - can see inviter's templates and own templates
-            let invited_by: Option<i64> = row.try_get("invited_by_user_id")?;
-            if let Some(inviter_id) = invited_by {
-                // Get all users invited by the same inviter (team members)
-                let team_rows = sqlx::query(
-                    r#"
-                    SELECT u.id FROM users u
-                    INNER JOIN user_invitations ui ON u.email = ui.email
-                    WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
-                    UNION
-                    SELECT $1 as id
-                    "#
-                )
-                .bind(inviter_id)
-                .fetch_all(pool)
-                .await?;
-
-                let mut ids: Vec<i64> = team_rows.iter()
-                    .filter_map(|row| row.try_get::<i64, _>("id").ok())
-                    .collect();
-                ids.push(user_id); // Include current user
-                ids
-            } else {
-                vec![user_id] // No inviter, only own templates
-            }
-        } else {
-            // User is admin/inviter - can see own templates + invited users' templates
-            let invited_rows = sqlx::query(
-                r#"
-                SELECT u.id FROM users u
-                INNER JOIN user_invitations ui ON u.email = ui.email
-                WHERE ui.invited_by_user_id = $1 AND ui.is_used = TRUE
-                "#
-            )
+        // Get user's account_id
+        let account_id_result = sqlx::query("SELECT account_id FROM users WHERE id = $1")
             .bind(user_id)
-            .fetch_all(pool)
+            .fetch_one(pool)
             .await?;
+        let account_id: Option<i64> = account_id_result.try_get("account_id")?;
 
-            let mut ids: Vec<i64> = invited_rows.iter()
-                .filter_map(|row| row.try_get::<i64, _>("id").ok())
-                .collect();
-            ids.push(user_id); // Include current user (admin)
-            ids
+        // If user has account_id, get all templates in that account and folder
+        // Otherwise, only get user's own templates in that folder
+        let query_str = if account_id.is_some() {
+            "SELECT id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at 
+             FROM templates 
+             WHERE account_id = $1 AND folder_id = $2
+             ORDER BY created_at DESC"
+        } else {
+            "SELECT id, name, slug, user_id, account_id, folder_id, documents, created_at, updated_at 
+             FROM templates 
+             WHERE user_id = $1 AND folder_id = $2
+             ORDER BY created_at DESC"
         };
 
-        // Get templates for all team members in the specific folder
-        if team_member_ids.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let placeholders: Vec<String> = (1..=team_member_ids.len())
-            .map(|i| format!("${}", i))
-            .collect();
-        let query_str = format!(
-            "SELECT id, name, slug, user_id, folder_id, documents, created_at, updated_at 
-             FROM templates 
-             WHERE user_id IN ({}) AND folder_id = ${}
-             ORDER BY created_at DESC",
-            placeholders.join(", "),
-            team_member_ids.len() + 1
-        );
-
-        let mut query = sqlx::query(&query_str);
-        for id in team_member_ids {
-            query = query.bind(id);
-        }
-        query = query.bind(folder_id);
-
-        let rows = query.fetch_all(pool).await?;
+        let rows = if let Some(acc_id) = account_id {
+            sqlx::query(query_str)
+                .bind(acc_id)
+                .bind(folder_id)
+                .fetch_all(pool)
+                .await?
+        } else {
+            sqlx::query(query_str)
+                .bind(user_id)
+                .bind(folder_id)
+                .fetch_all(pool)
+                .await?
+        };
 
         let mut templates = Vec::new();
         for row in rows {
@@ -870,6 +1113,7 @@ impl TemplateFolderQueries {
                 name: row.try_get("name")?,
                 slug: row.try_get("slug")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 folder_id: row.try_get("folder_id")?,
                 documents: row.try_get("documents")?,
                 created_at: row.try_get("created_at")?,
@@ -2076,6 +2320,7 @@ impl GlobalSettingsQueries {
             Some(row) => Ok(Some(DbGlobalSettings {
                 id: row.try_get("id")?,
                 user_id: row.try_get("user_id")?,
+                account_id: None,
                 company_name: row.try_get("company_name")?,
                 timezone: row.try_get("timezone")?,
                 locale: row.try_get("locale")?,
@@ -2103,10 +2348,23 @@ impl GlobalSettingsQueries {
     }
 
     pub async fn get_user_settings(pool: &PgPool, user_id: i32) -> Result<Option<DbGlobalSettings>, sqlx::Error> {
+        // First get user's account_id
+        let user = UserQueries::get_user_by_id(pool, user_id as i64).await?;
+        let account_id = match user {
+            Some(u) => u.account_id,
+            None => return Ok(None),
+        };
+
+        // If user has no account, return None
+        if account_id.is_none() {
+            return Ok(None);
+        }
+
+        // Query settings by account_id (team-wide settings)
         let row = sqlx::query(
-            "SELECT id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at FROM global_settings WHERE user_id = $1"
+            "SELECT id, user_id, account_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at FROM global_settings WHERE account_id = $1"
         )
-        .bind(user_id)
+        .bind(account_id)
         .fetch_optional(pool)
         .await?;
 
@@ -2114,6 +2372,7 @@ impl GlobalSettingsQueries {
             Some(row) => Ok(Some(DbGlobalSettings {
                 id: row.try_get("id")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 company_name: row.try_get("company_name")?,
                 timezone: row.try_get("timezone")?,
                 locale: row.try_get("locale")?,
@@ -2142,14 +2401,23 @@ impl GlobalSettingsQueries {
 
     pub async fn create_user_settings(pool: &PgPool, user_id: i32) -> Result<DbGlobalSettings, sqlx::Error> {
         let now = Utc::now();
+        
+        // Get user's account_id
+        let user = UserQueries::get_user_by_id(pool, user_id as i64).await?;
+        let account_id = match user {
+            Some(u) => u.account_id,
+            None => return Err(sqlx::Error::RowNotFound),
+        };
+
         let row = sqlx::query(
             r#"
-            INSERT INTO global_settings (user_id, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, created_at, updated_at)
-            VALUES ($1, false, false, false, true, false, false, false, false, false, false, false, $2, $2)
-            RETURNING id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, NULL as completion_title, NULL as completion_body, NULL as redirect_title, NULL as redirect_url, created_at, updated_at
+            INSERT INTO global_settings (user_id, account_id, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, created_at, updated_at)
+            VALUES ($1, $2, false, false, false, true, false, false, false, false, false, false, false, $3, $3)
+            RETURNING id, user_id, account_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, NULL as completion_title, NULL as completion_body, NULL as redirect_title, NULL as redirect_url, created_at, updated_at
             "#
         )
         .bind(user_id)
+        .bind(account_id)
         .bind(now)
         .fetch_one(pool)
         .await?;
@@ -2157,6 +2425,7 @@ impl GlobalSettingsQueries {
         Ok(DbGlobalSettings {
             id: row.try_get("id")?,
             user_id: row.try_get("user_id")?,
+            account_id: row.try_get("account_id")?,
             company_name: row.try_get("company_name")?,
             timezone: row.try_get("timezone")?,
             locale: row.try_get("locale")?,
@@ -2224,19 +2493,27 @@ impl GlobalSettingsQueries {
     pub async fn update_user_settings(pool: &PgPool, user_id: i32, settings: UpdateGlobalSettings) -> Result<DbGlobalSettings, sqlx::Error> {
         let now = Utc::now();
 
-        // First check if user settings exist
+        // Get user's account_id
+        let user = UserQueries::get_user_by_id(pool, user_id as i64).await?;
+        let account_id = match user {
+            Some(u) => u.account_id,
+            None => return Err(sqlx::Error::RowNotFound),
+        };
+
+        // First check if settings exist for this account
         let existing_settings = Self::get_user_settings(pool, user_id).await?;
 
         if existing_settings.is_none() {
-            // Create user settings with the provided values if they don't exist
+            // Create settings for this account
             let row = sqlx::query(
                 r#"
-                INSERT INTO global_settings (user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $21)
-                RETURNING id, user_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at
+                INSERT INTO global_settings (user_id, account_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $22)
+                RETURNING id, user_id, account_id, company_name, timezone, locale, logo_url, force_2fa_with_authenticator_app, add_signature_id_to_the_documents, require_signing_reason, allow_typed_text_signatures, allow_to_resubmit_completed_forms, allow_to_decline_documents, remember_and_pre_fill_signatures, require_authentication_for_file_download_links, combine_completed_documents_and_audit_log, expirable_file_download_links, enable_confetti, completion_title, completion_body, redirect_title, redirect_url, created_at, updated_at
                 "#
             )
             .bind(user_id)
+            .bind(account_id)
             .bind(settings.company_name.as_deref())
             .bind(settings.timezone.as_deref())
             .bind(settings.locale.as_deref())
@@ -2263,6 +2540,7 @@ impl GlobalSettingsQueries {
             return Ok(DbGlobalSettings {
                 id: row.try_get("id")?,
                 user_id: row.try_get("user_id")?,
+                account_id: row.try_get("account_id")?,
                 company_name: row.try_get("company_name")?,
                 timezone: row.try_get("timezone")?,
                 locale: row.try_get("locale")?,
@@ -2287,7 +2565,7 @@ impl GlobalSettingsQueries {
             });
         }
 
-        // Update existing settings
+        // Update existing settings by account_id (affects all users in the account)
         let mut query = sqlx::query(
             r#"
             UPDATE global_settings
@@ -2311,7 +2589,7 @@ impl GlobalSettingsQueries {
                 redirect_title = COALESCE($18, redirect_title),
                 redirect_url = COALESCE($19, redirect_url),
                 updated_at = $20
-            WHERE user_id = $21
+            WHERE account_id = $21
             "#
         );
         
@@ -2336,7 +2614,7 @@ impl GlobalSettingsQueries {
         query = query.bind(settings.redirect_title.as_deref());
         query = query.bind(settings.redirect_url.as_deref());
         query = query.bind(now);
-        query = query.bind(user_id);
+        query = query.bind(account_id);
         
         query.execute(pool).await?;
 

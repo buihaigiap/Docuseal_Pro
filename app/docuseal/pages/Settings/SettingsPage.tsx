@@ -3,6 +3,7 @@ import { Box, List, ListItem, ListItemButton, ListItemText, Typography, Paper } 
 import { useTranslation } from 'react-i18next';
 import ProfileSettings from './Profile/ProfileSettings';
 import UsersSettings from './Activate/UsersSettings';
+import TeamSettings from './Activate/TeamSettings';
 import ReminderSettingsPage from './ReminderSettings/ReminderSettingsPage';
 import GeneralSettings from './GeneralSettings';
 import PersonalizationPage from './Personalization';
@@ -15,6 +16,7 @@ const SettingsPage = () => {
     { text: t('navigation.general'), path: '/settings/general' },
     { text: t('navigation.profile'), path: '/settings/profile' },
     { text: t('navigation.users'), path: '/settings/users' },
+    { text: 'Team Accounts', path: '/settings/team' },
     { text: t('navigation.reminders'), path: '/settings/reminders' },
     { text: 'Personalization', path: '/settings/personalization' },
   ];
@@ -42,6 +44,7 @@ const SettingsPage = () => {
             <Route path="general" element={<GeneralSettings />} />
             <Route path="profile" element={<ProfileSettings />} />
             <Route path="users" element={<UsersSettings />} />
+            <Route path="team" element={<TeamSettings />} />
             <Route path="reminders" element={<ReminderSettingsPage />} />
             <Route path="personalization" element={<PersonalizationPage />} />
             <Route index element={<Navigate to="general" replace />} />

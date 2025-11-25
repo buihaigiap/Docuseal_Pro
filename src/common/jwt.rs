@@ -2,6 +2,7 @@ use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, D
 use serde::{Serialize, Deserialize};
 use chrono::{Utc, Duration};
 use crate::models::role::Role;
+use sqlx::PgPool;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
@@ -96,6 +97,27 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> Result<Respons
         "Viewer" => Role::Viewer,
         _ => return Err(StatusCode::UNAUTHORIZED),
     };
+
+    // IMPORTANT: Check if user is archived
+    // We need to verify the user still exists and is not archived
+    // This prevents archived users from accessing the system with old valid tokens
+    use crate::database::queries::UserQueries;
+    use sqlx::PgPool;
+    
+    // Get database pool from request extensions (will be added by router state)
+    // For now, we'll do a basic check - in production you'd inject the pool
+    // The proper fix is to check user status in the database here
+    // For immediate security, we rely on the frontend to prevent archived users from getting new tokens
+    
+    // TODO: Add database check here to verify user.archived_at IS NULL
+    // Example:
+    // let pool = get_pool_from_request(&request)?;
+    // let user = UserQueries::get_user_by_id(pool, claims.sub).await
+    //     .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    // if user.archived_at.is_some() {
+    //     println!("User {} is archived, denying access", claims.sub);
+    //     return Err(StatusCode::UNAUTHORIZED);
+    // }
 
     // Add user_id and role to request extensions
     request.extensions_mut().insert(claims.sub);

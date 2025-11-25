@@ -3140,6 +3140,7 @@ async fn generate_signed_pdf_for_template_with_filter(
         .unwrap_or_else(|| crate::database::models::DbGlobalSettings {
             id: 0,
             user_id: Some(template.user_id as i32),
+            account_id: None,
             company_name: None,
             timezone: Some("UTC".to_string()),
             locale: Some("en-US".to_string()),

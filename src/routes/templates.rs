@@ -582,9 +582,17 @@ pub async fn create_folder(
         return ApiResponse::bad_request("Either name or template_id must be provided".to_string());
     };
 
+    // Get user's account_id
+    let account_id = match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(user)) => user.account_id,
+        Ok(None) => return ApiResponse::not_found("User not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to get user: {}", e)),
+    };
+
     let create_folder = CreateTemplateFolder {
         name: folder_name,
         user_id,
+        account_id,
         parent_folder_id: payload.parent_folder_id,
     };
 
@@ -1212,6 +1220,13 @@ pub async fn create_template(
 ) -> (StatusCode, Json<ApiResponse<Template>>) {
     let pool = &state.lock().await.db_pool;
 
+    // Get user's account_id
+    let user = match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(user)) => user,
+        Ok(None) => return ApiResponse::not_found("User not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Database error: {}", e)),
+    };
+
     // Decode base64 document
     let document_data = match general_purpose::STANDARD.decode(&payload.document) {
         Ok(data) => data,
@@ -1239,6 +1254,7 @@ pub async fn create_template(
         name: payload.name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        account_id: user.account_id,
         folder_id: payload.folder_id,
         documents: Some(serde_json::json!([{
             "filename": filename,
@@ -1338,11 +1354,19 @@ pub async fn create_template_from_html(
     // Generate unique slug
     let slug = format!("html-{}-{}", payload.name.to_lowercase().replace(" ", "-"), chrono::Utc::now().timestamp());
 
+    // Get user's account_id
+    let account_id = match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(user)) => user.account_id,
+        Ok(None) => return ApiResponse::not_found("User not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to get user: {}", e)),
+    };
+
     // Create template in database
     let create_template = CreateTemplate {
         name: payload.name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        account_id,
         folder_id: payload.folder_id,
         // fields: None, // Removed - fields will be added separately
         documents: None, // Skip documents for now
@@ -1429,11 +1453,19 @@ pub async fn create_template_from_pdf(
     // Generate unique slug
     let slug = format!("pdf-{}-{}", template_name.to_lowercase().replace(" ", "-"), chrono::Utc::now().timestamp());
 
+    // Get user's account_id
+    let account_id = match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(user)) => user.account_id,
+        Ok(None) => return ApiResponse::not_found("User not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to get user: {}", e)),
+    };
+
     // Create template in database
     let create_template = CreateTemplate {
         name: template_name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        account_id,
         folder_id: None, // PDF uploads don't specify folder initially
         // fields: None, // TODO: Extract fields from PDF - REMOVED
         documents: Some(serde_json::json!([{
@@ -1650,11 +1682,19 @@ pub async fn create_template_from_google_drive(
 
     let template_name = payload.name.unwrap_or_else(|| name_without_ext.to_string());
 
+    // Get user's account_id
+    let account_id = match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(user)) => user.account_id,
+        Ok(None) => return ApiResponse::not_found("User not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to get user: {}", e)),
+    };
+
     // Create template in database
     let create_template = CreateTemplate {
         name: template_name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        account_id,
         folder_id: payload.folder_id,
         documents: Some(serde_json::json!([{
             "filename": final_filename,
@@ -1745,11 +1785,19 @@ pub async fn create_template_from_docx(
     // Generate unique slug
     let slug = format!("docx-{}-{}", template_name.to_lowercase().replace(" ", "-"), chrono::Utc::now().timestamp());
 
+    // Get user's account_id
+    let account_id = match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(user)) => user.account_id,
+        Ok(None) => return ApiResponse::not_found("User not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to get user: {}", e)),
+    };
+
     // Create template in database
     let create_template = CreateTemplate {
         name: template_name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        account_id,
         folder_id: None, // DOCX uploads don't specify folder initially
         // fields: None, // TODO: Extract fields from DOCX - REMOVED
         documents: Some(serde_json::json!([{
@@ -1808,11 +1856,19 @@ async fn create_template_without_storage(
     // Generate unique slug
     let slug = format!("html-{}-{}", payload.name.to_lowercase().replace(" ", "-"), chrono::Utc::now().timestamp());
 
+    // Get user's account_id
+    let account_id = match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(user)) => user.account_id,
+        Ok(None) => return ApiResponse::not_found("User not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to get user: {}", e)),
+    };
+
     // Create template in database
     let create_template = CreateTemplate {
         name: payload.name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        account_id,
         folder_id: payload.folder_id,
         // fields: None, // Removed - fields will be added separately
         documents: None, // Skip documents for now
@@ -3176,12 +3232,20 @@ pub async fn create_template_from_file(
     
     // Generate unique slug
     let slug = format!("file-{}-{}", payload.name.to_lowercase().replace(" ", "-"), chrono::Utc::now().timestamp());
-
+    
+    // Get user's account_id
+    let account_id = match crate::database::queries::UserQueries::get_user_by_id(pool, user_id).await {
+        Ok(Some(user)) => user.account_id,
+        Ok(None) => return ApiResponse::not_found("User not found".to_string()),
+        Err(e) => return ApiResponse::internal_error(format!("Failed to get user: {}", e)),
+    };
+    
     // Create template in database
     let create_template = CreateTemplate {
         name: payload.name.clone(),
         slug: slug.clone(),
         user_id: user_id,
+        account_id,
         folder_id: payload.folder_id,
         documents: Some(serde_json::json!([{
             "filename": payload.file_id.split('/').last().unwrap_or(&payload.file_id),
@@ -3189,9 +3253,7 @@ pub async fn create_template_from_file(
             "size": 0, // TODO: Get actual file size
             "url": payload.file_id.clone()
         }])),
-    };
-
-    match TemplateQueries::create_template(pool, create_template).await {
+    };    match TemplateQueries::create_template(pool, create_template).await {
         Ok(db_template) => {
             match convert_db_template_to_template_with_fields(db_template, pool).await {
                 Ok(template) => ApiResponse::created(template, "Template created from file successfully".to_string()),

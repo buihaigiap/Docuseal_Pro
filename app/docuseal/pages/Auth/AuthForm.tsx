@@ -56,7 +56,7 @@ const AuthForm: React.FC<{ isRegister?: boolean }> = ({ isRegister }) => {
                 }
             }
         } catch (err) {
-            setError('An error occurred. Please try again.');
+            setError(err?.error || 'An error occurred');
         } finally {
             setLoading(false);
         }
