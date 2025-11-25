@@ -2149,7 +2149,13 @@ pub async fn preview_file(
                 }
                 
                 // Remove the _page_X.ext suffix to get the original file key
-                file_key = key[..page_start].to_string() + ".pdf";
+                // Also remove /previews/ from the path if present
+                let base_key = &key[..page_start];
+                file_key = if base_key.contains("/previews/") {
+                    base_key.replace("/previews/", "/") + ".pdf"
+                } else {
+                    base_key.to_string() + ".pdf"
+                };
             }
         }
     }
@@ -2185,37 +2191,22 @@ pub async fn preview_file(
         let is_pdf = file_key.to_lowercase().ends_with(".pdf");
         
         if !is_pdf {
-            // For non-PDF files (images), return URL in JSON
-            // Check if file exists
-            match storage.download_file(&file_key).await {
-                Ok(_) => {
-                    // File exists, return URL
-                    let file_url = format!("/api/files/{}", file_key);
-                    let json_response = serde_json::json!({
-                        "url": file_url,
-                        "type": "image"
-                    });
-                    
-                    let response = Response::builder()
-                        .status(StatusCode::OK)
-                        .header(header::CONTENT_TYPE, "application/json")
-                        .header("Access-Control-Allow-Origin", "*")
-                        .header("Access-Control-Expose-Headers", "*")
-                        .body(Body::from(json_response.to_string()))
-                        .unwrap();
-                    return response;
-                }
-                Err(e) => {
-                    eprintln!("Failed to download file: {:?}", e);
-                    let response = Response::builder()
-                        .status(StatusCode::NOT_FOUND)
-                        .header(header::CONTENT_TYPE, "application/json")
-                        .header("Access-Control-Allow-Origin", "*")
-                        .body(Body::from(serde_json::json!({"error": "File not found"}).to_string()))
-                        .unwrap();
-                    return response;
-                }
-            };
+            // For non-PDF files (images), return URL immediately without downloading
+            let file_url = format!("/api/files/{}", file_key);
+            let json_response = serde_json::json!({
+                "url": file_url,
+                "type": "image"
+            });
+            
+            let response = Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Expose-Headers", "*")
+                .header("Cache-Control", "public, max-age=3600")
+                .body(Body::from(json_response.to_string()))
+                .unwrap();
+            return response;
         }
         
         // For PDF files, download to get page count
@@ -2248,43 +2239,48 @@ pub async fn preview_file(
             }
         };
         
-        // Generate preview for each page
+        // OPTIMIZATION: Generate URLs for lazy loading - DON'T render all pages immediately
+        // Only generate first page preview, let frontend request others on-demand
         let mut page_urls = Vec::new();
-        let base_filename = file_key.trim_end_matches(".pdf")
-            .trim_start_matches("templates/");
         
-        for page_num in 1..=total_pages {
-            let preview_key = format!("templates/previews/{}_page_{}.{}", 
-                base_filename, page_num, image_format);
-            
-            // Check if preview already exists
-            let preview_exists = storage.download_file(&preview_key).await.is_ok();
-            
-            if !preview_exists {
-                // Generate preview for this page
-                match render_pdf_page_to_image(&pdf_data, page_num, image_format) {
-                    Ok(image_data) => {
-                        let content_type = match image_format {
-                            "png" => "image/png",
-                            _ => "image/jpeg",
-                        };
-                        
-                        // Upload to storage with exact key (no timestamp prefix)
-                        if let Err(e) = storage.upload_file_with_key(image_data, &preview_key, content_type).await {
-                            eprintln!("Failed to save preview for page {}: {:?}", page_num, e);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to render page {}: {:?}", page_num, e);
-                    }
-                }
+        // Extract base filename (without .pdf extension)
+        // file_key could be "templates/xyz.pdf" or "templates/previews/xyz.pdf"
+        let base_path = file_key.trim_end_matches(".pdf");
+        
+        // Determine the correct preview path
+        let (preview_base, base_filename) = if base_path.starts_with("templates/previews/") {
+            // Already in previews folder, use as-is
+            (base_path.to_string(), base_path.trim_start_matches("templates/previews/").to_string())
+        } else if base_path.starts_with("templates/") {
+            // In templates folder, move to previews
+            let filename = base_path.trim_start_matches("templates/");
+            (format!("templates/previews/{}", filename), filename.to_string())
+        } else {
+            // No templates prefix, add it
+            (format!("templates/previews/{}", base_path), base_path.to_string())
+        };
+        
+        // Generate first page only to show something immediately
+        let first_page_preview_key = format!("{}_page_1.{}", preview_base, image_format);
+        
+        // Check if first page preview exists, if not generate it
+        if storage.download_file(&first_page_preview_key).await.is_err() {
+            if let Ok(image_data) = render_pdf_page_to_image(&pdf_data, 1, image_format) {
+                let content_type = match image_format {
+                    "png" => "image/png",
+                    _ => "image/jpeg",
+                };
+                let _ = storage.upload_file_with_key(image_data, &first_page_preview_key, content_type).await;
             }
-            
-            // Add URL to response - use public /files/previews/ route for preview images
-            page_urls.push(format!("/api/files/previews/{}", preview_key));
         }
         
-        // Return JSON response with all pages
+        // Return URLs for all pages (they will be lazy-loaded by frontend)
+        for page_num in 1..=total_pages {
+            let preview_key = format!("{}_page_{}.{}", preview_base, page_num, image_format);
+            page_urls.push(format!("/api/files/preview/{}", preview_key));
+        }
+        
+        // Return JSON response with all page URLs for lazy loading
         let json_response = serde_json::json!({
             "total_pages": total_pages,
             "format": image_format,
@@ -2296,6 +2292,7 @@ pub async fn preview_file(
             .header(header::CONTENT_TYPE, "application/json")
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Expose-Headers", "*")
+            .header("Cache-Control", "public, max-age=300") // Cache for 5 minutes
             .body(Body::from(json_response.to_string()))
             .unwrap();
         return response;
@@ -2320,14 +2317,19 @@ pub async fn preview_file(
     };
     
     // Step 2: Check if preview image already exists
-    // Store previews in templates/previews/ subfolder
-    let base_filename = file_key.trim_end_matches(".pdf")
-        .trim_start_matches("templates/");
-    let preview_key = format!("templates/previews/{}_page_{}.{}", 
-        base_filename,
-        page_number,
-        image_format
-    );
+    // Determine correct preview path (avoid duplication)
+    let base_path = file_key.trim_end_matches(".pdf");
+    let preview_key = if base_path.starts_with("templates/previews/") {
+        // Already in previews folder
+        format!("{}_page_{}.{}", base_path, page_number, image_format)
+    } else if base_path.starts_with("templates/") {
+        // In templates folder, move to previews
+        let filename = base_path.trim_start_matches("templates/");
+        format!("templates/previews/{}_page_{}.{}", filename, page_number, image_format)
+    } else {
+        // No templates prefix
+        format!("templates/previews/{}_page_{}.{}", base_path, page_number, image_format)
+    };
     
     // Try to download existing preview
     if let Ok(preview_data) = storage.download_file(&preview_key).await {
@@ -2345,6 +2347,8 @@ pub async fn preview_file(
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Expose-Headers", "*")
             .header("Content-Length", preview_data.len().to_string())
+            .header("Cache-Control", "public, max-age=86400") // Cache for 24 hours
+            .header("ETag", format!("\"{}\"", preview_key)) // Add ETag for caching
             .body(Body::from(preview_data))
             .unwrap();
         return response;
@@ -2403,6 +2407,8 @@ pub async fn preview_file(
         .header("Access-Control-Allow-Origin", "*")
         .header("Access-Control-Expose-Headers", "*")
         .header("Content-Length", image_data.len().to_string())
+        .header("Cache-Control", "public, max-age=86400") // Cache for 24 hours
+        .header("ETag", format!("\"{}\"", preview_key)) // Add ETag for caching
         .body(Body::from(image_data))
         .unwrap();
 

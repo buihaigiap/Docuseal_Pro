@@ -1493,7 +1493,7 @@ async fn google_oauth_init(
     let client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_else(|_| "YOUR_GOOGLE_CLIENT_ID".to_string());
     let redirect_uri = format!("{}/auth/google_oauth2/callback", std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string()));
 
-    // Use drive.readonly to read user's files (not just app-created files)
+    // Use drive.readonly scope to read all user's files
     let scope = "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.readonly";
     let state = params.get("state").unwrap_or(&"".to_string()).clone();
 

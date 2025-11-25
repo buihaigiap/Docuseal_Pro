@@ -46,6 +46,9 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [pageWidth, setPageWidth] = useState(0);
   const [pageHeight, setPageHeight] = useState(0);
+  const [loadingThumbnails, setLoadingThumbnails] = useState<Set<number>>(new Set());
+  const [loadedThumbnails, setLoadedThumbnails] = useState<Set<number>>(new Set());
+  const [loadingMainImage, setLoadingMainImage] = useState(false);
 
   // Hide scrollbar for thumbnail sidebar
   useEffect(() => {
@@ -252,23 +255,48 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
 
   const renderContent = () => {
     
+    // Show loading when no docState yet
+    if (!docState && !error) {
+      return (
+        <div className="flex items-center justify-center min-h-[400px] bg-gray-900 rounded-lg">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-500 mx-auto mb-4"></div>
+            <p className="text-white text-sm">Loading document...</p>
+          </div>
+        </div>
+      );
+    }
+    
     switch(docState?.type) {
       case 'images':
         const currentImageUrl = docState.content[docState.currentPage - 1];
         return (
           <div className="w-full   ">
             <div className="relative inline-block">
+              {/* Loading overlay for main image */}
+              {loadingMainImage && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 rounded-lg z-20">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-500 mx-auto mb-4"></div>
+                    <p className="text-white text-sm">Loading page {docState.currentPage}...</p>
+                  </div>
+                </div>
+              )}
+              
               <img
                 ref={imgRef}
                 src={currentImageUrl}
                 alt={`Page ${docState.currentPage}`}
                 className="w-full h-auto object-contain shadow-lg"
+                onLoadStart={() => setLoadingMainImage(true)}
                 onLoad={(e) => {
                   const img = e.target as HTMLImageElement;
                   setPageWidth(img.naturalWidth || img.clientWidth);
                   setPageHeight(img.naturalHeight || img.clientHeight );
+                  setLoadingMainImage(false);
                   onLoad?.(); // Call onLoad AFTER image dimensions are available
                 }}
+                onError={() => setLoadingMainImage(false)}
               />
               <div ref={overlayRef} className="absolute top-0 left-0 w-full h-full z-10">
                 {/* Company Logo and Name Overlay */}
@@ -301,17 +329,30 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
         return (
           <div className="w-full">
             <div className="relative inline-block">
+              {/* Loading overlay for single image */}
+              {loadingMainImage && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 rounded-lg z-20 min-h-[400px]">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-500 mx-auto mb-4"></div>
+                    <p className="text-white text-sm">Loading document...</p>
+                  </div>
+                </div>
+              )}
+              
               <img
                 ref={imgRef}
                 src={docState.content}
                 alt="Document"
                 className="w-full h-auto object-contain shadow-lg"
+                onLoadStart={() => setLoadingMainImage(true)}
                 onLoad={(e) => {
                   const img = e.target as HTMLImageElement;
                   setPageWidth(img.naturalWidth || img.clientWidth || 600);
                   setPageHeight(img.naturalHeight || img.clientHeight || 800);
+                  setLoadingMainImage(false);
                   onLoad?.(); // Call onLoad AFTER image dimensions are available
                 }}
+                onError={() => setLoadingMainImage(false)}
               />
               <div ref={overlayRef} className="absolute top-0 left-0 w-full h-full z-10">
                 {/* Company Logo and Name Overlay */}
@@ -378,16 +419,41 @@ const PdfDisplay = forwardRef<PdfDisplayRef, PdfDisplayProps>(({
                 <div
                   key={index}
                   onClick={() => onPageChange && onPageChange(index + 1)}
-                  className={`cursor-pointer border-2 rounded transition-colors ${
+                  className={`cursor-pointer border-2 rounded transition-colors relative ${
                     (page || docState.currentPage) === index + 1
                       ? 'border-blue-500 bg-blue-500 bg-opacity-20'
                       : 'border-gray-600 hover:border-gray-500'
                   }`}
                 >
+                  {/* Loading overlay for thumbnail */}
+                  {loadingThumbnails.has(index) && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-75 rounded z-10">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                    </div>
+                  )}
+                  
                   <img
                     src={thumbnail}
                     alt={`Page ${index + 1}`}
                     className="w-full h-auto"
+                    onLoadStart={() => {
+                      setLoadingThumbnails(prev => new Set(prev).add(index));
+                    }}
+                    onLoad={() => {
+                      setLoadedThumbnails(prev => new Set(prev).add(index));
+                      setLoadingThumbnails(prev => {
+                        const newSet = new Set(prev);
+                        newSet.delete(index);
+                        return newSet;
+                      });
+                    }}
+                    onError={() => {
+                      setLoadingThumbnails(prev => {
+                        const newSet = new Set(prev);
+                        newSet.delete(index);
+                        return newSet;
+                      });
+                    }}
                   />
                   <div className="text-center text-xs text-gray-400 py-1">
                     {index + 1}

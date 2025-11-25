@@ -45,7 +45,7 @@ const AuthForm: React.FC<{ isRegister?: boolean }> = ({ isRegister }) => {
                     // Store redirect URL if present
                     console.log('Login success - Redirect URL:', redirectUrl);
                     if (redirectUrl) {
-                        localStorage.setItem('redirectAfterLogin', redirectUrl);
+                        localStorage.setItem( 'redirectAfterLogin', redirectUrl);
                         console.log('Stored redirect URL:', redirectUrl);
                     } else {
                         console.log('No redirect URL');
