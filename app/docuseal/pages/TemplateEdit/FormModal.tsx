@@ -244,19 +244,45 @@ const FormModal = ({
                 <LinearProgressWithLabel value={progress} />
               )}
               {texts[currentField.id] && !fileUploading && (
-                <Box sx={{ mt: 1 }}>
-                  <Card sx={{ maxWidth: 200, display: 'flex', alignItems: 'center' }}>
+                <Box 
+                  sx={{ 
+                    mt: 1, 
+                    position: 'relative',
+                    maxWidth: 200,
+                    mx: 'auto',
+                    '&:hover .delete-icon': {
+                      opacity: 1
+                    }
+                  }}
+                >
+                  <Card>
                     <CardMedia
                       component="img"
                       height="140"
                       image={texts[currentField.id]}
                       alt="Uploaded preview"
+                      sx={{ objectFit: 'contain' }}
                     />
                   </Card>
-                  <Trash
-                    color='red'
+                  <IconButton
+                    className="delete-icon"
                     onClick={() => onTextChange(currentField.id, '')}
-                  />
+                    sx={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                      color: 'white',
+                      opacity: 0,
+                      transition: 'opacity 0.3s ease',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 0, 0, 0.8)',
+                      }
+                    }}
+                  >
+                    <Trash size={20} />
+                  </IconButton>
                 </Box>
               )}
             </Box>

@@ -1,4 +1,4 @@
-use aws_sdk_s3::{Client, primitives::ByteStream};
+use aws_sdk_s3::{Client, primitives::ByteStream, types::ObjectCannedAcl};
 use chrono::Utc;
 use std::fs;
 use std::path::Path;
@@ -76,7 +76,17 @@ impl StorageService {
         content_type: &str,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let timestamp = Utc::now().timestamp();
-        let key = format!("templates/{}_{}", timestamp, filename);
+        
+        // Sanitize filename: replace spaces and special chars with underscores
+        let sanitized_filename = filename
+            .replace(" ", "_")
+            .replace("(", "_")
+            .replace(")", "_")
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' { c } else { '_' })
+            .collect::<String>();
+        
+        let key = format!("templates/{}_{}", timestamp, sanitized_filename);
 
         if self.storage_type == "local" {
             let path = Path::new(self.local_path.as_ref().unwrap()).join(&key);
@@ -92,6 +102,7 @@ impl StorageService {
                 .key(&key)
                 .body(byte_stream)
                 .content_type(content_type)
+                .acl(ObjectCannedAcl::PublicRead) // Add public-read ACL
                 .send()
                 .await {
                 Ok(_) => Ok(key),
@@ -124,6 +135,7 @@ impl StorageService {
                 .key(key)
                 .body(byte_stream)
                 .content_type(content_type)
+                .acl(ObjectCannedAcl::PublicRead) // Add public-read ACL
                 .send()
                 .await {
                 Ok(_) => Ok(key.to_string()),
@@ -232,13 +244,30 @@ impl StorageService {
     }
 
     pub fn get_public_url(&self, key: &str) -> String {
+        // Always return proxy URL through backend
+        // This works for both local storage and S3/MinIO
+        // Backend will handle file serving with proper headers
+        format!("/api/files/{}", key)
+    }
+    
+    /// Generate presigned URL for temporary public access (valid for 1 hour)
+    pub async fn get_presigned_url(&self, key: &str, expires_in_secs: u64) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         if self.storage_type == "local" {
-            format!("/api/files/{}", key)
+            Ok(format!("/api/files/{}", key))
         } else {
-            let endpoint = std::env::var("STORAGE_ENDPOINT")
-                .unwrap_or_else(|_| "http://localhost:9000".to_string());
-            let bucket = self.bucket.as_ref().unwrap();
-            format!("{}/{}/{}", endpoint, bucket, key)
+            use aws_sdk_s3::presigning::PresigningConfig;
+            use std::time::Duration;
+            
+            let presigning_config = PresigningConfig::expires_in(Duration::from_secs(expires_in_secs))?;
+            
+            let presigned_request = self.client.as_ref().unwrap()
+                .get_object()
+                .bucket(self.bucket.as_ref().unwrap())
+                .key(key)
+                .presigned(presigning_config)
+                .await?;
+            
+            Ok(presigned_request.uri().to_string())
         }
     }
 }

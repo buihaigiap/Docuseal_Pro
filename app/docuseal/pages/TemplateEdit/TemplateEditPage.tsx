@@ -10,7 +10,6 @@ import {
   Typography, TextField
 } from '@mui/material';
 import toast from 'react-hot-toast';
-import { useBasicSettings } from '../../hooks/useBasicSettings';
 import { useAuth } from '../../contexts/AuthContext';
 import CompletionDrawer from './CompletionDrawer';
 interface TemplateField {
@@ -98,11 +97,18 @@ const TemplateEditPage = () => {
       if (data && data.success && data.data && data.data.url) {
         setProgress(100); // Set to 100% when actually complete
         return data.data.url;
+      } else {
+        console.error('Upload failed: Invalid response format', data);
+        toast.error(data?.message || 'Upload thất bại. Vui lòng thử lại.');
+        return null;
       }
-    } catch (error) {
+    } catch (error: any) {
       // Log more details about the error
+      console.error('Upload error:', error);
       if (error.response) {
         console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+        toast.error(error.response.data?.message || 'Lỗi khi tải file lên. Vui lòng thử lại.');
       }
       return null;
     } finally {
