@@ -69,6 +69,11 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
 
   // 2. Prepare Metadata Text
   const metadataLines = useMemo(() => {
+    // Don't show metadata for initials
+    if (fieldType === 'initials') {
+      return [];
+    }
+    
     const timeZoneMap: Record<string, string> = {
       "Midway Island": "Pacific/Midway",
       "Hawaii": "Pacific/Honolulu",
@@ -186,15 +191,44 @@ const SignatureRenderer: React.FC<SignatureRendererProps> = ({
       const isInitials = fieldType === 'initials';
       const fontStyle = isInitials ? 'italic' : 'normal';
       const fontFamily = isInitials ? 'Helvetica, sans-serif' : 'sans-serif';
+      
+      let fontSize = '12px';
+      let transform = 'none';
+      
+      if (isInitials) {
+        const textLength = (content as string).length;
+        const baseFontSize = 100;
+        fontSize = `${baseFontSize}px`;
+        
+        // 0.68 - cân bằng tốt
+        const textHeight = baseFontSize * 0.68; 
+        const scaleY = height / textHeight;
+        
+        const textWidth = textLength * baseFontSize * 0.5;
+        const scaleX = width / textWidth;
+        
+        const scale = Math.min(scaleX, scaleY);
+        transform = `scale(${scale})`;
+      }
 
       return (
         <div style={{
           fontFamily,
           fontStyle,
-          fontSize: isInitials ? '18px' : '12px',
+          fontSize,
           color,
           textAlign: 'center',
-          whiteSpace: 'nowrap'
+          whiteSpace: 'nowrap',
+          lineHeight: isInitials ? '0.68' : 'normal',
+          fontWeight: isInitials ? 'bold' : 'normal',
+          overflow: 'visible',
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transform,
+          transformOrigin: 'center center'
         }}>
           {content as string}
         </div>

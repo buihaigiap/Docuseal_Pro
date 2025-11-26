@@ -11,7 +11,6 @@ const SignedSubmissionPage = () => {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
   const [submitterInfo, setSubmitterInfo] = useState<{ id: number; email: string } | null>(null);
-  console.log('datassssssssssss', data);
   useEffect(() => {
     const fetchData = async () => {
       try {

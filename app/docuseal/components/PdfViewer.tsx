@@ -39,7 +39,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
     setCurrentPage(newPage); 
     if (onPageChange) onPageChange(newPage);
   };
-
+  
   const updateScale = () => {
     if (pdfRef.current) {
       const displayedHeight = pdfRef.current.getCanvasClientHeight();
@@ -100,6 +100,11 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
           const normalizedPos = normalizePosition(f.position);
           // Position data is in relative coordinates (0-1), scale converts to display pixels
           const isNarrow = normalizedPos.height > 0 && (normalizedPos.width / normalizedPos.height) > 6;
+          
+          // Gộp logic: ưu tiên signature_value, fallback sang texts[f.id]
+          const displayValue = (f as any).signature_value || texts[f.id];
+          const fieldType = (f as any).field_type;
+          
           return (
             <div
               key={f.id}
@@ -116,132 +121,74 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
               }}
             onClick={() => !(f as any).signature_value && onFieldClick && onFieldClick(f)}
           >
-            <div className={`w-full h-full flex ${(f as any).field_type === "initials" ? " items-start" : "items-center "} text-md text-black font-semibold`}>
-              {(f as any).signature_value ? (
-                (f as any).field_type === 'image' ? (
+            <div className={`w-full h-full flex ${fieldType === "initials" ? " items-start" : "items-center "} text-md text-black font-semibold`}>
+              {displayValue ? (
+                fieldType === 'file' ? (
+                  <a 
+                    href={displayValue} 
+                    download 
+                    className="text-black underline cursor-pointer text-xs"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {decodeURIComponent(displayValue.split('/').pop() || 'File')}
+                  </a>
+                ) : fieldType === 'cells' ? (
+                  <div className="w-full h-full grid overflow-hidden" style={{ gridTemplateColumns: (f as any).options?.widths?.map((w: number) => `${w}fr`).join(' ') || '1fr 1fr 1fr' }}>
+                    {Array.from({ length: (f as any).options?.columns || 3 }, (_, i) => {
+                      const char = displayValue?.[i] || '';
+                      return (
+                        <div key={i} className="border border-gray-400 flex items-center justify-end text-base font-bold px-1">
+                          {char}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : fieldType === 'multiple' ? (
+                  <div className="w-full h-full flex items-center text-sm font-semibold">
+                    {displayValue.split(',').join(', ')}
+                  </div>
+                ) : fieldType === 'image' || displayValue.startsWith('data:image/') || displayValue.startsWith('blob:') || displayValue.startsWith('http') ? (
                   <img 
-                    src={(f as any).signature_value} 
-                    alt="Uploaded image" 
+                    src={displayValue} 
+                    alt={fieldType === 'image' ? "Uploaded image" : "Signature"} 
                     className="object-contain mx-auto w-full h-full"
                   />
-                ) : (f as any).signature_value.startsWith('data:image/') ? (
-                  <div className={`flex justify-between w-full h-full gap-1 overflow-hidden ${isNarrow ? 'flex-row' : 'flex-col'}`}>
-                    <div className={`flex overflow-hidden ${isNarrow ? 'w-1/2' : 'flex-grow'}`} style={{ minHeight: '50%' }}>
-                      <img src={(f as any).signature_value} alt="Signature" className="object-contain mx-auto max-w-full max-h-full" />
-                    </div>
-                  </div>
-                ) : (f as any).signature_value.startsWith('blob:') || (f as any).signature_value.startsWith('http') ? (
-                  <div className={`flex justify-between w-full h-full gap-1 overflow-hidden ${isNarrow ? 'flex-row' : 'flex-col'}`}>
-                    <div className={`flex overflow-hidden ${isNarrow ? 'w-1/2' : 'flex-grow'}`} style={{ minHeight: '50%' }}>
-                      <img src={(f as any).signature_value} alt="Signature" className="object-contain mx-auto max-w-full max-h-full" />
-                    </div>
-                  </div>
-                ) : (f as any).signature_value.startsWith('[') || (f as any).signature_value.startsWith('{') ? (
-                    <SignatureRenderer 
-                        data={(f as any).signature_value} 
-                        width={normalizedPos.width * 600} 
-                        height={normalizedPos.height * 800}
-                        submitterId={submitterId}
-                        submitterEmail={submitterEmail}
-                        reason={(f as any).reason}
-                        globalSettings={globalSettings}
-                      />
-                ) : (f as any).field_type === 'checkbox' ? (
-                  (f as any).signature_value === 'true' ? (
+                ) : displayValue.startsWith('[') || displayValue.startsWith('{') ? (
+                  <SignatureRenderer 
+                    data={displayValue} 
+                    width={normalizedPos.width * 600} 
+                    height={normalizedPos.height * 800}
+                    fieldType={fieldType}
+                    submitterId={submitterId}
+                    submitterEmail={submitterEmail}
+                    reason={(f as any).reason}
+                    globalSettings={globalSettings}
+                  />
+                ) : fieldType === 'checkbox' ? (
+                  displayValue === 'true' ? (
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full"><path d="M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3ZM10 17L5 12L6.41 10.59L10 14.17L17.59 6.58L19 8L10 17Z" fill="currentColor"/></svg>
                   ) : (
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full"><rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="2"/></svg>
                   )
-                ) : (f as any).field_type === 'file' ? (
-                  <a 
-                    href={(f as any).signature_value} 
-                    download 
-                    className="text-black underline cursor-pointer text-xs"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {decodeURIComponent((f as any).signature_value.split('/').pop() || 'File')}
-                  </a>
                 ) : (
                   <span 
-                      className="text-sm"
-                      style={(f as any).field_type === "initials" ? 
-                        { 
-                          display: 'block',
-                          position: 'absolute',
-                          height: '100%', 
-                          fontFamily: 'Helvetica, Arial, sans-serif', 
-                          fontStyle: 'normal', 
-                          fontWeight: 'normal', 
-                          lineHeight: `${normalizedPos.height * 800}px` } : { whiteSpace: 'pre', fontFamily: 'Helvetica, Arial, sans-serif' }}>{(f as any).signature_value}
-                    </span>
-                )
-              ) : texts[f.id] ? (
-                (f as any).field_type === 'image' ? (
-                  <img 
-                    src={texts[f.id]} 
-                    alt="Uploaded image" 
-                    className="object-contain mx-auto w-full h-full"
-                  />
-                ) : texts[f.id].startsWith('data:image/') ? (
-                  <div className={`flex justify-between w-full h-full gap-1 overflow-hidden ${isNarrow ? 'flex-row' : 'flex-col'}`}>
-                    <div className={`flex overflow-hidden ${isNarrow ? 'w-1/2' : 'flex-grow'}`} style={{ minHeight: '50%' }}>
-                      <img src={texts[f.id]} alt="Signature" className="object-contain mx-auto max-w-full max-h-full" />
-                    </div>
-                  </div>
-                ) : texts[f.id].startsWith('blob:') || texts[f.id].startsWith('http') ? (
-                  <div className={`flex justify-between w-full h-full gap-1 overflow-hidden ${isNarrow ? 'flex-row' : 'flex-col'}`}>
-                    <div className={`flex overflow-hidden ${isNarrow ? 'w-1/2' : 'flex-grow'}`} style={{ minHeight: '50%' }}>
-                      <img src={texts[f.id]} alt="Signature" className="object-contain mx-auto max-w-full max-h-full" />
-                    </div>
-                  </div>
-                ) : texts[f.id].startsWith('[') || texts[f.id].startsWith('{') ? (
-                    <SignatureRenderer 
-                        data={texts[f.id]} 
-                        width={normalizedPos.width * 600} 
-                        height={normalizedPos.height * 800}
-                        globalSettings={globalSettings}
-                      />
-                ) : (f as any).field_type === 'multiple' ? (
-                  <div className="w-full h-full flex items-center text-sm font-semibold">
-                    {texts[f.id] ? texts[f.id].split(',').join(', ') : `Select ${(f as any).name}`}
-                  </div>
-                ) : (f as any).field_type === 'cells' ? (
-                  <div className="w-full h-full grid" style={{ gridTemplateColumns: `repeat(${(f as any).options?.columns || 1}, 1fr)` }}>
-                    {(texts[f.id] || '').split('').map((char: string, i: number) => (
-                     <div
-                        key={i}
-                        className="flex items-center justify-end text-lg text-black font-normal"
-                      >
-                        {char}
-                      </div>
-                    ))}
-                    {/* Fill empty cells */}
-                    {Array.from({length: ((f as any).options?.columns || 1) - (texts[f.id] || '').length}, (_, i) => (
-                      <div key={`empty-${i}`} className="border border-gray-400 flex items-center justify-start text-xs text-black font-normal">
-                      </div>
-                    ))}
-                  </div>
-                ) : (f as any).field_type === 'file' ? (
-                  <a 
-                    href={texts[f.id]} 
-                    download 
-                    className="text-black underline cursor-pointer text-xs"
-                    onClick={(e) => e.stopPropagation()}
+                    className="text-sm"
+                    style={fieldType === "initials" ? 
+                      { 
+                        display: 'block',
+                        position: 'absolute',
+                        height: '100%', 
+                        fontFamily: 'Helvetica, Arial, sans-serif', 
+                        fontStyle: 'normal', 
+                        fontWeight: 'normal', 
+                        lineHeight: `${normalizedPos.height * 800}px` 
+                      } : { whiteSpace: 'pre', fontFamily: 'Helvetica, Arial, sans-serif' }
+                    }
                   >
-                    {decodeURIComponent(texts[f.id].split('/').pop() || 'File')}
-                  </a>
-                ) : (
-                  <span className="text-sm" style={(f as any).field_type === "initials" ? 
-                    { 
-                      display: 'block',
-                      position: 'absolute',
-                      height: '100%', 
-                      fontFamily: 'Helvetica, Arial, sans-serif', 
-                      fontStyle: 'normal', 
-                      fontWeight: 'normal', 
-                      lineHeight: `${normalizedPos.height * 800}px` } : { fontFamily: 'Helvetica, Arial, sans-serif' }}>{texts[f.id]}</span>
+                    {displayValue}
+                  </span>
                 )
-              ) : (f as any).field_type === 'radio' ? (
+              ) : fieldType === 'radio' ? (
                 <div className="w-full h-full flex items-center text-sm font-semibold">
                   {texts[f.id] || `Select ${(f as any).name}`}
                 </div>
