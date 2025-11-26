@@ -63,11 +63,12 @@ const upstashService = {
             headers: { 'Content-Type': 'multipart/form-data' }
         })
     },
-    uploadPublicFile: async (formData: FormData): Promise<any> => {
+    uploadPublicFile: async (formData: FormData, onUploadProgress?: (progressEvent: any) => void): Promise<any> => {
         const url = '/api/files/upload/public';
         // Use axios directly to bypass authorization interceptor for public endpoint
         return await axios.post(`${axiosClient.defaults.baseURL}${url}`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
+            headers: { 'Content-Type': 'multipart/form-data' },
+            onUploadProgress
         })
     },
     previewFile: async (url: string) => {

@@ -10,14 +10,14 @@ import {
   Typography, LinearProgress, TextField, Checkbox, Radio,
   RadioGroup, FormControlLabel, Select, MenuItem,
   FormControl, InputLabel, Box, Card,
-  CardMedia, Link
+  CardMedia, Link, CircularProgress
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import toast from 'react-hot-toast';
 import { useBasicSettings } from '../../hooks/useBasicSettings';
 import { useAuth } from '../../contexts/AuthContext';
 import CompletionDrawer from './CompletionDrawer';
+import { Trash } from 'lucide-react';
 interface TemplateField {
   id: number;
   template_id: number;
@@ -54,6 +54,22 @@ interface TemplateInfo {
 }
 
 
+
+const LinearProgressWithLabel = (props) => {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+      <Box sx={{ width: '100%', mr: 1 }}>
+        <LinearProgress variant="determinate" {...props} />
+      </Box>
+      <Box sx={{ minWidth: 35 }}>
+        <Typography variant="body2" color="text.secondary">{`${Math.round(
+          props.value,
+        )}%`}</Typography>
+      </Box>
+    </Box>
+  );
+};
+
 const TemplateEditPage = () => {
   const { token } = useParams<{ token: string }>();
   const [templateInfo, setTemplateInfo] = useState<TemplateInfo | null>(null);
@@ -81,18 +97,26 @@ const TemplateEditPage = () => {
   const { user } = useAuth();
   const [completionDrawerOpen, setCompletionDrawerOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const uploadFile = async (file: File): Promise<string | null> => {
     try {
       setFileUploading(true);
+      setProgress(0);
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await upstashService.uploadPublicFile(formData);
+      const response = await upstashService.uploadPublicFile(formData, (progressEvent) => {
+        if (progressEvent.total) {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setProgress(Math.min(percentCompleted, 99)); // Cap at 99% until complete
+        }
+      });
 
       // Extract data from axios response
       const data = response.data;
       if (data && data.success && data.data && data.data.url) {
+        setProgress(100); // Set to 100% when actually complete
         return data.data.url;
       }
     } catch (error) {
@@ -102,7 +126,11 @@ const TemplateEditPage = () => {
       }
       return null;
     } finally {
-      setFileUploading(false);
+      // Small delay to show 100% before hiding
+      setTimeout(() => {
+        setFileUploading(false);
+        setProgress(0);
+      }, 300);
     }
   };
 
@@ -627,20 +655,28 @@ const TemplateEditPage = () => {
                     disabled={fileUploading}
                     required={currentField.required}
                   />
-                  <label htmlFor={`image-upload-${currentField.id}`}>
-                    <Button variant="outlined" component="span" fullWidth disabled={fileUploading}>
-                      Select image
-                    </Button>
-                  </label>
-                  <Typography variant="caption" color="text.secondary">
-                    Kích thước tối đa: 10MB
-                  </Typography>
-                  {fileUploading && (
-                    <Typography variant="body2" color="primary">
-                      Uploading image...
+                  {!texts[currentField.id] && !fileUploading && (
+                    <>
+                     <label htmlFor={`image-upload-${currentField.id}`}>
+                      <Button
+                        variant="outlined"
+                        component="span" 
+                        fullWidth 
+                        sx={{color:'white'}}
+                      >
+                        Select image
+                      </Button>
+                    </label>
+                     <Typography variant="caption" color="text.secondary">
+                        Kích thước tối đa: 10MB
                     </Typography>
+                    </>
+                   
                   )}
-                  {texts[currentField.id] && (
+                  {fileUploading && (
+                    <LinearProgressWithLabel value={progress} />
+                  )}
+                  {texts[currentField.id] && !fileUploading && (
                     <Box sx={{ mt: 1 }}>
                       <Card sx={{ maxWidth: 200 }}>
                         <CardMedia
@@ -650,14 +686,10 @@ const TemplateEditPage = () => {
                           alt="Uploaded preview"
                         />
                       </Card>
-                      <Button
-                        size="small"
-                        color="error"
+                      <Trash 
+                        color='red'
                         onClick={() => handleTextChange(currentField.id, '')}
-                        sx={{ mt: 1 }}
-                      >
-                        Delete image
-                      </Button>
+                      />
                     </Box>
                   )}
                 </Box>
@@ -686,32 +718,39 @@ const TemplateEditPage = () => {
                     disabled={fileUploading}
                     required={currentField.required}
                   />
-                  <label htmlFor={`file-upload-${currentField.id}`}>
-                    <Button variant="outlined" component="span" fullWidth disabled={fileUploading}>
-                      Select file
-                    </Button>
-                  </label>
-                  <Typography variant="caption" color="text.secondary">
-                    Kích thước tối đa: 10MB
-                  </Typography>
-                  {fileUploading && (
-                    <Typography variant="body2" color="primary">
-                      Uploading file...
-                    </Typography>
+                  {!texts[currentField.id] && !fileUploading && (
+                    <>
+                      <label htmlFor={`file-upload-${currentField.id}`}>
+                        <Button
+                          variant="outlined"
+                          component="span"
+                          fullWidth 
+                          sx={{
+                            color:'white'
+                          }}
+                        >
+                          Select file
+                        </Button>
+                      </label>
+                      <Typography variant="caption" color="text.secondary">
+                          Kích thước tối đa: 10MB
+                      </Typography>
+                    </>
+                    
                   )}
-                  {texts[currentField.id] && (
+              
+                  {fileUploading && (
+                    <LinearProgressWithLabel value={progress} />
+                  )}
+                  {texts[currentField.id] && !fileUploading && (
                     <Box sx={{ mt: 1 }}>
-                      <Link href={texts[currentField.id]} download underline="hover">
+                      <Link href={texts[currentField.id]} download underline="hover" color='white'>
                         {decodeURIComponent(texts[currentField.id].split('/').pop() || 'File')}
                       </Link>
-                      <Button
-                        size="small"
-                        color="error"
+                       <Trash 
+                        color='red'
                         onClick={() => handleTextChange(currentField.id, '')}
-                        sx={{ ml: 1 }}
-                      >
-                        Delete file
-                      </Button>
+                      />
                     </Box>
                   )}
                 </Box>
@@ -765,7 +804,7 @@ const TemplateEditPage = () => {
                     MenuProps={{
                       PaperProps: {
                         sx: {
-                          color: 'black'
+                          color: 'white'
                         }
                       }
                     }}
