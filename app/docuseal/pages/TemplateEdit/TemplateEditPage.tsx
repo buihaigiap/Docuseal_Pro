@@ -13,6 +13,7 @@ import {
   CardMedia, Link
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import toast from 'react-hot-toast';
 import { useBasicSettings } from '../../hooks/useBasicSettings';
 import { useAuth } from '../../contexts/AuthContext';
@@ -558,6 +559,12 @@ const TemplateEditPage = () => {
                   required={currentField.required}
                   autoFocus
                   InputLabelProps={{ shrink: true }}
+                  sx={{
+                    '& .MuiInputBase-input': { color: 'white' },
+                    '& input::-webkit-calendar-picker-indicator': {
+                      filter: 'invert(1)',
+                    },
+                  }}
                 />
               ) : currentField.field_type === 'checkbox' ? (
                 <FormControlLabel
@@ -718,6 +725,22 @@ const TemplateEditPage = () => {
                   required={currentField.required}
                   autoFocus
                 />
+              ) : currentField.field_type === 'multiple' ? (
+                <div>
+                  {currentField.options?.map((option: string, index: number) => (
+                    <FormControlLabel
+                      key={index}
+                      control={
+                        <Checkbox
+                          checked={texts[currentField.id]?.split(',').includes(option)}
+                          onChange={(e) => handleTextChange(currentField.id, option, true, e.target.checked)}
+                          required={currentField.required}
+                        />
+                      }
+                      label={option}
+                    />
+                  ))}
+                </div>
               ) : currentField.field_type === 'radio' ? (
                 <RadioGroup
                   value={texts[currentField.id] || ''}
