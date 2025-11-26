@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS users (
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
+    account_id BIGINT,
+    archived_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     subscription_status VARCHAR(20) DEFAULT 'free',
@@ -32,6 +34,8 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_subscription_status ON users(subscription_status);
 CREATE INDEX IF NOT EXISTS idx_users_subscription_expires_at ON users(subscription_expires_at);
 CREATE INDEX IF NOT EXISTS idx_users_free_usage_count ON users(free_usage_count);
+CREATE INDEX IF NOT EXISTS idx_users_account_id ON users(account_id);
+CREATE INDEX IF NOT EXISTS idx_users_archived_at ON users(archived_at);
 
 
 -- Migration: 20250102000001_create_templates_table.sql
@@ -302,8 +306,6 @@ INSERT INTO global_settings (company_name, timezone, locale) VALUES ('Letmesign'
 
 -- Migration: 20251105000002_add_2fa_support.sql
 -- Add 2FA support to users table
--- Migration: 20251105000002_add_2fa_support.sql
-
 ALTER TABLE users
 ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR(255),
 ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE;
