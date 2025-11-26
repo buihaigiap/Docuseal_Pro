@@ -97,7 +97,7 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
         case 'file':
           return (
             <div className="w-full h-full flex items-center overflow-hidden">
-              <span className="text-xs truncate text-white" title={decodeURIComponent(displayValue.split('/').pop() || 'File')}>
+              <span className="text-xs truncate" title={decodeURIComponent(displayValue.split('/').pop() || 'File')}>
                 {decodeURIComponent(displayValue.split('/').pop() || 'File')}
               </span>
             </div>

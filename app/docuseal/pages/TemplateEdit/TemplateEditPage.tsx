@@ -678,7 +678,7 @@ const TemplateEditPage = () => {
                   )}
                   {texts[currentField.id] && !fileUploading && (
                     <Box sx={{ mt: 1 }}>
-                      <Card sx={{ maxWidth: 200 }}>
+                      <Card sx={{ maxWidth: 200 , display: 'flex' , alignItems: 'center' }}>
                         <CardMedia
                           component="img"
                           height="140"
@@ -743,7 +743,7 @@ const TemplateEditPage = () => {
                     <LinearProgressWithLabel value={progress} />
                   )}
                   {texts[currentField.id] && !fileUploading && (
-                    <Box sx={{ mt: 1 }}>
+                    <Box sx={{ mt: 1  , display: 'flex', alignItems: 'center' }} >
                       <Link href={texts[currentField.id]} download underline="hover" color='white'>
                         {decodeURIComponent(texts[currentField.id].split('/').pop() || 'File')}
                       </Link>
