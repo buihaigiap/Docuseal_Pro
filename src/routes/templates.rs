@@ -2005,6 +2005,21 @@ pub async fn convert_db_template_to_template_with_fields(
 pub async fn download_file(
     Path(key): Path<String>,
 ) -> Response<Body> {
+    // URL decode the key to handle encoded characters like %20
+    let key = match urlencoding::decode(&key) {
+        Ok(decoded) => decoded.into_owned(),
+        Err(e) => {
+            eprintln!("Failed to decode URL key '{}': {:?}", key, e);
+            let response = Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header(header::CONTENT_TYPE, "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(Body::from("Invalid URL encoding"))
+                .unwrap();
+            return response;
+        }
+    };
+
     // Initialize storage service
     let storage = match StorageService::new().await {
         Ok(storage) => storage,
@@ -2072,6 +2087,21 @@ pub async fn download_file(
 pub async fn download_file_public(
     Path(key): Path<String>,
 ) -> Response<Body> {
+    // URL decode the key to handle encoded characters like %20
+    let key = match urlencoding::decode(&key) {
+        Ok(decoded) => decoded.into_owned(),
+        Err(e) => {
+            eprintln!("Failed to decode URL key '{}': {:?}", key, e);
+            let response = Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header(header::CONTENT_TYPE, "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(Body::from("Invalid URL encoding"))
+                .unwrap();
+            return response;
+        }
+    };
+
     // Initialize storage service
     let storage = match StorageService::new().await {
         Ok(storage) => storage,
@@ -2153,6 +2183,21 @@ pub async fn preview_file(
 ) -> impl IntoResponse {
     // Wildcard paths include leading slash, so remove it
     let key = key.trim_start_matches('/');
+    
+    // URL decode the key to handle encoded characters like %20
+    let key = match urlencoding::decode(key) {
+        Ok(decoded) => decoded.into_owned(),
+        Err(e) => {
+            eprintln!("Failed to decode URL key '{}': {:?}", key, e);
+            let response = Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header(header::CONTENT_TYPE, "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(Body::from("Invalid URL encoding"))
+                .unwrap();
+            return response;
+        }
+    };
     
     // Parse page number and format from URL
     let mut page_number: Option<i32> = None;
