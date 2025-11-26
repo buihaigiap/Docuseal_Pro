@@ -151,8 +151,7 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
           );
 
         default:
-          // Text, number, date, etc.
-          return displayValue.length > 10 ? displayValue.slice(0, 10) + '...' : displayValue;
+          return displayValue;
       }
     }
 

@@ -157,13 +157,35 @@ async fn main() {
     // Initialize database connection
     let pool = establish_connection().await.expect("Failed to connect to database");
 
-    // Run database migrations automatically on startup
-    println!("Running database migrations...");
-    match run_migrations(&pool).await {
-        Ok(_) => println!("✅ Database migrations completed successfully"),
-        Err(e) => {
-            println!("⚠️  Warning: Database migration failed: {}", e);
-            println!("⚠️  Continuing with existing database schema...");
+    // Check if migrations are needed by counting applied migrations
+    println!("Checking database migration status...");
+    match sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM _sqlx_migrations")
+        .fetch_one(&pool)
+        .await
+    {
+        Ok(count) => {
+            if count >= 8 {
+                println!("✅ Database schema is up to date ({} migrations applied), skipping migrations", count);
+            } else {
+                println!("Running database migrations...");
+                match run_migrations(&pool).await {
+                    Ok(_) => println!("✅ Database migrations completed successfully"),
+                    Err(e) => {
+                        println!("❌ Database migration failed: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            println!("Running database migrations...");
+            match run_migrations(&pool).await {
+                Ok(_) => println!("✅ Database migrations completed successfully"),
+                Err(e) => {
+                    println!("❌ Database migration failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
     }
 
