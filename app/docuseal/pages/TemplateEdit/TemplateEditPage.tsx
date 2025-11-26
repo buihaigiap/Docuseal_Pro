@@ -1,23 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import upstashService from '../../ConfigApi/upstashService';
-import SignaturePad from './SignaturePad';
 import CreateTemplateButton from '../../components/CreateTemplateButton';
 import PdfFullView from './PdfFullView';
 import CompletionScreen from './CompletionScreen';
+import FormModal from './FormModal';
 import {
-  Dialog, DialogContent, DialogActions, Button, IconButton,
-  Typography, LinearProgress, TextField, Checkbox, Radio,
-  RadioGroup, FormControlLabel, Select, MenuItem,
-  FormControl, InputLabel, Box, Card,
-  CardMedia, Link, CircularProgress
+  Dialog, DialogContent, DialogActions, Button,
+  Typography, TextField
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
 import toast from 'react-hot-toast';
 import { useBasicSettings } from '../../hooks/useBasicSettings';
 import { useAuth } from '../../contexts/AuthContext';
 import CompletionDrawer from './CompletionDrawer';
-import { Trash } from 'lucide-react';
 interface TemplateField {
   id: number;
   template_id: number;
@@ -54,21 +49,6 @@ interface TemplateInfo {
 }
 
 
-
-const LinearProgressWithLabel = (props) => {
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-      <Box sx={{ width: '100%', mr: 1 }}>
-        <LinearProgress variant="determinate" {...props} />
-      </Box>
-      <Box sx={{ minWidth: 35 }}>
-        <Typography variant="body2" color="text.secondary">{`${Math.round(
-          props.value,
-        )}%`}</Typography>
-      </Box>
-    </Box>
-  );
-};
 
 const TemplateEditPage = () => {
   const { token } = useParams<{ token: string }>();
@@ -539,363 +519,29 @@ const TemplateEditPage = () => {
       />
 
       {/* Form Modal */}
-      <Dialog
+      <FormModal
         open={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogContent sx={{ position: 'relative' }}>
-          <IconButton
-            onClick={() => setIsModalOpen(false)}
-            sx={{
-              position: 'absolute',
-              top: 8,
-              right: 8,
-              color: 'grey.500',
-            }}
-          >
-            <CloseIcon />
-          </IconButton>
-          <div className="mb-4">
-            <Typography variant="body2" sx={{ mb: 1 }}>
-              Field {currentFieldIndex + 1} / {fields.length}
-            </Typography>
-            <LinearProgress
-              variant="determinate"
-              value={((currentFieldIndex + 1) / fields.length) * 100}
-              sx={{
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: 'grey.300',
-                '& .MuiLinearProgress-bar': {
-                  backgroundColor: 'primary.main',
-                  borderRadius: 4,
-                },
-              }}
-            />
-          </div>
-
-          {currentField && (
-            <div className="mb-6">
-              {currentField.field_type === 'date' ? (
-                <TextField
-                  type="date"
-                  value={texts[currentField.id] || ''}
-                  onChange={(e) => handleTextChange(currentField.id, e.target.value)}
-                  fullWidth
-                  required={currentField.required}
-                  autoFocus
-                  InputLabelProps={{ shrink: true }}
-                  sx={{
-                    '& .MuiInputBase-input': { color: 'white' },
-                    '& input::-webkit-calendar-picker-indicator': {
-                      filter: 'invert(1)',
-                    },
-                  }}
-                />
-              ) : currentField.field_type === 'checkbox' ? (
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={texts[currentField.id] === 'true'}
-                      onChange={(e) => handleTextChange(currentField.id, e.target.checked ? 'true' : 'false')}
-                      required={currentField.required}
-                      autoFocus
-                    />
-                  }
-                  label={currentField.name}
-                />
-              ) : currentField.field_type === 'signature' || currentField.field_type === 'initials' ? (
-                <SignaturePad
-                  onSave={(dataUrl) => handleTextChange(currentField.id, dataUrl)}
-                  onClear={() => handleTextChange(currentField.id, '')}
-                  initialData={texts[currentField.id] || (!clearedFields.has(currentField.id) && submitterInfo?.global_settings?.remember_and_pre_fill_signatures && (currentField.field_type === 'signature' ? user?.signature : user?.initials))}
-                  fieldType={currentField.field_type}
-                  onFileSelected={(file) => {
-                    if (file) {
-                      // Create blob URL for immediate preview
-                      const blobUrl = URL.createObjectURL(file);
-                      // Update texts with blob URL for preview
-                      handleTextChange(currentField.id, blobUrl);
-                      // Store file for later upload
-                      setPendingUploads(prev => ({ ...prev, [currentField.id]: file }));
-                    } else {
-                      setPendingUploads(prev => {
-                        const newUploads = { ...prev };
-                        delete newUploads[currentField.id];
-                        return newUploads;
-                      });
-                    }
-                  }}
-                />
-              ) : currentField.field_type === 'image' ? (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const maxSize = 10 * 1024 * 1024; // 10MB
-                        if (file.size > maxSize) {
-                          toast.error(`File too large. Maximum allowed size is ${maxSize / (1024 * 1024)}MB. Current file: ${(file.size / (1024 * 1024)).toFixed(2)}MB.`);
-                          return;
-                        }
-                        const imageUrl = await uploadFile(file);
-                        if (imageUrl) {
-                          handleTextChange(currentField.id, imageUrl);
-                        } else {
-                          toast.error('Unable to upload image. Please try again.');
-                        }
-                      }
-                    }}
-                    style={{ display: 'none' }}
-                    id={`image-upload-${currentField.id}`}
-                    disabled={fileUploading}
-                    required={currentField.required}
-                  />
-                  {!texts[currentField.id] && !fileUploading && (
-                    <>
-                     <label htmlFor={`image-upload-${currentField.id}`}>
-                      <Button
-                        variant="outlined"
-                        component="span" 
-                        fullWidth 
-                        sx={{color:'white'}}
-                      >
-                        Select image
-                      </Button>
-                    </label>
-                     <Typography variant="caption" color="text.secondary">
-                        Kích thước tối đa: 10MB
-                    </Typography>
-                    </>
-                   
-                  )}
-                  {fileUploading && (
-                    <LinearProgressWithLabel value={progress} />
-                  )}
-                  {texts[currentField.id] && !fileUploading && (
-                    <Box sx={{ mt: 1 }}>
-                      <Card sx={{ maxWidth: 200 , display: 'flex' , alignItems: 'center' }}>
-                        <CardMedia
-                          component="img"
-                          height="140"
-                          image={texts[currentField.id]}
-                          alt="Uploaded preview"
-                        />
-                      </Card>
-                      <Trash 
-                        color='red'
-                        onClick={() => handleTextChange(currentField.id, '')}
-                      />
-                    </Box>
-                  )}
-                </Box>
-              ) : currentField.field_type === 'file' ? (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <input
-                    type="file"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const maxSize = 10 * 1024 * 1024; // 10MB
-                        if (file.size > maxSize) {
-                          toast.error(`File too large. Maximum allowed size is ${maxSize / (1024 * 1024)}MB. Current file: ${(file.size / (1024 * 1024)).toFixed(2)}MB.`);
-                          return;
-                        }
-                        const fileUrl = await uploadFile(file);
-                        if (fileUrl) {
-                          handleTextChange(currentField.id, fileUrl);
-                        } else {
-                          toast.error('Unable to upload file. Please try again.');
-                        }
-                      }
-                    }}
-                    style={{ display: 'none' }}
-                    id={`file-upload-${currentField.id}`}
-                    disabled={fileUploading}
-                    required={currentField.required}
-                  />
-                  {!texts[currentField.id] && !fileUploading && (
-                    <>
-                      <label htmlFor={`file-upload-${currentField.id}`}>
-                        <Button
-                          variant="outlined"
-                          component="span"
-                          fullWidth 
-                          sx={{
-                            color:'white'
-                          }}
-                        >
-                          Select file
-                        </Button>
-                      </label>
-                      <Typography variant="caption" color="text.secondary">
-                          Kích thước tối đa: 10MB
-                      </Typography>
-                    </>
-                    
-                  )}
-              
-                  {fileUploading && (
-                    <LinearProgressWithLabel value={progress} />
-                  )}
-                  {texts[currentField.id] && !fileUploading && (
-                    <Box sx={{ mt: 1  , display: 'flex', alignItems: 'center' }} >
-                      <Link href={texts[currentField.id]} download underline="hover" color='white'>
-                        {decodeURIComponent(texts[currentField.id].split('/').pop() || 'File')}
-                      </Link>
-                       <Trash 
-                        color='red'
-                        onClick={() => handleTextChange(currentField.id, '')}
-                      />
-                    </Box>
-                  )}
-                </Box>
-              ) : currentField.field_type === 'number' ? (
-                <TextField
-                  type="number"
-                  value={texts[currentField.id] || ''}
-                  onChange={(e) => handleTextChange(currentField.id, e.target.value)}
-                  fullWidth
-                  placeholder={`Enter ${currentField.name}`}
-                  required={currentField.required}
-                  autoFocus
-                />
-              ) : currentField.field_type === 'multiple' ? (
-                <div>
-                  {currentField.options?.map((option: string, index: number) => (
-                    <FormControlLabel
-                      key={index}
-                      control={
-                        <Checkbox
-                          checked={texts[currentField.id]?.split(',').includes(option)}
-                          onChange={(e) => handleTextChange(currentField.id, option, true, e.target.checked)}
-                          required={currentField.required}
-                        />
-                      }
-                      label={option}
-                    />
-                  ))}
-                </div>
-              ) : currentField.field_type === 'radio' ? (
-                <RadioGroup
-                  value={texts[currentField.id] || ''}
-                  onChange={(e) => handleTextChange(currentField.id, e.target.value)}
-                >
-                  {currentField.options?.map((option: string, index: number) => (
-                    <FormControlLabel
-                      key={index}
-                      value={option}
-                      control={<Radio required={currentField.required} />}
-                      label={option}
-                    />
-                  ))}
-                </RadioGroup>
-              ) : currentField.field_type === 'select' ? (
-                <FormControl fullWidth required={currentField.required}>
-                  <InputLabel>Select an option</InputLabel>
-                  <Select
-                    value={texts[currentField.id] || ''}
-                    label="Select an option"
-                    onChange={(e) => handleTextChange(currentField.id, e.target.value)}
-                    MenuProps={{
-                      PaperProps: {
-                        sx: {
-                          color: 'white'
-                        }
-                      }
-                    }}
-                  >
-                    {currentField.options?.map((option: string, index: number) => (
-                      <MenuItem key={index} value={option}>
-                        {option}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              ) : currentField.field_type === 'cells' ? (
-                <TextField
-                  value={texts[currentField.id] || ''}
-                  onChange={(e) => handleTextChange(currentField.id, e.target.value)}
-                  fullWidth
-                  placeholder={`Enter up to ${currentField.options?.columns || 1} characters`}
-                  required={currentField.required}
-                  autoFocus
-                  inputProps={{
-                    maxLength: currentField.options?.columns || 1,
-                  }}
-                />
-              ) : (
-                <TextField
-                  value={texts[currentField.id] || ''}
-                  onChange={(e) => handleTextChange(currentField.id, e.target.value)}
-                  fullWidth
-                  placeholder={`Enter ${currentField.name}`}
-                  required={currentField.required}
-                  autoFocus
-                />
-              )}
-            </div>
-          )}
-
-          {submitterInfo?.global_settings?.require_signing_reason && (currentField.field_type === 'signature' || currentField.field_type === 'initials') && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-              <FormControl fullWidth>
-                <InputLabel>Signing Reason</InputLabel>
-                <Select
-                  value={selectedReason}
-                  onChange={(e) => setSelectedReason(e.target.value)}
-                  label="Signing Reason"
-                >
-                  <MenuItem value="Approved">Approved</MenuItem>
-                  <MenuItem value="Reviewed">Reviewed</MenuItem>
-                  <MenuItem value="Authored">Authored</MenuItem>
-                  <MenuItem value="Other">Other</MenuItem>
-                </Select>
-              </FormControl>
-              {selectedReason === 'Other' && (
-                <TextField
-                  label="Custom Reason"
-                  value={customReason}
-                  onChange={(e) => setCustomReason(e.target.value)}
-                  fullWidth
-                  variant="outlined"
-                />
-              )}
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button
-            disabled={completing}
-            onClick={handlePrevious}
-            variant="outlined"
-            color="inherit"
-            sx={{
-              borderColor: "#475569",
-              color: "#cbd5e1",
-              textTransform: "none",
-              fontWeight: 500,
-              "&:hover": { backgroundColor: "#334155" },
-            }}
-          >
-            Previous
-          </Button>
-          {!isLastField ? (
-            <CreateTemplateButton
-              onClick={handleNext}
-              text="Next"
-            />
-          ) : (
-            <CreateTemplateButton
-              loading={completing}
-              onClick={() => handleComplete()} text="Complete" />
-          )}
-        </DialogActions>
-      </Dialog>
+        currentFieldIndex={currentFieldIndex}
+        fields={fields}
+        texts={texts}
+        onTextChange={handleTextChange}
+        onNext={handleNext}
+        onPrevious={handlePrevious}
+        onComplete={handleComplete}
+        completing={completing}
+        fileUploading={fileUploading}
+        progress={progress}
+        uploadFile={uploadFile}
+        selectedReason={selectedReason}
+        setSelectedReason={setSelectedReason}
+        customReason={customReason}
+        setCustomReason={setCustomReason}
+        submitterInfo={submitterInfo}
+        user={user}
+        clearedFields={clearedFields}
+        setPendingUploads={setPendingUploads}
+      />
 
       {/* Decline Modal */}
       <Dialog
