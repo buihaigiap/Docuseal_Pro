@@ -71,6 +71,13 @@ const upstashService = {
             onUploadProgress
         })
     },
+    deletePublicFile: async (fileUrl: string): Promise<any> => {
+        const url = '/api/files/delete/public';
+        // Use axios directly to bypass authorization interceptor for public endpoint
+        return await axios.delete(`${axiosClient.defaults.baseURL}${url}`, {
+            data: { file_url: fileUrl }
+        })
+    },
     previewFile: async (url: string) => {
         // Use axios directly to bypass response interceptor that strips headers
         const fullUrl = `${axiosClient.defaults.baseURL}/api/files/preview/${url}`;

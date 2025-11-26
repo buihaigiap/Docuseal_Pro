@@ -12,6 +12,7 @@ import {
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import CompletionDrawer from './CompletionDrawer';
+import { useFileUpload } from '../../hooks/useFileUpload';
 interface TemplateField {
   id: number;
   template_id: number;
@@ -66,7 +67,6 @@ const TemplateEditPage = () => {
     global_settings?: any;
   } | null>(null);
   const [pendingUploads, setPendingUploads] = useState<Record<number, File>>({});
-  const [fileUploading, setFileUploading] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string>('');
   const [customReason, setCustomReason] = useState<string>('');
   const [reasons, setReasons] = useState<Record<number, string>>({});
@@ -76,49 +76,9 @@ const TemplateEditPage = () => {
   const { user } = useAuth();
   const [completionDrawerOpen, setCompletionDrawerOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
-  const [progress, setProgress] = useState(0);
 
-  const uploadFile = async (file: File): Promise<string | null> => {
-    try {
-      setFileUploading(true);
-      setProgress(0);
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await upstashService.uploadPublicFile(formData, (progressEvent) => {
-        if (progressEvent.total) {
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          setProgress(Math.min(percentCompleted, 99)); // Cap at 99% until complete
-        }
-      });
-
-      // Extract data from axios response
-      const data = response.data;
-      if (data && data.success && data.data && data.data.url) {
-        setProgress(100); // Set to 100% when actually complete
-        return data.data.url;
-      } else {
-        console.error('Upload failed: Invalid response format', data);
-        toast.error(data?.message || 'Upload thất bại. Vui lòng thử lại.');
-        return null;
-      }
-    } catch (error: any) {
-      // Log more details about the error
-      console.error('Upload error:', error);
-      if (error.response) {
-        console.error('Response status:', error.response.status);
-        console.error('Response data:', error.response.data);
-        toast.error(error.response.data?.message || 'Lỗi khi tải file lên. Vui lòng thử lại.');
-      }
-      return null;
-    } finally {
-      // Small delay to show 100% before hiding
-      setTimeout(() => {
-        setFileUploading(false);
-        setProgress(0);
-      }, 300);
-    }
-  };
+  // Use custom hook for file upload/delete
+  const { uploading: fileUploading, progress, uploadFile, deleteFile } = useFileUpload();
 
   const fetchTemplateFields = useCallback(async () => {
     try {
@@ -539,6 +499,7 @@ const TemplateEditPage = () => {
         fileUploading={fileUploading}
         progress={progress}
         uploadFile={uploadFile}
+        deleteFile={deleteFile}
         selectedReason={selectedReason}
         setSelectedReason={setSelectedReason}
         customReason={customReason}

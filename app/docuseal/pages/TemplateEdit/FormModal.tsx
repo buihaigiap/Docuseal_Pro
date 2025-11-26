@@ -48,6 +48,7 @@ interface FormModalProps {
   fileUploading: boolean;
   progress: number;
   uploadFile: (file: File) => Promise<string | null>;
+  deleteFile: (fileUrl: string) => Promise<boolean>;
   selectedReason: string;
   setSelectedReason: (reason: string) => void;
   customReason: string;
@@ -94,6 +95,7 @@ const FormModal = ({
   fileUploading,
   progress,
   uploadFile,
+  deleteFile,
   selectedReason,
   setSelectedReason,
   customReason,
@@ -105,6 +107,18 @@ const FormModal = ({
 }: FormModalProps) => {
   const currentField = fields[currentFieldIndex];
   const isLastField = currentFieldIndex === fields.length - 1;
+
+  const handleDeleteImage = async (fieldId: number) => {
+    const fileUrl = texts[fieldId];
+    if (fileUrl) {
+      const success = await deleteFile(fileUrl);
+      if (success) {
+        onTextChange(fieldId, '');
+      }
+    } else {
+      onTextChange(fieldId, '');
+    }
+  };
 
   if (!currentField) {
     return null;
@@ -266,7 +280,7 @@ const FormModal = ({
                   </Card>
                   <IconButton
                     className="delete-icon"
-                    onClick={() => onTextChange(currentField.id, '')}
+                    onClick={() => handleDeleteImage(currentField.id)}
                     sx={{
                       position: 'absolute',
                       top: '50%',
@@ -332,14 +346,22 @@ const FormModal = ({
                 <LinearProgressWithLabel value={progress} />
               )}
               {texts[currentField.id] && !fileUploading && (
-                <Box sx={{ mt: 1, display: 'flex', alignItems: 'center' }}>
+                <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Link href={texts[currentField.id]} download underline="hover" color='white'>
                     {decodeURIComponent(texts[currentField.id].split('/').pop() || 'File')}
                   </Link>
-                  <Trash
-                    color='red'
-                    onClick={() => onTextChange(currentField.id, '')}
-                  />
+                  <IconButton
+                    onClick={() => handleDeleteImage(currentField.id)}
+                    sx={{
+                      color: 'red',
+                      padding: '4px',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 0, 0, 0.1)',
+                      }
+                    }}
+                  >
+                    <Trash size={20} />
+                  </IconButton>
                 </Box>
               )}
             </Box>

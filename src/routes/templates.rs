@@ -13,6 +13,8 @@ use axum_extra::extract::Multipart;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use serde_json;
+use serde::Deserialize;
+use utoipa::ToSchema;
 use base64::{Engine as _, engine::general_purpose};
 use aws_config;
 
@@ -341,6 +343,7 @@ pub fn create_template_router() -> Router<AppState> {
     // Public routes (no authentication required)
     let public_routes = Router::new()
         .route("/files/upload/public", post(upload_file_public))
+        .route("/files/delete/public", delete(delete_file_public))
         .route("/files/preview/*key", get(preview_file))
         .route("/files/previews/*key", get(download_file_public)) // Public download for preview images
         .route("/files/*key", get(download_file)); // Public download for all files
@@ -1125,6 +1128,32 @@ pub async fn delete_template(
                 _ => return ApiResponse::forbidden("User not found".to_string()),
             }
 
+            // Initialize storage service to delete files
+            let storage = match StorageService::new().await {
+                Ok(storage) => storage,
+                Err(e) => {
+                    eprintln!("Warning: Failed to initialize storage for cleanup: {}", e);
+                    return ApiResponse::internal_error(format!("Failed to initialize storage: {}", e));
+                }
+            };
+
+            // Delete files from S3 if documents exist
+            if let Some(documents) = &db_template.documents {
+                if let Some(docs_array) = documents.as_array() {
+                    for doc in docs_array {
+                        if let Some(url) = doc.get("url").and_then(|u| u.as_str()) {
+                            eprintln!("🗑️ Deleting template document from S3: {}", url);
+                            if let Err(e) = storage.delete_file(url).await {
+                                eprintln!("⚠️ Warning: Failed to delete file '{}' from S3: {}", url, e);
+                            } else {
+                                eprintln!("✅ Successfully deleted file from S3: {}", url);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Delete template from database
             match TemplateQueries::delete_template(pool, id).await {
                 Ok(true) => ApiResponse::success("Template deleted successfully".to_string(), "Template deleted successfully".to_string()),
                 Ok(false) => ApiResponse::not_found("Template not found".to_string()),
@@ -3075,6 +3104,58 @@ pub async fn upload_file_public(
     };
 
     ApiResponse::created(upload_response, "File uploaded successfully".to_string())
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct DeleteFileRequest {
+    pub file_url: String,
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/files/delete/public",
+    request_body = DeleteFileRequest,
+    responses(
+        (status = 200, description = "File deleted successfully", body = ApiResponse<String>),
+        (status = 400, description = "Bad request - Invalid file URL", body = ApiResponse<String>),
+        (status = 500, description = "Internal server error", body = ApiResponse<String>)
+    ),
+    tag = "files"
+)]
+pub async fn delete_file_public(
+    State(_state): State<AppState>,
+    Json(payload): Json<DeleteFileRequest>,
+) -> (StatusCode, Json<ApiResponse<String>>) {
+    // Extract file key from URL
+    // URL format: /api/files/templates/1234567890_filename.ext
+    let file_key = if payload.file_url.starts_with("/api/files/") {
+        payload.file_url.trim_start_matches("/api/files/")
+    } else if payload.file_url.contains("/api/files/") {
+        // Handle full URL
+        payload.file_url.split("/api/files/").nth(1).unwrap_or("")
+    } else {
+        // Assume it's already a key
+        &payload.file_url
+    };
+
+    if file_key.is_empty() {
+        return ApiResponse::bad_request("Invalid file URL".to_string());
+    }
+
+    // Initialize storage service
+    let storage = match StorageService::new().await {
+        Ok(storage) => storage,
+        Err(e) => return ApiResponse::internal_error(format!("Failed to initialize storage: {}", e)),
+    };
+
+    // Delete file from storage
+    match storage.delete_file(file_key).await {
+        Ok(_) => ApiResponse::success("File deleted successfully".to_string(), "File deleted successfully".to_string()),
+        Err(e) => {
+            eprintln!("Failed to delete file {}: {:?}", file_key, e);
+            ApiResponse::internal_error(format!("Failed to delete file: {}", e))
+        }
+    }
 }
 
 #[utoipa::path(
