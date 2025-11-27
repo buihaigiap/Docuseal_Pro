@@ -73,7 +73,7 @@ impl StorageService {
         println!("========================");
 
         let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .endpoint_url(endpoint)
+            .endpoint_url(&endpoint)
             .region(aws_sdk_s3::config::Region::new(region))
             .credentials_provider(
                 aws_sdk_s3::config::Credentials::new(
