@@ -2453,8 +2453,12 @@ fn render_pdf_page_to_image(
     use pdfium_render::prelude::*;
     use image::{ImageBuffer, Rgba, RgbaImage};
 
-    // Initialize PDFium - with static feature, it will use bundled library
-    let pdfium = Pdfium::default();
+    // Initialize PDFium - bind to library in lib folder or system
+    let pdfium = Pdfium::new(
+        Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./lib/"))
+            .or_else(|_| Pdfium::bind_to_system_library())
+            .map_err(|e| format!("Failed to load PDFium library: {:?}", e))?,
+    );
 
     // Load PDF document
     let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None).map_err(|e| e.to_string())?;
