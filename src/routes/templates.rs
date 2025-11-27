@@ -2321,9 +2321,7 @@ pub async fn preview_file(
             .header(header::CONTENT_TYPE, "application/json")
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Expose-Headers", "*")
-            .header("Cache-Control", "no-cache, no-store, must-revalidate")
-            .header("Pragma", "no-cache")
-            .header("Expires", "0")
+            .header("Cache-Control", "public, max-age=300") // Cache for 5 minutes
             .body(Body::from(json_response.to_string()))
             .unwrap();
         return response;
@@ -2525,12 +2523,12 @@ fn render_pdf_page_to_image(
 /// Get PDF metadata (page count, dimensions, etc.)
 /// Helper function to get PDF page count
 fn get_pdf_page_count(pdf_bytes: &[u8]) -> Result<i32, String> {
-    use pdfium_render::prelude::*;
-
-    let pdfium = Pdfium::new(Pdfium::bind_to_system_library().map_err(|e| e.to_string())?);
-    let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None).map_err(|e| e.to_string())?;
-    
-    Ok(document.pages().len() as i32)
+    use lopdf::Document;
+    let doc = Document::load_mem(pdf_bytes).map_err(|e| {
+        eprintln!("lopdf load error: {:?}", e);
+        e.to_string()
+    })?;
+    Ok(doc.get_pages().len() as i32)
 }
 
 // ===== TEMPLATE FIELDS ENDPOINTS =====
