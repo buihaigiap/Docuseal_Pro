@@ -132,8 +132,10 @@ impl StorageService {
         
         let key = format!("templates/{}_{}", timestamp, sanitized_filename);
 
-        if self.storage_type == "local" {
-            let path = Path::new(self.local_path.as_ref().unwrap()).join(&key);
+        // Use local storage if client is None or storage_type is local
+        if self.storage_type == "local" || self.client.is_none() {
+            let local_path = self.local_path.as_ref().ok_or("Local storage path not configured")?;
+            let path = Path::new(local_path).join(&key);
             fs::create_dir_all(path.parent().unwrap())?;
             fs::write(&path, &file_data)?;
             Ok(key)
@@ -169,8 +171,10 @@ impl StorageService {
         key: &str,
         content_type: &str,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        if self.storage_type == "local" {
-            let path = Path::new(self.local_path.as_ref().unwrap()).join(key);
+        // Use local storage if client is None or storage_type is local
+        if self.storage_type == "local" || self.client.is_none() {
+            let local_path = self.local_path.as_ref().ok_or("Local storage path not configured")?;
+            let path = Path::new(local_path).join(key);
             fs::create_dir_all(path.parent().unwrap())?;
             fs::write(&path, &file_data)?;
             Ok(key.to_string())
@@ -203,8 +207,10 @@ impl StorageService {
         eprintln!("Storage type: {}", self.storage_type);
         eprintln!("Key: {}", key);
         
-        if self.storage_type == "local" {
-            let path = Path::new(self.local_path.as_ref().unwrap()).join(key);
+        // Use local storage if client is None or storage_type is local
+        if self.storage_type == "local" || self.client.is_none() {
+            let local_path = self.local_path.as_ref().ok_or("Local storage path not configured")?;
+            let path = Path::new(local_path).join(key);
             eprintln!("Local path: {:?}", path);
             eprintln!("File exists: {}", path.exists());
             
@@ -254,8 +260,10 @@ impl StorageService {
         &self,
         key: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.storage_type == "local" {
-            let path = Path::new(self.local_path.as_ref().unwrap()).join(key);
+        // Use local storage if client is None or storage_type is local
+        if self.storage_type == "local" || self.client.is_none() {
+            let local_path = self.local_path.as_ref().ok_or("Local storage path not configured")?;
+            let path = Path::new(local_path).join(key);
             fs::remove_file(&path)?;
             Ok(())
         } else {
@@ -274,8 +282,10 @@ impl StorageService {
         &self,
         key: &str,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        if self.storage_type == "local" {
-            let path = Path::new(self.local_path.as_ref().unwrap()).join(key);
+        // Use local storage if client is None or storage_type is local
+        if self.storage_type == "local" || self.client.is_none() {
+            let local_path = self.local_path.as_ref().ok_or("Local storage path not configured")?;
+            let path = Path::new(local_path).join(key);
             Ok(path.exists())
         } else {
             match self.client.as_ref().unwrap()
@@ -300,7 +310,8 @@ impl StorageService {
     
     /// Generate presigned URL for temporary public access (valid for 1 hour)
     pub async fn get_presigned_url(&self, key: &str, expires_in_secs: u64) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        if self.storage_type == "local" {
+        // Use local storage if client is None or storage_type is local
+        if self.storage_type == "local" || self.client.is_none() {
             Ok(format!("/api/files/{}", key))
         } else {
             use aws_sdk_s3::presigning::PresigningConfig;
