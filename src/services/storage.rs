@@ -28,57 +28,89 @@ impl StorageService {
                 bucket: None,
             })
         } else {
-            let endpoint = std::env::var("STORAGE_ENDPOINT")
-                .unwrap_or_else(|_| "http://localhost:9000".to_string());
-            let region = std::env::var("STORAGE_REGION")
-                .unwrap_or_else(|_| "us-east-1".to_string());
-            let bucket = std::env::var("STORAGE_BUCKET")
-                .unwrap_or_else(|_| "docuseal".to_string());
-
-            println!("=== STORAGE S3 DEBUG ===");
-            println!("STORAGE_ENDPOINT: {}", endpoint);
-            println!("STORAGE_REGION: {}", region);
-            println!("STORAGE_BUCKET: {}", bucket);
-            println!("STORAGE_ACCESS_KEY_ID: {:?}", std::env::var("STORAGE_ACCESS_KEY_ID"));
-            println!("STORAGE_SECRET_ACCESS_KEY: [HIDDEN]");
-            println!("========================");
-
-            let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-                .endpoint_url(endpoint)
-                .region(aws_sdk_s3::config::Region::new(region))
-                .credentials_provider(
-                    aws_sdk_s3::config::Credentials::new(
-                        std::env::var("STORAGE_ACCESS_KEY_ID").unwrap_or_else(|_| "minioadmin".to_string()),
-                        std::env::var("STORAGE_SECRET_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string()),
-                        None,
-                        None,
-                        "minio-credentials",
-                    )
-                )
-                .load()
-                .await;
-
-            println!("✅ AWS config loaded successfully");
-
-            let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&config);
-            
-            // Enable path style addressing for MinIO compatibility
-            if std::env::var("STORAGE_USE_PATH_STYLE").unwrap_or_else(|_| "true".to_string()) == "true" {
-                s3_config_builder = s3_config_builder.force_path_style(true);
+            // Try to initialize S3 client, but don't fail if it doesn't work
+            match Self::init_s3_client().await {
+                Ok((client, bucket)) => {
+                    println!("✅ S3 client initialized successfully");
+                    Ok(Self {
+                        storage_type,
+                        local_path: None,
+                        client: Some(client),
+                        bucket: Some(bucket),
+                    })
+                },
+                Err(e) => {
+                    eprintln!("❌ Failed to initialize S3 client: {}", e);
+                    eprintln!("⚠️  Falling back to local storage for now");
+                    // Fallback to local storage
+                    let local_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "./uploads".to_string());
+                    fs::create_dir_all(&local_path)?;
+                    Ok(Self {
+                        storage_type: "local".to_string(),
+                        local_path: Some(local_path),
+                        client: None,
+                        bucket: None,
+                    })
+                }
             }
-
-            let s3_config = s3_config_builder.build();
-            let client = Client::from_conf(s3_config);
-
-            println!("✅ S3 client created successfully");
-
-            Ok(Self {
-                storage_type,
-                local_path: None,
-                client: Some(client),
-                bucket: Some(bucket),
-            })
         }
+    }
+
+    async fn init_s3_client() -> Result<(Client, String), Box<dyn std::error::Error + Send + Sync>> {
+        let endpoint = std::env::var("STORAGE_ENDPOINT")
+            .unwrap_or_else(|_| "http://localhost:9000".to_string());
+        let region = std::env::var("STORAGE_REGION")
+            .unwrap_or_else(|_| "us-east-1".to_string());
+        let bucket = std::env::var("STORAGE_BUCKET")
+            .unwrap_or_else(|_| "docuseal".to_string());
+
+        println!("=== STORAGE S3 DEBUG ===");
+        println!("STORAGE_ENDPOINT: {}", endpoint);
+        println!("STORAGE_REGION: {}", region);
+        println!("STORAGE_BUCKET: {}", bucket);
+        println!("STORAGE_ACCESS_KEY_ID: {:?}", std::env::var("STORAGE_ACCESS_KEY_ID"));
+        println!("STORAGE_SECRET_ACCESS_KEY: [HIDDEN]");
+        println!("========================");
+
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .endpoint_url(endpoint)
+            .region(aws_sdk_s3::config::Region::new(region))
+            .credentials_provider(
+                aws_sdk_s3::config::Credentials::new(
+                    std::env::var("STORAGE_ACCESS_KEY_ID").unwrap_or_else(|_| "minioadmin".to_string()),
+                    std::env::var("STORAGE_SECRET_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string()),
+                    None,
+                    None,
+                    "minio-credentials",
+                )
+            );
+
+        // For Storj, try without SSL verification if needed
+        let config = if endpoint.starts_with("https://") && std::env::var("STORJ_DISABLE_SSL").unwrap_or_else(|_| "false".to_string()) == "true" {
+            println!("⚠️  Using HTTP instead of HTTPS for Storj testing");
+            let http_endpoint = endpoint.replace("https://", "http://");
+            config.endpoint_url(http_endpoint)
+        } else {
+            config
+        };
+
+        let config = config.load().await;
+
+        println!("✅ AWS config loaded successfully");
+
+        let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&config);
+        
+        // Enable path style addressing for MinIO compatibility
+        if std::env::var("STORAGE_USE_PATH_STYLE").unwrap_or_else(|_| "true".to_string()) == "true" {
+            s3_config_builder = s3_config_builder.force_path_style(true);
+        }
+
+        let s3_config = s3_config_builder.build();
+        let client = Client::from_conf(s3_config);
+
+        println!("✅ S3 client created successfully");
+
+        Ok((client, bucket))
     }
 
     pub async fn upload_file(
