@@ -2199,6 +2199,8 @@ pub async fn preview_file(
         }
     };
     
+    eprintln!("🔍 Preview file requested: {}", key);
+    
     // Parse page number and format from URL
     let mut page_number: Option<i32> = None;
     let mut image_format = "jpg";
@@ -2287,14 +2289,32 @@ pub async fn preview_file(
         let pdf_data = match storage.download_file(&file_key).await {
             Ok(data) => data,
             Err(e) => {
-                eprintln!("Failed to download PDF: {:?}", e);
-                let response = Response::builder()
-                    .status(StatusCode::NOT_FOUND)
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .header("Access-Control-Allow-Origin", "*")
-                    .body(Body::from(serde_json::json!({"error": "PDF file not found"}).to_string()))
-                    .unwrap();
-                return response;
+                eprintln!("Failed to download PDF with original key '{}': {:?}", file_key, e);
+                
+                // Try with sanitized filename (spaces and special chars → underscores)
+                let sanitized_key = file_key
+                    .chars()
+                    .map(|c| if c.is_alphanumeric() || c == '.' || c == '/' || c == '_' { c } else { '_' })
+                    .collect::<String>();
+                
+                eprintln!("Trying sanitized key: '{}'", sanitized_key);
+                
+                match storage.download_file(&sanitized_key).await {
+                    Ok(data) => {
+                        eprintln!("✅ Found file with sanitized key");
+                        data
+                    },
+                    Err(e2) => {
+                        eprintln!("❌ Failed with sanitized key too: {:?}", e2);
+                        let response = Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .header(header::CONTENT_TYPE, "application/json")
+                            .header("Access-Control-Allow-Origin", "*")
+                            .body(Body::from(serde_json::json!({"error": "PDF file not found"}).to_string()))
+                            .unwrap();
+                        return response;
+                    }
+                }
             }
         };
         
@@ -2435,14 +2455,32 @@ pub async fn preview_file(
     let pdf_data = match storage.download_file(&file_key).await {
         Ok(data) => data,
         Err(e) => {
-            eprintln!("Failed to download PDF: {:?}", e);
-            let response = Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .header(header::CONTENT_TYPE, "text/plain")
-                .header("Access-Control-Allow-Origin", "*")
-                .body(Body::from("PDF file not found"))
-                .unwrap();
-            return response;
+            eprintln!("Failed to download PDF with original key '{}': {:?}", file_key, e);
+            
+            // Try with sanitized filename (spaces and special chars → underscores)
+            let sanitized_key = file_key
+                .chars()
+                .map(|c| if c.is_alphanumeric() || c == '.' || c == '/' || c == '_' { c } else { '_' })
+                .collect::<String>();
+            
+            eprintln!("Trying sanitized key: '{}'", sanitized_key);
+            
+            match storage.download_file(&sanitized_key).await {
+                Ok(data) => {
+                    eprintln!("✅ Found file with sanitized key");
+                    data
+                },
+                Err(e2) => {
+                    eprintln!("❌ Failed with sanitized key too: {:?}", e2);
+                    let response = Response::builder()
+                        .status(StatusCode::NOT_FOUND)
+                        .header(header::CONTENT_TYPE, "text/plain")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(Body::from("PDF file not found"))
+                        .unwrap();
+                    return response;
+                }
+            }
         }
     };
     
