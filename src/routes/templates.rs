@@ -2321,7 +2321,9 @@ pub async fn preview_file(
             .header(header::CONTENT_TYPE, "application/json")
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Expose-Headers", "*")
-            .header("Cache-Control", "public, max-age=300") // Cache for 5 minutes
+            .header("Cache-Control", "no-cache, no-store, must-revalidate")
+            .header("Pragma", "no-cache")
+            .header("Expires", "0")
             .body(Body::from(json_response.to_string()))
             .unwrap();
         return response;
