@@ -35,6 +35,14 @@ impl StorageService {
             let bucket = std::env::var("STORAGE_BUCKET")
                 .unwrap_or_else(|_| "docuseal".to_string());
 
+            println!("=== STORAGE S3 DEBUG ===");
+            println!("STORAGE_ENDPOINT: {}", endpoint);
+            println!("STORAGE_REGION: {}", region);
+            println!("STORAGE_BUCKET: {}", bucket);
+            println!("STORAGE_ACCESS_KEY_ID: {:?}", std::env::var("STORAGE_ACCESS_KEY_ID"));
+            println!("STORAGE_SECRET_ACCESS_KEY: [HIDDEN]");
+            println!("========================");
+
             let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
                 .endpoint_url(endpoint)
                 .region(aws_sdk_s3::config::Region::new(region))
@@ -50,6 +58,8 @@ impl StorageService {
                 .load()
                 .await;
 
+            println!("✅ AWS config loaded successfully");
+
             let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&config);
             
             // Enable path style addressing for MinIO compatibility
@@ -59,6 +69,8 @@ impl StorageService {
 
             let s3_config = s3_config_builder.build();
             let client = Client::from_conf(s3_config);
+
+            println!("✅ S3 client created successfully");
 
             Ok(Self {
                 storage_type,
@@ -94,6 +106,7 @@ impl StorageService {
             fs::write(&path, &file_data)?;
             Ok(key)
         } else {
+            println!("🔄 [STORAGE] Starting S3 upload for key: {}", key);
             let byte_stream = ByteStream::from(file_data);
 
             match self.client.as_ref().unwrap()
@@ -105,9 +118,12 @@ impl StorageService {
                 .acl(ObjectCannedAcl::PublicRead) // Add public-read ACL
                 .send()
                 .await {
-                Ok(_) => Ok(key),
+                Ok(_) => {
+                    println!("✅ [STORAGE] S3 upload successful for key: {}", key);
+                    Ok(key)
+                },
                 Err(e) => {
-                    eprintln!("MinIO upload error: {:?}", e);
+                    eprintln!("❌ [STORAGE] S3 upload error for key {}: {:?}", key, e);
                     Err(Box::new(e))
                 }
             }
