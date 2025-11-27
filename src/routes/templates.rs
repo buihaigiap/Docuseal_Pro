@@ -2005,21 +2005,6 @@ pub async fn convert_db_template_to_template_with_fields(
 pub async fn download_file(
     Path(key): Path<String>,
 ) -> Response<Body> {
-    // URL decode the key to handle encoded characters like %20
-    let key = match urlencoding::decode(&key) {
-        Ok(decoded) => decoded.into_owned(),
-        Err(e) => {
-            eprintln!("Failed to decode URL key '{}': {:?}", key, e);
-            let response = Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header(header::CONTENT_TYPE, "text/plain")
-                .header("Access-Control-Allow-Origin", "*")
-                .body(Body::from("Invalid URL encoding"))
-                .unwrap();
-            return response;
-        }
-    };
-
     // Initialize storage service
     let storage = match StorageService::new().await {
         Ok(storage) => storage,
@@ -2087,21 +2072,6 @@ pub async fn download_file(
 pub async fn download_file_public(
     Path(key): Path<String>,
 ) -> Response<Body> {
-    // URL decode the key to handle encoded characters like %20
-    let key = match urlencoding::decode(&key) {
-        Ok(decoded) => decoded.into_owned(),
-        Err(e) => {
-            eprintln!("Failed to decode URL key '{}': {:?}", key, e);
-            let response = Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header(header::CONTENT_TYPE, "text/plain")
-                .header("Access-Control-Allow-Origin", "*")
-                .body(Body::from("Invalid URL encoding"))
-                .unwrap();
-            return response;
-        }
-    };
-
     // Initialize storage service
     let storage = match StorageService::new().await {
         Ok(storage) => storage,
@@ -2183,23 +2153,6 @@ pub async fn preview_file(
 ) -> impl IntoResponse {
     // Wildcard paths include leading slash, so remove it
     let key = key.trim_start_matches('/');
-    
-    // URL decode the key to handle encoded characters like %20
-    let key = match urlencoding::decode(key) {
-        Ok(decoded) => decoded.into_owned(),
-        Err(e) => {
-            eprintln!("Failed to decode URL key '{}': {:?}", key, e);
-            let response = Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header(header::CONTENT_TYPE, "text/plain")
-                .header("Access-Control-Allow-Origin", "*")
-                .body(Body::from("Invalid URL encoding"))
-                .unwrap();
-            return response;
-        }
-    };
-    
-    eprintln!("🔍 Preview file requested: {}", key);
     
     // Parse page number and format from URL
     let mut page_number: Option<i32> = None;
@@ -2289,32 +2242,14 @@ pub async fn preview_file(
         let pdf_data = match storage.download_file(&file_key).await {
             Ok(data) => data,
             Err(e) => {
-                eprintln!("Failed to download PDF with original key '{}': {:?}", file_key, e);
-                
-                // Try with sanitized filename (spaces and special chars → underscores)
-                let sanitized_key = file_key
-                    .chars()
-                    .map(|c| if c.is_alphanumeric() || c == '.' || c == '/' || c == '_' { c } else { '_' })
-                    .collect::<String>();
-                
-                eprintln!("Trying sanitized key: '{}'", sanitized_key);
-                
-                match storage.download_file(&sanitized_key).await {
-                    Ok(data) => {
-                        eprintln!("✅ Found file with sanitized key");
-                        data
-                    },
-                    Err(e2) => {
-                        eprintln!("❌ Failed with sanitized key too: {:?}", e2);
-                        let response = Response::builder()
-                            .status(StatusCode::NOT_FOUND)
-                            .header(header::CONTENT_TYPE, "application/json")
-                            .header("Access-Control-Allow-Origin", "*")
-                            .body(Body::from(serde_json::json!({"error": "PDF file not found"}).to_string()))
-                            .unwrap();
-                        return response;
-                    }
-                }
+                eprintln!("Failed to download PDF: {:?}", e);
+                let response = Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(Body::from(serde_json::json!({"error": "PDF file not found"}).to_string()))
+                    .unwrap();
+                return response;
             }
         };
         
@@ -2455,32 +2390,14 @@ pub async fn preview_file(
     let pdf_data = match storage.download_file(&file_key).await {
         Ok(data) => data,
         Err(e) => {
-            eprintln!("Failed to download PDF with original key '{}': {:?}", file_key, e);
-            
-            // Try with sanitized filename (spaces and special chars → underscores)
-            let sanitized_key = file_key
-                .chars()
-                .map(|c| if c.is_alphanumeric() || c == '.' || c == '/' || c == '_' { c } else { '_' })
-                .collect::<String>();
-            
-            eprintln!("Trying sanitized key: '{}'", sanitized_key);
-            
-            match storage.download_file(&sanitized_key).await {
-                Ok(data) => {
-                    eprintln!("✅ Found file with sanitized key");
-                    data
-                },
-                Err(e2) => {
-                    eprintln!("❌ Failed with sanitized key too: {:?}", e2);
-                    let response = Response::builder()
-                        .status(StatusCode::NOT_FOUND)
-                        .header(header::CONTENT_TYPE, "text/plain")
-                        .header("Access-Control-Allow-Origin", "*")
-                        .body(Body::from("PDF file not found"))
-                        .unwrap();
-                    return response;
-                }
-            }
+            eprintln!("Failed to download PDF: {:?}", e);
+            let response = Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .header(header::CONTENT_TYPE, "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(Body::from("PDF file not found"))
+                .unwrap();
+            return response;
         }
     };
     
