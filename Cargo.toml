@@ -1,8 +1,8 @@
 [package]
-name = "docuseal_pro"
+name = "letmesign"
 version = "0.1.0"
 edition = "2021"
-default-run = "docuseal_pro"
+default-run = "letmesign"
 
 [dependencies]
 axum = { version = "0.7", features = ["macros", "multipart"] }

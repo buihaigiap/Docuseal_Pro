@@ -28,89 +28,45 @@ impl StorageService {
                 bucket: None,
             })
         } else {
-            // Try to initialize S3 client, but don't fail if it doesn't work
-            match Self::init_s3_client().await {
-                Ok((client, bucket)) => {
-                    println!("✅ S3 client initialized successfully");
-                    Ok(Self {
-                        storage_type,
-                        local_path: None,
-                        client: Some(client),
-                        bucket: Some(bucket),
-                    })
-                },
-                Err(e) => {
-                    eprintln!("❌ Failed to initialize S3 client: {}", e);
-                    eprintln!("⚠️  Falling back to local storage for now");
-                    // Fallback to local storage
-                    let local_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "./uploads".to_string());
-                    fs::create_dir_all(&local_path)?;
-                    Ok(Self {
-                        storage_type: "local".to_string(),
-                        local_path: Some(local_path),
-                        client: None,
-                        bucket: None,
-                    })
-                }
-            }
-        }
-    }
+            let endpoint = std::env::var("STORAGE_ENDPOINT")
+                .unwrap_or_else(|_| "http://localhost:9000".to_string());
+            let region = std::env::var("STORAGE_REGION")
+                .unwrap_or_else(|_| "us-east-1".to_string());
+            let bucket = std::env::var("STORAGE_BUCKET")
+                .unwrap_or_else(|_| "docuseal".to_string());
 
-    async fn init_s3_client() -> Result<(Client, String), Box<dyn std::error::Error + Send + Sync>> {
-        let endpoint = std::env::var("STORAGE_ENDPOINT")
-            .unwrap_or_else(|_| "http://localhost:9000".to_string());
-        let region = std::env::var("STORAGE_REGION")
-            .unwrap_or_else(|_| "us-east-1".to_string());
-        let bucket = std::env::var("STORAGE_BUCKET")
-            .unwrap_or_else(|_| "docuseal".to_string());
-
-        println!("=== STORAGE S3 DEBUG ===");
-        println!("STORAGE_ENDPOINT: {}", endpoint);
-        println!("STORAGE_REGION: {}", region);
-        println!("STORAGE_BUCKET: {}", bucket);
-        println!("STORAGE_ACCESS_KEY_ID: {:?}", std::env::var("STORAGE_ACCESS_KEY_ID"));
-        println!("STORAGE_SECRET_ACCESS_KEY: [HIDDEN]");
-        println!("========================");
-
-        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .endpoint_url(&endpoint)
-            .region(aws_sdk_s3::config::Region::new(region))
-            .credentials_provider(
-                aws_sdk_s3::config::Credentials::new(
-                    std::env::var("STORAGE_ACCESS_KEY_ID").unwrap_or_else(|_| "minioadmin".to_string()),
-                    std::env::var("STORAGE_SECRET_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string()),
-                    None,
-                    None,
-                    "minio-credentials",
+            let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+                .endpoint_url(endpoint)
+                .region(aws_sdk_s3::config::Region::new(region))
+                .credentials_provider(
+                    aws_sdk_s3::config::Credentials::new(
+                        std::env::var("STORAGE_ACCESS_KEY_ID").unwrap_or_else(|_| "minioadmin".to_string()),
+                        std::env::var("STORAGE_SECRET_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string()),
+                        None,
+                        None,
+                        "minio-credentials",
+                    )
                 )
-            );
+                .load()
+                .await;
 
-        // For Storj, try without SSL verification if needed
-        let config = if endpoint.starts_with("https://") && std::env::var("STORJ_DISABLE_SSL").unwrap_or_else(|_| "false".to_string()) == "true" {
-            println!("⚠️  Using HTTP instead of HTTPS for Storj testing");
-            let http_endpoint = endpoint.replace("https://", "http://");
-            config.endpoint_url(http_endpoint)
-        } else {
-            config
-        };
+            let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&config);
+            
+            // Enable path style addressing for MinIO compatibility
+            if std::env::var("STORAGE_USE_PATH_STYLE").unwrap_or_else(|_| "true".to_string()) == "true" {
+                s3_config_builder = s3_config_builder.force_path_style(true);
+            }
 
-        let config = config.load().await;
+            let s3_config = s3_config_builder.build();
+            let client = Client::from_conf(s3_config);
 
-        println!("✅ AWS config loaded successfully");
-
-        let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&config);
-        
-        // Enable path style addressing for MinIO compatibility
-        if std::env::var("STORAGE_USE_PATH_STYLE").unwrap_or_else(|_| "true".to_string()) == "true" {
-            s3_config_builder = s3_config_builder.force_path_style(true);
+            Ok(Self {
+                storage_type,
+                local_path: None,
+                client: Some(client),
+                bucket: Some(bucket),
+            })
         }
-
-        let s3_config = s3_config_builder.build();
-        let client = Client::from_conf(s3_config);
-
-        println!("✅ S3 client created successfully");
-
-        Ok((client, bucket))
     }
 
     pub async fn upload_file(
@@ -132,15 +88,12 @@ impl StorageService {
         
         let key = format!("templates/{}_{}", timestamp, sanitized_filename);
 
-        // Use local storage if client is None or storage_type is local
-        if self.storage_type == "local" || self.client.is_none() {
-            let local_path = self.local_path.as_ref().ok_or("Local storage path not configured")?;
-            let path = Path::new(local_path).join(&key);
+        if self.storage_type == "local" {
+            let path = Path::new(self.local_path.as_ref().unwrap()).join(&key);
             fs::create_dir_all(path.parent().unwrap())?;
             fs::write(&path, &file_data)?;
             Ok(key)
         } else {
-            println!("🔄 [STORAGE] Starting S3 upload for key: {}", key);
             let byte_stream = ByteStream::from(file_data);
 
             match self.client.as_ref().unwrap()
@@ -152,12 +105,9 @@ impl StorageService {
                 .acl(ObjectCannedAcl::PublicRead) // Add public-read ACL
                 .send()
                 .await {
-                Ok(_) => {
-                    println!("✅ [STORAGE] S3 upload successful for key: {}", key);
-                    Ok(key)
-                },
+                Ok(_) => Ok(key),
                 Err(e) => {
-                    eprintln!("❌ [STORAGE] S3 upload error for key {}: {:?}", key, e);
+                    eprintln!("MinIO upload error: {:?}", e);
                     Err(Box::new(e))
                 }
             }
@@ -171,10 +121,8 @@ impl StorageService {
         key: &str,
         content_type: &str,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        // Use local storage if client is None or storage_type is local
-        if self.storage_type == "local" || self.client.is_none() {
-            let local_path = self.local_path.as_ref().ok_or("Local storage path not configured")?;
-            let path = Path::new(local_path).join(key);
+        if self.storage_type == "local" {
+            let path = Path::new(self.local_path.as_ref().unwrap()).join(key);
             fs::create_dir_all(path.parent().unwrap())?;
             fs::write(&path, &file_data)?;
             Ok(key.to_string())
@@ -207,10 +155,8 @@ impl StorageService {
         eprintln!("Storage type: {}", self.storage_type);
         eprintln!("Key: {}", key);
         
-        // Use local storage if client is None or storage_type is local
-        if self.storage_type == "local" || self.client.is_none() {
-            let local_path = self.local_path.as_ref().ok_or("Local storage path not configured")?;
-            let path = Path::new(local_path).join(key);
+        if self.storage_type == "local" {
+            let path = Path::new(self.local_path.as_ref().unwrap()).join(key);
             eprintln!("Local path: {:?}", path);
             eprintln!("File exists: {}", path.exists());
             
@@ -260,10 +206,8 @@ impl StorageService {
         &self,
         key: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Use local storage if client is None or storage_type is local
-        if self.storage_type == "local" || self.client.is_none() {
-            let local_path = self.local_path.as_ref().ok_or("Local storage path not configured")?;
-            let path = Path::new(local_path).join(key);
+        if self.storage_type == "local" {
+            let path = Path::new(self.local_path.as_ref().unwrap()).join(key);
             fs::remove_file(&path)?;
             Ok(())
         } else {
@@ -282,10 +226,8 @@ impl StorageService {
         &self,
         key: &str,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        // Use local storage if client is None or storage_type is local
-        if self.storage_type == "local" || self.client.is_none() {
-            let local_path = self.local_path.as_ref().ok_or("Local storage path not configured")?;
-            let path = Path::new(local_path).join(key);
+        if self.storage_type == "local" {
+            let path = Path::new(self.local_path.as_ref().unwrap()).join(key);
             Ok(path.exists())
         } else {
             match self.client.as_ref().unwrap()
@@ -310,8 +252,7 @@ impl StorageService {
     
     /// Generate presigned URL for temporary public access (valid for 1 hour)
     pub async fn get_presigned_url(&self, key: &str, expires_in_secs: u64) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        // Use local storage if client is None or storage_type is local
-        if self.storage_type == "local" || self.client.is_none() {
+        if self.storage_type == "local" {
             Ok(format!("/api/files/{}", key))
         } else {
             use aws_sdk_s3::presigning::PresigningConfig;

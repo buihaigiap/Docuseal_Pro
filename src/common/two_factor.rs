@@ -29,7 +29,7 @@ pub fn generate_2fa_secret() -> Result<TwoFactorSetup> {
         1,  // 1 second step
         30, // 30 second period
         secret_bytes.to_vec(),
-        Some("DocuSeal Pro".to_string()),
+        Some("Letmesign".to_string()),
         "user@docuseal.com".to_string(), // This will be replaced with actual email
     ).map_err(|e| anyhow::anyhow!("Failed to create TOTP: {}", e))?;
 
@@ -49,7 +49,7 @@ pub fn verify_2fa_code(secret: &str, code: &str) -> Result<bool> {
         1,
         30,
         Secret::Encoded(secret.to_string()).to_bytes().map_err(|e| anyhow::anyhow!("Failed to decode secret: {}", e))?,
-        Some("DocuSeal Pro".to_string()),
+        Some("Letmesign".to_string()),
         "user@docuseal.com".to_string(),
     ).map_err(|e| anyhow::anyhow!("Failed to create TOTP: {}", e))?;
 
@@ -78,7 +78,7 @@ pub fn generate_qr_code_url(email: &str, secret: &str) -> Result<String> {
         1,
         30,
         Secret::Encoded(secret.to_string()).to_bytes().map_err(|e| anyhow::anyhow!("Failed to decode secret: {}", e))?,
-        Some("DocuSeal Pro".to_string()),
+        Some("Letmesign".to_string()),
         email.to_string(),
     ).map_err(|e| anyhow::anyhow!("Failed to create TOTP: {}", e))?;
 

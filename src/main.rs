@@ -145,8 +145,6 @@ async fn main() {
         Err(e) => println!("Failed to load .env file: {}", e),
     }
 
-    println!("🚀 Starting DocuSeal Pro server...");
-
     // Check if DATABASE_URL is set
     match std::env::var("DATABASE_URL") {
         Ok(url) => println!("DATABASE_URL: {}", url),
@@ -276,10 +274,8 @@ async fn main() {
     // Run server
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string()).parse::<u16>().unwrap_or(8080);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    println!("🚀 Server starting on http://{}", addr);
-    println!("📚 Swagger UI: http://{}/swagger-ui", addr);
-    println!("🌐 API Base URL: http://{}", addr);
-    println!("🏠 Frontend: http://{}", addr);
+    println!("Server running on http://{}", addr);
+    println!("Swagger UI: http://{}/swagger-ui", addr);
     println!("API Base URL: http://{}/api", addr);
     println!("Frontend: http://{}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();

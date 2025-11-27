@@ -194,8 +194,8 @@ pub async fn create_team_member(
         let to_name = payload.name.clone();
         let invited_by_name = db_user.name.clone();
         
-        // Get account name (fallback to "DocuSeal Pro")
-        let account_name = "DocuSeal Pro".to_string();
+        // Get account name (fallback to "Letmesign")
+        let account_name = "Letmesign".to_string();
         
         // Spawn async task to send email without blocking
         tokio::spawn(async move {
