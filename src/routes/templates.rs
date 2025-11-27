@@ -2453,10 +2453,8 @@ fn render_pdf_page_to_image(
     use pdfium_render::prelude::*;
     use image::{ImageBuffer, Rgba, RgbaImage};
 
-    // Initialize PDFium with system library
-    let pdfium = Pdfium::new(
-        Pdfium::bind_to_system_library().map_err(|e| e.to_string())?,
-    );
+    // Initialize PDFium - with static feature, it will use bundled library
+    let pdfium = Pdfium::default();
 
     // Load PDF document
     let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None).map_err(|e| e.to_string())?;

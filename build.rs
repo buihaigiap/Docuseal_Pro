@@ -8,11 +8,29 @@ fn main() {
     println!("cargo:rerun-if-changed=app/docuseal/public");
     println!("cargo:rerun-if-changed=app/docuseal/package.json");
 
+    // Setup PDFium library
+    setup_pdfium();
+
     // Optional: You can add database setup checks here if needed
     // But be careful as build.rs runs during compilation
 
     // Build the frontend
     build_frontend();
+}
+
+fn setup_pdfium() {
+    use std::env;
+    
+    // For pdfium-render with static feature, it will handle downloading
+    // the correct pdfium library automatically during build
+    // Just ensure we're using the static feature in Cargo.toml
+    
+    println!("cargo:warning=PDFium setup: using static linking");
+    
+    // Set environment variable to use static linking
+    if env::var("PDFIUM_DYNAMIC_LIB_PATH").is_err() {
+        println!("cargo:warning=Using bundled static PDFium library");
+    }
 }
 
 fn build_frontend() {

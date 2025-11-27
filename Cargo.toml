@@ -37,7 +37,7 @@ urlencoding = "2.1"
 image = "0.24"
 imageproc = "0.23"
 rusttype = "0.9"
-pdfium-render = "0.8"
+pdfium-render = { version = "0.8", features = ["static"] }
 ab_glyph = "0.2.32"
 totp-rs = { version = "5.4", features = ["qr"] }
 anyhow = "1.0"
