@@ -2306,7 +2306,7 @@ pub async fn preview_file(
         // Return URLs for all pages (they will be lazy-loaded by frontend)
         for page_num in 1..=total_pages {
             let preview_key = format!("{}_page_{}.{}", preview_base, page_num, image_format);
-            page_urls.push(format!("/api/files/preview/{}", preview_key));
+            page_urls.push(format!("/api/files/previews/{}", preview_key));
         }
         
         // Return JSON response with all page URLs for lazy loading
